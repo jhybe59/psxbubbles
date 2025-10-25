@@ -10,4 +10,15 @@ export default defineConfig({
       },
     }),
   ],
+  // dev server proxy so browser calls to /api/* are forwarded to PSX API
+  server: {
+    proxy: {
+      '/api': {
+        target: 'https://psxterminal.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api/, '/api')
+      }
+    }
+  }
 })
