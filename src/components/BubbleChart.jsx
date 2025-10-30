@@ -1,9 +1,10 @@
 
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import * as d3 from 'd3';
-export default forwardRef(function BubbleChart({ data, width = 900, height = 600, single = false, radiusScale = null, selections = {}, aggregations = null, onSelectCoin = null }, ref) {
+export default forwardRef(function BubbleChart({ data, width = 900, height = 600, single = false, radiusScale = null, selections = {}, aggregations = null, onSelectCoin = null, selectedIndex = null }, ref) {
   const wrapperRef = useRef(null);
   const svgRef = useRef(null);
+  const [visibleCount, setVisibleCount] = useState(0);
   const [size, setSize] = useState({ width, height });
   const simRef = useRef(null);
   const nodesRef = useRef(null);
@@ -129,22 +130,11 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   const inferredMax = d3.max(data, (d) => Math.abs(d.price_change_percentage_24h || 0)) || 1;
 
     // reduce number of rendered nodes in dense views to improve legibility and perf
-    const maxNodes = 140; // was 200
+    // If a specific index is selected we want to render all its members so user can see progress.
+    const maxNodes = (selectedIndex != null) ? data.length : 140; // when index selected, render full list
     const used = data.slice(0, maxNodes);
 
-  // Demo: pick two random coins to artificially show large positive moves so user can see size scaling
-    try {
-      const demoCount = 2;
-      const picks = new Set();
-      while (picks.size < Math.min(demoCount, used.length)) {
-        picks.add(Math.floor(Math.random() * used.length));
-      }
-      const arr = Array.from(picks);
-      if (arr.length > 0) used[arr[0]].__overrideDemo = 30;
-      if (arr.length > 1) used[arr[1]].__overrideDemo = 48;
-    } catch (e) {
-      // ignore randomness errors
-    }
+  // Demo overrides removed: sizing will now be driven only by real data / provided aggregations.
 
     // compute a local max absolute pct (including any demo overrides) so sizing maps correctly
     const localMaxPct = d3.max(used, (d) => {
@@ -250,20 +240,78 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       return { id: d.id, r, x: Math.random() * w, y: Math.random() * h, data: d, overridePct: overridePct };
     });
 
-    // viewport-aware global radius scaling: ensure the largest ring fits within a target fraction
-    // of the viewport so visuals match the example scale. targetFraction is fraction of min(w,h)
-    const targetFraction = 0.26; // increase to ~26% so largest rings appear larger
+    // viewport-aware global radius scaling: compute an optimal scale so bubbles fit
+    // in a grid derived from node count and viewport. This keeps all visuals the same
+    // but ensures bubbles don't overlap or clip out of the view when there are many nodes.
+    // Strategy:
+    // 1. estimate a grid (cols/rows) to distribute nodes evenly (same logic used later)
+    // 2. compute the cell size and the maximum allowed radius that fits comfortably
+    // 3. compute a global scale to bring raw radii into that allowed maximum (only downscales significantly)
     const minDim = Math.min(w, h);
     const rawMaxR = d3.max(nodes, (n) => n.r) || 1;
-    const desiredMaxR = Math.max(8, Math.floor(minDim * targetFraction));
-    // compute a global scale factor to apply to all radii
-    // allow small upscale up to 1.25 to make visuals more prominent
-    const rawScale = rawMaxR > 0 ? desiredMaxR / rawMaxR : 1;
-    const globalRScale = Math.max(0.6, Math.min(1.25, rawScale));
-    if (Math.abs(globalRScale - 1) > 0.0001) {
-      nodes.forEach((n) => {
-        n.r = Math.max(4, Math.round(n.r * globalRScale));
-      });
+    // estimate grid dimensions similar to anchor grid below
+    try {
+      const nn = Math.max(1, nodes.length);
+      const aspect = w / Math.max(1, h);
+      let estCols = Math.ceil(Math.sqrt(nn * aspect));
+      let estRows = Math.ceil(nn / Math.max(1, estCols));
+      if (estCols <= 0) estCols = 1;
+      if (estRows <= 0) estRows = 1;
+      const cellW = w / estCols;
+      const cellH = h / estRows;
+
+      // pick tuning based on node count: when there are few nodes, allow much larger fill and upscale
+      let PACK_FACTOR = 0.86;
+      let VIEWPORT_FRACTION = 0.34;
+      let AREA_FILL_FACTOR = 0.64;
+      let MAX_SCALE_UP = 2.0;
+      if (nn <= 10) {
+        PACK_FACTOR = 0.94; VIEWPORT_FRACTION = 0.66; AREA_FILL_FACTOR = 0.92; MAX_SCALE_UP = 6.0;
+      } else if (nn <= 20) {
+        PACK_FACTOR = 0.92; VIEWPORT_FRACTION = 0.52; AREA_FILL_FACTOR = 0.86; MAX_SCALE_UP = 4.0;
+      } else if (nn <= 40) {
+        PACK_FACTOR = 0.90; VIEWPORT_FRACTION = 0.44; AREA_FILL_FACTOR = 0.78; MAX_SCALE_UP = 3.2;
+      } else if (nn <= 80) {
+        PACK_FACTOR = 0.88; VIEWPORT_FRACTION = 0.38; AREA_FILL_FACTOR = 0.70; MAX_SCALE_UP = 2.7;
+      }
+
+      const maxAllowedRByCell = Math.max(6, Math.floor(Math.min(cellW, cellH) * 0.5 * PACK_FACTOR));
+      const maxAllowedRByViewport = Math.max(8, Math.floor(minDim * VIEWPORT_FRACTION));
+      const allowedMaxR = Math.max(6, Math.min(maxAllowedRByCell, maxAllowedRByViewport));
+
+      const totalAvailableArea = Math.max(1, w * h * AREA_FILL_FACTOR);
+      // Preserve relative sizes: compute scale s such that sum(pi*(r_i*s)^2) = totalAvailableArea
+      // => s = sqrt(totalAvailableArea / (pi * sum(r_i^2)))
+      const rawRadii = nodes.map((n) => Math.max(1, n.r || 1));
+      const sumSquares = rawRadii.reduce((acc, r) => acc + r * r, 0) || 1;
+      const desiredScaleByArea = Math.sqrt(totalAvailableArea / (Math.PI * sumSquares));
+
+      const rawMaxRLocal = d3.max(rawRadii) || 1;
+      const scaleMax = rawMaxRLocal > 0 ? allowedMaxR / rawMaxRLocal : 1;
+
+      // clamps to keep sizes readable
+      const MIN_SCALE = 0.28;
+
+      let finalScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE_UP, desiredScaleByArea));
+      finalScale = Math.min(finalScale, Math.max(scaleMax, MIN_SCALE));
+
+      if (Math.abs(finalScale - 1) > 1e-4) {
+        nodes.forEach((n) => {
+          n.r = Math.max(4, Math.round(n.r * finalScale));
+        });
+      }
+    } catch (e) {
+      // keep original radii on error
+    }
+
+    // helper to derive percent for a node (considers overrides and aggregations)
+    function pctForNode(node) {
+      if (node.overridePct != null) return node.overridePct;
+      if (aggregations && selections && selections.size === 'Performance') {
+        const v = aggregations.get(node.data && (node.data.symbol || node.data.id) || node.id);
+        if (v != null) return v;
+      }
+      return node.data && (node.data.price_change_percentage_24h ?? 0);
     }
 
   // create per-node clipPaths and radial gradients for nicer bubble shading
@@ -287,7 +335,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   }
 
   // per-node radial gradient: AIA-style (green for up, red for down)
-  const pct = pctFor(nd);
+  const pct = pctForNode(nd);
   const rg = defs.append('radialGradient').attr('id', `grad-${nd.id}`).attr('cx', '45%').attr('cy', '35%').attr('r', '70%');
   if (pct >= 0) {
     // neon-forward greens for up bubbles
@@ -411,10 +459,21 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     simRef.current = simulation;
     nodesRef.current = nodes;
 
+    // update visible count initially based on node positions inside the viewport area
+    try {
+      const initiallyVisible = nodes.reduce((acc, d) => {
+        if (d.x - d.r >= 0 && d.x + d.r <= w && d.y - d.r >= 0 && d.y + d.r <= h) return acc + 1;
+        return acc;
+      }, 0);
+      setVisibleCount(initiallyVisible);
+    } catch (e) {
+      // ignore
+    }
+
   // Create two layers: circlesGroup (scales with zoom) and labelsGroup (keeps constant size)
   const circlesGroup = g.append('g').attr('class', 'circles-group');
   // disable pointer events on labelsGroup so clicks fall through to circles underneath
-  const labelsGroup = g.append('g').attr('class', 'labels-group').attr('pointer-events', 'none');
+  const labelsGroup = g.append('g').attr('class', 'labels-group').attr('pointer-events', 'none').attr('shape-rendering', 'geometricPrecision');
 
   const circleNodes = circlesGroup.selectAll('g').data(nodes, (d) => d.id).enter().append('g').attr('class', 'node').attr('transform', (d) => `translate(${d.x},${d.y})`);
   const labelNodes = labelsGroup.selectAll('g').data(nodes, (d) => d.id).enter().append('g').attr('class', 'label-node').attr('transform', (d) => `translate(${d.x},${d.y})`);
@@ -503,9 +562,9 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
     return di.data && (di.data.price_change_percentage_24h ?? 0);
   })(d);
-        // sizes scale with radius
-        const symSize = Math.max(8, Math.min(48, d.r * 0.32));
-        const pctSize = Math.max(8, Math.min(18, d.r * 0.18));
+  // sizes scale with radius — keep a slightly larger minimum for readability
+  const symSize = Math.max(10, Math.min(48, d.r * 0.32));
+  const pctSize = Math.max(10, Math.min(18, d.r * 0.18));
 
         // if very small, try to render a tiny logo centered inside the ring (if image available)
         const LOGO_ONLY_THRESHOLD = 16;
@@ -528,7 +587,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
   // symbol: centered slightly above center for better optical balance
         const symbolY = Math.round(-symSize * 0.12);
-        ln.append('text')
+        const symEl = ln.append('text')
           .attr('class', 'symbol')
           .text(d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || ''))
           .attr('text-anchor', 'middle')
@@ -537,12 +596,13 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .style('pointer-events', 'none')
           .style('fill', '#ffffff')
           .style('font-weight', 800)
-          .style('font-size', `${symSize}px`)
-          .attr('filter', 'url(#textShadow)');
+          .style('font-size', `${symSize}px`);
+        // only apply the subtle text shadow for larger labels to avoid blurring tiny fonts
+        if (symSize >= 12) symEl.attr('filter', 'url(#textShadow)');
 
         // percent below the symbol
         const pctY = Math.round(symbolY + symSize * 0.9 + 6);
-        ln.append('text')
+        const pctEl = ln.append('text')
           .attr('class', 'pct')
           .text(`${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`)
           .attr('text-anchor', 'middle')
@@ -551,8 +611,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .style('pointer-events', 'none')
           .style('fill', pct >= 0 ? '#baf3c9' : '#ffb6b6')
           .style('font-size', `${pctSize}px`)
-          .style('font-weight', 700)
-          .attr('filter', 'url(#textShadow)');
+          .style('font-weight', 700);
+        if (pctSize >= 12) pctEl.attr('filter', 'url(#textShadow)');
 
         // for larger rings, if image exists, render a small badge above the symbol
   if (d.r >= LOGO_ONLY_THRESHOLD && d.data && d.data.image) {
@@ -570,6 +630,29 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
             .style('pointer-events', 'none');
         }
       });
+
+    // entry animation: grow circles/labels from small to their computed sizes for a smooth transition
+    try {
+      // hit area
+      circleNodes.selectAll('.hit-area').attr('r', 1).transition().duration(600).attr('r', (d) => d.r);
+
+      // ring fill and ring-only radii
+      circleNodes.selectAll('.ring-fill').attr('r', 1).transition().duration(600).attr('r', (d) => Math.max(0, d.r - Math.max(1, Math.round(Math.max(2, Math.min(12, d.r * 0.08)) * 0.5))));
+      circleNodes
+        .selectAll('.ring-only')
+        .attr('r', 1)
+        .attr('stroke-width', 1)
+        .transition()
+        .duration(600)
+        .attr('r', (d) => d.r)
+        .attr('stroke-width', (d) => Math.max(2, Math.min(12, d.r * 0.08)));
+
+      // labels: fade/scale in by transitioning font-size (note: exact font sizes are computed when labels are rendered)
+      labelNodes.selectAll('.symbol').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.min(48, d.r * 0.32))}px`);
+      labelNodes.selectAll('.pct').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.min(18, d.r * 0.18))}px`);
+    } catch (e) {
+      // ignore animation errors
+    }
 
     const tooltip = d3
       .select('body')
@@ -686,9 +769,52 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     };
   }, [data, size.width, size.height, single, radiusScale]);
 
+  // Periodically sample node positions to update the visible count without rerendering on every tick.
+  useEffect(() => {
+    const iv = setInterval(() => {
+      try {
+        const nodes = nodesRef.current || [];
+        if (!nodes.length) {
+          setVisibleCount(0);
+          return;
+        }
+        const w = Math.max(100, size.width - margin.left - margin.right);
+        const h = Math.max(100, size.height - margin.top - margin.bottom);
+        let cnt = 0;
+        for (const d of nodes) {
+          if (d.x - d.r >= 0 && d.x + d.r <= w && d.y - d.r >= 0 && d.y + d.r <= h) cnt += 1;
+        }
+        setVisibleCount(cnt);
+      } catch (e) {
+        // ignore
+      }
+    }, 300);
+    return () => clearInterval(iv);
+  }, [size.width, size.height, data]);
+
   return (
-    <div ref={wrapperRef} style={{ width: '100%', height: '100%' }}>
+    <div ref={wrapperRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
       <svg ref={svgRef} style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet" />
+      {/* Non-intrusive dialog showing number of bubbles currently visible in the viewport */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          background: 'rgba(0,0,0,0.6)',
+          color: '#fff',
+          padding: '8px 12px',
+          borderRadius: 8,
+          fontSize: 13,
+          fontWeight: 700,
+          zIndex: 1000,
+          pointerEvents: 'none',
+          userSelect: 'none'
+        }}
+      >
+        {visibleCount} bubble{visibleCount === 1 ? '' : 's'} in view
+      </div>
     </div>
   );
 });

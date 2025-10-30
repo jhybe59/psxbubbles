@@ -73,6 +73,15 @@ export async function getRange(symbol, fromTs, toTs) {
   return res || [];
 }
 
+export async function getAllTimestamps() {
+  const db = await initDB();
+  // get all records ordered by ts and collect unique timestamps
+  const all = await db.getAllFromIndex(STORE_SNAP, 'by-ts');
+  if (!all || !all.length) return [];
+  const set = new Set(all.map((r) => r.ts));
+  return Array.from(set).sort((a, b) => a - b);
+}
+
 export async function purgeOlderThan(ts) {
   const db = await initDB();
   const tx = db.transaction(STORE_SNAP, 'readwrite');
@@ -87,9 +96,30 @@ export async function purgeOlderThan(ts) {
   await tx.done;
 }
 
+export async function purgeSnapshotsAt(ts) {
+  const db = await initDB();
+  const tx = db.transaction(STORE_SNAP, 'readwrite');
+  const idx = tx.store.index('by-ts');
+  let cursor = await idx.openCursor();
+  while (cursor) {
+    if (cursor.value.ts === ts) {
+      await cursor.delete();
+    }
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+}
+
 export async function countSnapshots() {
   const db = await initDB();
   return db.count(STORE_SNAP);
+}
+
+export async function clearSnapshots() {
+  const db = await initDB();
+  const tx = db.transaction(STORE_SNAP, 'readwrite');
+  await tx.store.clear();
+  await tx.done;
 }
 
 export default {
@@ -99,5 +129,10 @@ export default {
   getSnapshotAtOrBefore,
   getRange,
   purgeOlderThan,
-  countSnapshots
+  purgeSnapshotsAt,
+  countSnapshots,
+  getAllTimestamps,
+  clearSnapshots
 };
+
+// purgeSnapshotsAt is exported above as a named export already

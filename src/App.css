@@ -191,7 +191,7 @@ body {
   left: 12px;
   bottom: 56px; /* sit above the floating card */
   z-index: 90;
-  width: 260px;
+  width: 320px;
   background: linear-gradient(180deg, rgba(22,24,28,0.96), rgba(12,14,16,0.9));
   border-radius: 12px;
   padding: 10px;
@@ -212,20 +212,24 @@ body {
 .favorites-menu .menu-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 8px;
+  padding: 6px 8px;
   border-radius: 8px;
   color: #eee;
 }
-.favorites-menu .menu-row input[type="radio"] { width: 16px; height: 16px; }
-.favorites-menu .menu-row .menu-label { flex: 1; margin-left: 6px; }
-.favorites-menu .menu-row .menu-pct { width: 68px; text-align: right; font-weight: 700; }
+.favorites-menu .menu-row input[type="radio"] { flex: 0 0 18px; width: 18px; height: 18px; }
+.favorites-menu .menu-row .menu-label { flex: 1 1 auto; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.favorites-menu .menu-row .menu-pct { flex: 0 0 72px; width: 72px; text-align: right; font-weight: 700; margin-left: 8px; }
 .favorites-menu .menu-row .menu-pct.pos { color: #82f3a6; }
 .favorites-menu .menu-row .menu-pct.neg { color: #ff8b8b; }
 .favorites-menu .menu-row.active { background: rgba(255,255,255,0.03); }
 .favorites-menu .menu-row:hover { background: rgba(255,255,255,0.02); cursor: pointer; }
 .favorites-menu .menu-title .interval { color: #bbb; font-size: 13px }
 .favorites-menu button { background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); border: none; color: #fff; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+
+/* Ensure inline small icon buttons in rows do not shift layout */
+.favorites-menu .menu-row button { flex: 0 0 auto; margin-left: 8px; padding: 6px 8px; }
 
 .main {
   display: flex;

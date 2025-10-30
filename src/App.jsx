@@ -1,26 +1,25 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
-import { useCoins } from './hooks/useCoins'
+import useOHLCV from './hooks/useOHLCV'
 import useStocks from './hooks/useStocks'
 import Controls from './components/Controls'
 import CoinModal from './components/CoinModal'
 import BubbleChart from './components/BubbleChart'
 import PillMenu from './components/PillMenu'
 import SearchPopover from './components/SearchPopover'
+import IndexManager from './components/IndexManager'
+import CsvPanel from './components/CsvPanel'
+import SymbolsPanel from './components/SymbolsPanel'
 import { createRadiusScale } from './utils/scales'
 import storage from './lib/storage'
 import './App.css'
+import { getAllMetadata } from './hooks/useSymbolMetadata'
 
 function App() {
-  const { coins, loading, error, topN, setTopN, reload } = useCoins(1000, 60000)
-  const [liveMode, setLiveMode] = useState(false);
-  const { stocks, lastUpdated, connected, computeAll, backfill24h, backfillStatus, fetchSymbols } = useStocks({ enabled: liveMode, retentionDays: 1 });
-  const [fetchedCount, setFetchedCount] = useState(null);
-  const [fetchedDetails, setFetchedDetails] = useState(null);
-  const [debugOpen, setDebugOpen] = useState(false);
-  const [snapshotCount, setSnapshotCount] = useState(null);
-  const [snapshotSample, setSnapshotSample] = useState(null);
-  const [usingFallback, setUsingFallback] = useState(false);
-  const [aggregations, setAggregations] = useState(null);
+  const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval } = useOHLCV();
+  const [snapCount, setSnapCount] = useState(null);
+  // Demo-only app: no live mode or external fetches. Keep demo data only.
+  const liveMode = false;
+  const { stocks, lastUpdated, connected } = useStocks({ enabled: false, retentionDays: 1 });
   const [query, setQuery] = useState('')
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [showControls, setShowControls] = useState(false)
@@ -28,13 +27,38 @@ function App() {
   const [singleView, setSingleView] = useState(false)
   const [currentInterval, setCurrentInterval] = useState('Day')
   const [pillMenuOpen, setPillMenuOpen] = useState(false)
+  const aggregations = null; // demo-only: no live aggregations
   const [pillAnchor, setPillAnchor] = useState(null)
   const [pillSelections, setPillSelections] = useState({ size: 'Performance', content: 'Performance', color: 'Performance' })
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchAnchor, setSearchAnchor] = useState(null)
   const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [selectedCoin, setSelectedCoin] = useState(null)
-  const [pageIndex, setPageIndex] = useState(null) // null = no page filter
+  const [pageIndex, setPageIndex] = useState(() => {
+    try {
+      const v = localStorage.getItem('pageIndex');
+      return v !== null ? Number(v) : null;
+    } catch {
+      return null;
+    }
+  }) // null = no page filter
+  const [selectedIndex, setSelectedIndex] = useState(() => {
+    try {
+      const v = localStorage.getItem('selectedIndex');
+      return v !== null ? v : null;
+    } catch {
+      return null;
+    }
+  })
+  const [indexMap, setIndexMap] = useState(() => {
+    try {
+      const raw = localStorage.getItem('indexMap');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  })
+  const [symbolsPanelOpen, setSymbolsPanelOpen] = useState(false)
   
   // load favorites from localStorage; store array of coin ids
   const [favorites] = useState(() => {
@@ -100,53 +124,7 @@ function App() {
     }
   }
 
-  // compute aggregations for current interval when liveMode is on
-  useEffect(() => {
-    let active = true;
-    async function build() {
-      if (!liveMode || !computeAll) {
-        setAggregations(null);
-        return;
-      }
-      try {
-        const ms = intervalToMs(currentInterval);
-        const map = await computeAll(ms);
-        if (!active) return;
-        setAggregations(map);
-      } catch (e) {
-        // ignore
-      }
-    }
-    build();
-    return () => { active = false; };
-  }, [liveMode, computeAll, currentInterval, lastUpdated]);
-
-  // Auto-run fetchSymbols when user enables Live mode so we immediately try to populate symbols
-  useEffect(() => {
-    let mounted = true;
-    if (liveMode && fetchSymbols) {
-      setFetchedCount('...');
-      setFetchedDetails(null);
-      fetchSymbols().then((res) => {
-        if (!mounted) return;
-        if (res && res.ok) {
-          setFetchedCount(res.symbols.length);
-          setFetchedDetails(res.attempts || null);
-        } else {
-          setFetchedCount('err');
-          setFetchedDetails(res && res.attempts ? res.attempts : (res && res.error ? [{ method: 'error', error: res.error }] : null));
-          // open debug panel to surface errors
-          setDebugOpen(true);
-        }
-      }).catch((e) => {
-        if (!mounted) return;
-        setFetchedCount('err');
-        setFetchedDetails([{ method: 'exception', error: String(e && e.message ? e.message : e) }]);
-        setDebugOpen(true);
-      });
-    }
-    return () => { mounted = false; };
-  }, [liveMode, fetchSymbols]);
+  // No live-mode effects in demo-only state.
 
   // map pct to color (green -> red). We'll generate a subtle gradient:
   // - if pct > 0 => green shades; if pct < 0 => red shades; neutral => dark
@@ -172,9 +150,12 @@ function App() {
   }
 
   const filtered = useMemo(() => {
-    if (!query) return coins
-    const q = query.toLowerCase()
-    return coins.filter((c) => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q))
+    // compute visible coins by excluding metadata-hidden symbols
+    const meta = getAllMetadata();
+    const visible = (coins || []).filter((c) => !(meta[c.symbol] && meta[c.symbol].hidden));
+    if (!query) return visible;
+    const q = query.toLowerCase();
+    return visible.filter((c) => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q));
   }, [coins, query])
 
   // apply page filter if selected (pageIndex maps to 0 => 1-100, 1 => 101-200 ...)
@@ -184,10 +165,19 @@ function App() {
   // and return the filtered results.
   const displayedCoins = useMemo(() => {
     const per = 100;
+    // If an index is selected, ignore page buckets and show only index members
+    if (selectedIndex) {
+      const members = indexMap && indexMap[selectedIndex] ? new Set((indexMap[selectedIndex] || []).map(s => s.toLowerCase())) : null;
+      if (!members) return [];
+      return filtered.filter((c) => members.has((c.symbol || c.id || '').toLowerCase()));
+    }
     if (pageIndex == null) return filtered;
     const start = pageIndex * per;
-    return coins.slice(start, start + per);
-  }, [filtered, coins, pageIndex]);
+    // use visible coins for paging so hidden symbols don't occupy slots
+    const meta = getAllMetadata();
+    const visible = (coins || []).filter((c) => !(meta[c.symbol] && meta[c.symbol].hidden));
+    return visible.slice(start, start + per);
+  }, [filtered, coins, pageIndex, selectedIndex, indexMap]);
 
   useEffect(() => {
     function onKey(e) {
@@ -197,25 +187,35 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // when the user switches interval, ask OHLCV hook to refresh computed interval values
+  useEffect(() => {
+    try {
+      if (refreshForInterval) refreshForInterval(currentInterval);
+    } catch (e) {
+      // ignore
+    }
+  }, [currentInterval, refreshForInterval]);
+
+  // read snapshot count for header status periodically
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await importSnapshotsIfNeeded(false);
+        if (mounted && res && res.count != null) setSnapCount(res.count);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { mounted = false };
+  }, [importSnapshotsIfNeeded]);
+
   // compute max absolute percent change for percent-based sizing
   const maxAbsChange = coins && coins.length ? Math.max(...coins.map(c => Math.abs(c.price_change_percentage_24h || 0))) : 1;
   // Use a much smaller max radius and near-linear gamma for testing to avoid huge bubbles
   const radiusScale = useMemo(() => createRadiusScale(maxAbsChange, 8, 72, 1.05), [maxAbsChange]);
 
-  // Refresh snapshot info from IndexedDB for debug panel
-  async function refreshSnapshotInfo() {
-    try {
-      await storage.initDB();
-      const cnt = await storage.countSnapshots();
-      setSnapshotCount(cnt);
-      const latest = await storage.getLatestAll();
-      // take first 20 samples
-      setSnapshotSample((latest || []).slice(0, 20));
-    } catch (e) {
-      setSnapshotCount(-1);
-      setSnapshotSample(null);
-    }
-  }
+  // Snapshot refresh not exposed in demo-only UI
 
   // small built-in demo symbol set used as a fallback when live fetch fails
   const demoSymbols = [
@@ -225,6 +225,23 @@ function App() {
     { symbol: 'ACI', price: 1.23, ts: Date.now(), volume: 50 },
     { symbol: 'ALNRS', price: 9.87, ts: Date.now(), volume: 300 }
   ];
+
+  const [indexManagerOpen, setIndexManagerOpen] = useState(false)
+
+  // persist page/index selection so UI returns to last state across refreshes
+  useEffect(() => {
+    try {
+      if (pageIndex == null) localStorage.removeItem('pageIndex');
+      else localStorage.setItem('pageIndex', String(pageIndex));
+    } catch (e) { /* ignore */ }
+  }, [pageIndex]);
+
+  useEffect(() => {
+    try {
+      if (selectedIndex == null) localStorage.removeItem('selectedIndex');
+      else localStorage.setItem('selectedIndex', String(selectedIndex));
+    } catch (e) { /* ignore */ }
+  }, [selectedIndex]);
 
   return (
     <div className="app">
@@ -256,66 +273,24 @@ function App() {
             className="search-icon"
             title="Refresh data"
             aria-label="Refresh data"
-            onClick={() => reload()}
+            onClick={() => refreshForInterval && refreshForInterval(currentInterval)}
           >
             ⟳
           </button>
           <button
-            className="view-toggle"
-            title={liveMode ? 'Live mode ON' : 'Demo mode'}
-            onClick={() => setLiveMode((s) => !s)}
-            aria-pressed={liveMode}
+            className="search-icon"
+            title="Symbols"
+            aria-label="Symbols panel"
+            onClick={() => setSymbolsPanelOpen(true)}
           >
-            {liveMode ? 'Live' : 'Demo'}
+            ☰
           </button>
-          <button
-            className="view-toggle"
-            title="Open debug panel"
-            onClick={() => setDebugOpen((s) => !s)}
-          >
-            Debug
-          </button>
-          <button
-            className="view-toggle"
-            title="Backfill 24h"
-            onClick={() => {
-              if (backfillStatus && backfillStatus.running) return;
-              if (backfill24h) backfill24h({ batchSize: 12, delayMs: 600 });
-            }}
-          >
-            ⤓ Backfill
-          </button>
-          <button
-            className="view-toggle"
-            title="Fetch symbols (debug)"
-            onClick={async () => {
-              if (!fetchSymbols) return;
-              setFetchedCount('...');
-              setFetchedDetails(null);
-              setUsingFallback(false);
-              // timeout the fetchSymbols call after 5s so UI doesn't hang
-              try {
-                const res = await Promise.race([
-                  fetchSymbols(),
-                  new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
-                ]);
-                if (res && res.ok) {
-                  setFetchedCount(res.symbols.length);
-                  setFetchedDetails(res.attempts || null);
-                } else {
-                  setFetchedCount(res && res.symbols ? res.symbols.length : `err`);
-                  setFetchedDetails(res && res.attempts ? res.attempts : (res && res.error ? [{ method: 'error', error: res.error }] : null));
-                  setUsingFallback(true);
-                }
-              } catch (e) {
-                setFetchedCount('err');
-                setFetchedDetails([{ method: 'error', error: String(e && e.message ? e.message : e) }]);
-                setUsingFallback(true);
-              }
-            }}
-          >
-            Fetch symbols
-          </button>
+          <div style={{marginLeft:12, color:'#9fb8b0', fontSize:12}}>
+            {loading ? 'Loading snapshots...' : (snapCount != null ? `${snapCount} snapshots` : '')}
+            {error ? ` — ${error}` : ''}
+            <button style={{marginLeft:8}} onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)}>Re-import</button>
+          </div>
+          {/* Demo-only: removed Live, Debug, Backfill and Fetch controls */}
         </div>
       </header>
 
@@ -370,7 +345,7 @@ function App() {
 
       {searchOpen && (
         <SearchPopover
-          coins={liveMode ? stocks.map(s => ({ id: s.symbol, name: s.symbol, symbol: s.symbol, price: s.price })) : coins}
+          coins={liveMode ? stocks.map(s => ({ id: s.symbol, name: s.symbol, symbol: s.symbol, price: s.price })) : ((() => { const m = getAllMetadata(); return (coins || []).filter((c) => !(m[c.symbol] && m[c.symbol].hidden)); })())}
           anchorRect={searchAnchor}
           onSelect={(c) => setSelectedCoin(c)}
           onClose={() => setSearchOpen(false)}
@@ -379,23 +354,33 @@ function App() {
 
       <main className="main">
         <section className="viz">
-          <BubbleChart
-            ref={chartRef}
-            data={(() => {
-              if (liveMode) {
-                if (usingFallback) return demoSymbols.map(s => ({ id: s.symbol, name: s.symbol, symbol: s.symbol, price: s.price, market_cap: s.value || 0, volume: s.volume, price_change_percentage_24h: 0 }));
-                return (stocks || []).map(s => ({ id: s.symbol, name: s.symbol, symbol: s.symbol, price: s.price, market_cap: s.value, volume: s.volume, price_change_percentage_24h: s.raw && (s.raw.pch != null ? s.raw.pch * 100 : s.raw.changePercent) }));
-              }
-              return displayedCoins;
-            })()}
-            className="bubble-chart"
-            single={singleView}
-            radiusScale={radiusScale}
-            currentInterval={currentInterval}
-            selections={pillSelections}
-            aggregations={aggregations}
-            onSelectCoin={(coin) => setSelectedCoin(coin)}
-          />
+          {(!coins || coins.length === 0) ? (
+            <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',color:'#9fb8b0'}}>
+              <div style={{fontSize:18,fontWeight:700,marginBottom:8}}>No chart data available</div>
+              <div style={{marginBottom:8}}>Snapshots in DB: {snapCount != null ? snapCount : 'unknown'}</div>
+              <div style={{marginBottom:12}}>If this stays blank: open DevTools → Application → IndexedDB → `psx-snapshots-db` and check `snapshots` store.</div>
+              <div>
+                <button onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)} style={{marginRight:8}}>Re-import snapshots</button>
+                <button onClick={() => refreshForInterval && refreshForInterval(currentInterval)}>Refresh interval</button>
+              </div>
+            </div>
+          ) : (
+            <BubbleChart
+              ref={chartRef}
+              data={(() => {
+                // when using OHLCV data the hook returns objects shaped for the chart
+                return displayedCoins && displayedCoins.length ? displayedCoins : (coins || []);
+              })()}
+              selectedIndex={selectedIndex}
+              className="bubble-chart"
+              single={singleView}
+              radiusScale={radiusScale}
+              currentInterval={currentInterval}
+              selections={pillSelections}
+              aggregations={aggregations}
+              onSelectCoin={(coin) => setSelectedCoin(coin)}
+            />
+          )}
         </section>
       </main>
 
@@ -407,10 +392,16 @@ function App() {
       <div className="floating-left">
         {(() => {
           const per = 100;
-          const label = pageIndex == null ? 'Favorites' : `${pageIndex * per + 1} - ${(pageIndex + 1) * per}`;
+          const floatingLabel = (() => {
+            if (selectedIndex) return selectedIndex;
+            if (pageIndex == null) return 'All';
+            const start = pageIndex * per + 1;
+            const end = Math.min((pageIndex + 1) * per, (coins && coins.length) ? coins.length : (pageIndex + 1) * per);
+            return `${start} - ${end}`;
+          })();
           return (
             <div className="floating-card" onClick={() => setFavoritesOpen((s) => !s)} style={{cursor:'pointer'}}>
-              ★ {label} ▾
+              ★ {floatingLabel} ▾
             </div>
           );
         })()}
@@ -421,27 +412,28 @@ function App() {
               <div className="menu-title">Pages <span className="interval">{currentInterval}</span></div>
               <div className="menu-list">
                 {/* All row */}
-                <div className={`menu-row ${pageIndex === null ? 'active' : ''}`} onClick={() => setPageIndex(null)}>
-                  <input type="radio" readOnly checked={pageIndex === null} />
+                <button className={`menu-row ${(pageIndex === null && !selectedIndex) ? 'active' : ''}`} onClick={() => { setSelectedIndex(null); setPageIndex(null); }} style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'transparent',border:'none',textAlign:'left',width:'100%',padding:'6px 8px'}}>
+                  <input type="radio" readOnly checked={(pageIndex === null && !selectedIndex)} />
                   <span className="menu-label">All</span>
                   <span className={`menu-pct`}>{''}</span>
-                </div>
+                </button>
                 {(() => {
                   const per = 100;
-                  const pageCount = 10; // fixed 1..1000 as requested
+                  const total = (coins && coins.length) ? coins.length : 0;
+                  const pageCount = Math.max(1, Math.ceil(total / per));
                   return Array.from({ length: pageCount }).map((_, i) => {
                     const start = i * per + 1;
-                    const end = (i + 1) * per;
+                    const end = Math.min((i + 1) * per, total || (i + 1) * per);
                     const chunk = coins.slice(i * per, (i + 1) * per);
                     const vals = chunk.map((c) => approxPctForInterval(currentInterval, c.price_change_percentage_24h || 0));
                     const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
                     const sign = avg >= 0 ? '+' : '';
                     return (
-                      <div key={i} className={`menu-row ${pageIndex === i ? 'active' : ''}`} onClick={() => setPageIndex(i)}>
-                        <input type="radio" readOnly checked={pageIndex === i} />
+                      <button key={i} className={`menu-row ${(pageIndex === i && !selectedIndex) ? 'active' : ''}`} onClick={() => { setSelectedIndex(null); setPageIndex(i); }} style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'transparent',border:'none',textAlign:'left',flex: '1 1 auto',padding:'6px 8px'}}>
+                        <input type="radio" readOnly checked={(pageIndex === i && !selectedIndex)} />
                         <span className="menu-label">{`${start} - ${end}`}</span>
                         <span className={`menu-pct ${avg >= 0 ? 'pos' : 'neg'}`}>{`${sign}${avg.toFixed(2)}%`}</span>
-                      </div>
+                      </button>
                     );
                   });
                 })()}
@@ -464,7 +456,7 @@ function App() {
                     const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
                     const sign = avg >= 0 ? '+' : '';
                     return (
-                      <div key={ld.id} className={`menu-row`}>
+                      <div key={ld.id} className={`menu-row`} style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                         <input type="radio" readOnly checked={false} />
                         <span className="menu-label">{ld.label}</span>
                         <span className={`menu-pct ${avg > 0 ? 'pos' : 'neg'}`}>{avg == null ? '-' : `${sign}${avg.toFixed(2)}%`}</span>
@@ -475,22 +467,31 @@ function App() {
               </div>
             </div>
             <div className="menu-section">
-              <div className="menu-title">Exchanges <span className="interval">{currentInterval}</span></div>
+              <div className="menu-title">Indices <span className="interval">{currentInterval}</span></div>
               <div className="menu-list">
                 {(() => {
-                  // list of common exchanges (order can be customized)
-                  const exs = ['Binance','MEXC','Bybit','Kucoin','Gate','Bitget','BitMart','BingX','OKX','Coinbase','Crypto.com','Kraken'];
-                  return exs.map((ex) => {
-                    // try to find coins with matching exchange field (if present)
-                    const members = coins.filter((c) => (c.exchange && c.exchange.toLowerCase() === ex.toLowerCase()));
+                  // index list for PSX/stocks
+                  const indices = ['KSE 100','KSE 30','ALLSHR','KMI 30','KMIALLSHR'];
+                  return indices.map((ix) => {
+                    const membersIds = indexMap && indexMap[ix] ? (indexMap[ix] || []) : [];
+                    // try to match by symbol or id (case-insensitive)
+                    const membersSet = new Set(membersIds.map(s => (''+s).toLowerCase()));
+                    const members = membersIds.length ? coins.filter((c) => membersSet.has((c.symbol || c.id || '').toLowerCase())) : [];
                     const vals = members.map((c) => approxPctForInterval(currentInterval, c.price_change_percentage_24h || 0));
                     const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
                     const sign = avg >= 0 ? '+' : '';
                     return (
-                      <div key={ex} className={`menu-row`}>
-                        <input type="radio" readOnly checked={false} />
-                        <span className="menu-label">{ex}</span>
-                        <span className={`menu-pct ${avg > 0 ? 'pos' : 'neg'}`}>{avg == null ? '-' : `${sign}${avg.toFixed(2)}%`}</span>
+                      <div key={ix} className={`menu-row ${selectedIndex === ix ? 'active' : ''}`} style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                        <button onClick={() => { setSelectedIndex(selectedIndex === ix ? null : ix); setPageIndex(null); }} style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'transparent',border:'none',textAlign:'left',flex: '1 1 auto',padding:'6px 8px'}}>
+                          <input type="radio" readOnly checked={selectedIndex === ix} />
+                          <span className="menu-label">{ix}</span>
+                          <span className={`menu-pct ${avg > 0 ? 'pos' : 'neg'}`}>{avg == null ? '-' : `${sign}${avg.toFixed(2)}%`}</span>
+                        </button>
+                        <button
+                          title={`Open Index Manager for ${ix}`}
+                          onClick={(e) => { e.stopPropagation(); setIndexManagerOpen(true); setSelectedIndex(ix); }}
+                          style={{ marginLeft: 8, background: 'transparent', border: 'none', color: '#9fb8b0', cursor: 'pointer' }}
+                        >✎</button>
                       </div>
                     );
                   })
@@ -500,90 +501,30 @@ function App() {
           </div>
         )}
       </div>
+      {indexManagerOpen && (
+        <IndexManager
+          open={indexManagerOpen}
+          onClose={() => setIndexManagerOpen(false)}
+          coins={coins}
+          indexMap={indexMap}
+          setIndexMap={setIndexMap}
+        />
+      )}
+      <CsvPanel refreshCallback={refreshForInterval} currentInterval={currentInterval} />
 
-      <div className="floating-right">
-        <div className="floating-card" style={{cursor:'pointer'}} onClick={() => setDebugOpen(true)}>⚙️</div>
-      </div>
+      {symbolsPanelOpen && (
+        <SymbolsPanel
+          open={symbolsPanelOpen}
+          onClose={() => setSymbolsPanelOpen(false)}
+          symbols={coins && coins.length ? coins : (demoSymbols || [])}
+        />
+      )}
+
+      {/* Debug control removed in demo-only reset */}
       {/* Selected coin modal */}
       {selectedCoin && <CoinModal coin={selectedCoin} onClose={() => setSelectedCoin(null)} />}
-      {/* Debug HUD (visible during local testing) */}
-      <div style={{position:'fixed', right:12, bottom:12, background:'rgba(0,0,0,0.6)', color:'#fff', padding:'8px 10px', borderRadius:8, fontSize:12, zIndex:1200}}>
-        <div style={{fontWeight:700}}>Debug</div>
-  <div>{liveMode ? 'Stocks (live):' : 'Coins:'} {liveMode ? (stocks ? stocks.length : 0) : (coins ? coins.length : 0)}</div>
-  <div>Displayed: {liveMode ? (stocks ? stocks.length : 0) : (displayedCoins ? displayedCoins.length : 0)}</div>
-  <div>WS: {connected ? 'connected' : 'disconnected'} {lastUpdated ? `• ${new Date(lastUpdated).toLocaleTimeString()}` : ''}</div>
-  <div>Max |%|: {typeof maxAbsChange === 'number' ? maxAbsChange.toFixed(2) : String(maxAbsChange)}</div>
-      {backfillStatus && (
-    <div style={{marginTop:6}}>
-      <div style={{fontSize:11, opacity:0.9}}>Backfill: {backfillStatus.running ? 'running' : (backfillStatus.done ? 'idle' : 'none')}</div>
-      <div style={{fontSize:11}}>{`Done: ${backfillStatus.done}/${backfillStatus.total} ${backfillStatus.current ? `• current: ${backfillStatus.current}` : ''} ${backfillStatus.errors ? `• errors: ${backfillStatus.errors}` : ''}`}</div>
-      {backfillStatus.lastError && <div style={{fontSize:11, color:'#ff8a80'}}>{`Err: ${backfillStatus.lastError}`}</div>}
-      {fetchedCount != null && <div style={{fontSize:11}}>{`Fetched symbols: ${fetchedCount}`}</div>}
-      {fetchedDetails && Array.isArray(fetchedDetails) && (
-        <div style={{fontSize:10, marginTop:6, maxHeight:120, overflow:'auto'}}>
-          {fetchedDetails.map((d, i) => (
-            <div key={i} style={{paddingTop:2}}>{`${d.method || d.url || 'item'}: ${d.ok ? `ok (${d.status||'200'})` : (d.error || JSON.stringify(d.body) || 'failed')}`}</div>
-          ))}
-        </div>
-      )}
-      {backfillStatus.running && <div style={{height:6, background:'rgba(255,255,255,0.08)', borderRadius:4, marginTop:6}}>
-        <div style={{height:6, background:'#4caf50', width: `${Math.round((backfillStatus.done / Math.max(1, backfillStatus.total)) * 100)}%`, borderRadius:4}} />
-      </div>}
-    </div>
-  )}
-      </div>
-      {/* Debug Panel Modal */}
-      {debugOpen && (
-        <div style={{position:'fixed', right:12, bottom:80, width:420, maxHeight:'70vh', background:'#0b1220', color:'#fff', padding:12, borderRadius:8, boxShadow:'0 8px 30px rgba(0,0,0,0.7)', zIndex:1300, overflow:'auto'}}>
-          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8}}>
-            <strong>Debug Panel</strong>
-            <div style={{display:'flex', gap:8}}>
-              <button onClick={() => setDebugOpen(false)} style={{background:'transparent', color:'#fff', border:'1px solid rgba(255,255,255,0.06)', padding:'4px 8px', borderRadius:6}}>Close</button>
-            </div>
-          </div>
-          <div style={{fontSize:13, marginBottom:8}}>WS: {connected ? 'connected' : 'disconnected'} {lastUpdated ? `• ${new Date(lastUpdated).toLocaleTimeString()}` : ''}</div>
-          <div style={{marginBottom:8}}>
-            <button onClick={async () => {
-              setFetchedCount('...');
-              setFetchedDetails(null);
-              try {
-                const res = await Promise.race([
-                  fetchSymbols(),
-                  new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
-                ]);
-                if (res && res.ok) { setFetchedCount(res.symbols.length); setFetchedDetails(res.attempts || null); }
-                else { setFetchedCount('err'); setFetchedDetails(res && res.attempts ? res.attempts : [{method:'error', error: res && res.error}]); setUsingFallback(true); }
-              } catch (e) { setFetchedCount('err'); setFetchedDetails([{method:'error', error: String(e && e.message ? e.message : e)}]); setUsingFallback(true); }
-            }} style={{marginRight:8}}>Run Fetch Symbols</button>
-            <button onClick={async () => { if (backfill24h) { setUsingFallback(false); await backfill24h({ batchSize: 20, delayMs: 700 }); await refreshSnapshotInfo(); } }} style={{marginRight:8}}>Start Backfill</button>
-            <button onClick={async () => await refreshSnapshotInfo()}>Refresh Snapshots</button>
-            <button onClick={() => { setUsingFallback(true); }} style={{marginLeft:8}}>Use demo fallback</button>
-          </div>
-          <div style={{fontSize:12, marginBottom:6}}>Backfill: {backfillStatus.running ? 'running' : (backfillStatus.done ? 'idle' : 'none')}</div>
-          <div style={{fontSize:12, color:'#ffdcdc', marginBottom:6}}>{`Done: ${backfillStatus.done} / ${backfillStatus.total} • errors: ${backfillStatus.errors}`}</div>
-          {backfillStatus.lastError && <div style={{fontSize:12, color:'#ff8a80', marginBottom:6}}>{`LastErr: ${backfillStatus.lastError}`}</div>}
-          <div style={{fontSize:12, marginBottom:6}}><strong>Fetched symbols:</strong> {fetchedCount == null ? '-' : fetchedCount}</div>
-          {fetchedDetails && Array.isArray(fetchedDetails) && (
-            <div style={{fontSize:11, maxHeight:140, overflow:'auto', background:'#071017', padding:6, borderRadius:6, marginBottom:8}}>
-              {fetchedDetails.map((d, i) => (
-                <div key={i} style={{padding:'4px 0', borderBottom:'1px solid rgba(255,255,255,0.02)'}}>
-                  <div style={{fontSize:11}}><strong>{d.method || d.url || 'item'}</strong> — {d.ok ? `ok (${d.status||'200'})` : (d.error || JSON.stringify(d.body) || 'failed')}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div style={{fontSize:12, marginBottom:6}}><strong>Snapshots:</strong> {snapshotCount == null ? '-' : snapshotCount}</div>
-          {snapshotSample && Array.isArray(snapshotSample) && (
-            <div style={{fontSize:11, maxHeight:180, overflow:'auto', background:'#071017', padding:6, borderRadius:6}}>
-              {snapshotSample.map((s, i) => (
-                <div key={i} style={{padding:'6px 0', borderBottom:'1px solid rgba(255,255,255,0.02)'}}>
-                  <div style={{fontSize:12}}><strong>{s.symbol}</strong> @ {s.price} • {new Date(s.ts).toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Debug HUD removed in demo-only reset */}
+      {/* Debug Panel removed in demo-only reset */}
     </div>
   )
 }

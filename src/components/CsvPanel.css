@@ -1,0 +1,89 @@
+/* Modern styles for CsvPanel */
+:root{
+  --panel-bg: rgba(6,18,22,0.9);
+  --panel-accent: rgba(20,90,80,0.16);
+  --muted: #9fb8b0;
+  --text: #dfeeea;
+  --accent: #18c7a3;
+}
+
+.csv-floating{position:fixed;right:12px;bottom:12px;z-index:90}
+.csv-toggle{
+  background: linear-gradient(180deg,#0e2a2a,#07201f);
+  color:var(--text);
+  border:none;padding:10px 14px;border-radius:10px;font-weight:700;box-shadow:0 6px 18px rgba(2,8,10,0.6);cursor:pointer;
+}
+.csv-modal{
+  position:fixed;left:50%;top:50%;z-index:1200;width: min(960px, calc(100% - 40px));transform:translate(-50%,-50%);background:var(--panel-bg);border-radius:12px;padding:14px;border:1px solid rgba(255,255,255,0.04);box-shadow:0 20px 50px rgba(0,0,0,0.6);
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  max-height: 90vh;
+  overflow-y: auto; /* allow vertical scroll inside modal */
+  overflow-x: hidden; /* prevent horizontal scrollbar */
+}
+
+/* when modal is open, prevent body scrolling */
+body.modal-open { overflow: hidden; }
+.csv-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.csv-controls{display:flex;gap:10px;align-items:center}
+.csv-replace{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.btn{background:linear-gradient(180deg,#1b3b3a,#0b2623);color:var(--text);border:none;padding:6px 10px;border-radius:8px;cursor:pointer}
+.btn-close{background:transparent;border:1px solid rgba(255,255,255,0.04)}
+.icon-btn{background:transparent;border:none;color:var(--text);padding:6px 8px;border-radius:6px;cursor:pointer}
+
+.csv-body{display:flex;gap:14px;align-items:flex-start}
+.csv-left{flex:1;background:linear-gradient(180deg,rgba(4,22,24,0.7),rgba(3,14,16,0.6));padding:10px;border-radius:8px;overflow:auto}
+/* cap left column so it scrolls independently when content is tall */
+.csv-left{max-height: calc(90vh - 200px)}
+.csv-right{width:260px;background:linear-gradient(180deg,rgba(4,18,20,0.65),rgba(3,12,14,0.6));padding:10px;border-radius:8px;display:flex;flex-direction:column}
+.csv-month{display:flex;flex-direction:column;gap:6px}
+.csv-month-nav{display:flex;align-items:center;gap:8px}
+.csv-month-title{font-weight:700}
+.csv-month-sub{font-size:12px;color:var(--muted)}
+.calendar-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:10px 0}
+.weekday{text-align:center;font-size:12px;color:var(--muted)}
+.calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.calendar-pad{min-height:44px}
+.calendar-cell{min-height:44px;border-radius:8px;padding:8px;background:rgba(2,12,14,0.35);position:relative;display:flex;flex-direction:column;justify-content:space-between}
+/* Make grid scrollable if it grows too tall */
+.calendar-grid{max-height: calc(70vh);overflow:auto;padding-right:6px}
+
+/* style internal scrollbars for better visibility */
+.calendar-grid::-webkit-scrollbar, .csv-left::-webkit-scrollbar, .history-list::-webkit-scrollbar { height:8px; width:8px }
+.calendar-grid::-webkit-scrollbar-thumb, .csv-left::-webkit-scrollbar-thumb, .history-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius:6px }
+.calendar-grid::-webkit-scrollbar-track, .csv-left::-webkit-scrollbar-track, .history-list::-webkit-scrollbar-track { background: transparent }
+.calendar-cell.cell-uploaded{box-shadow:inset 0 0 0 2px rgba(20,140,120,0.08);border:1px solid rgba(20,140,120,0.06)}
+.calendar-cell.cell-closed{opacity:0.7;background:linear-gradient(180deg,rgba(40,10,10,0.3),rgba(20,6,6,0.2))}
+.cell-top{display:flex;justify-content:space-between;align-items:center}
+.cell-day{font-weight:700;color:var(--text)}
+.cell-badges{display:flex;gap:6px}
+.badge{font-size:12px;padding:2px 6px;border-radius:6px}
+.badge.uploaded{background:rgba(16,90,80,0.12);color:var(--accent)}
+.badge.closed{background:rgba(160,30,30,0.08);color:#f99}
+.cell-actions{display:flex;gap:8px}
+.btn-import{flex:1;background:linear-gradient(180deg,#0f4f45,#08352a);font-size:12px;padding:6px;border-radius:8px}
+.btn-close-day{flex:1;background:linear-gradient(180deg,#3c2020,#2a1212);font-size:12px;padding:6px;border-radius:8px}
+
+.calendar-cell.cell-disabled{opacity:0.45;filter:grayscale(0.6);pointer-events:none;position:relative}
+.calendar-cell.cell-disabled .cell-actions{opacity:0.5}
+.calendar-cell.cell-disabled::after{content:'Locked';position:absolute;right:8px;top:8px;background:rgba(0,0,0,0.35);color:var(--muted);padding:4px 6px;border-radius:6px;font-size:11px}
+
+.history-title{margin-bottom:6px}
+.history-list{flex:1;overflow:auto;padding:6px;border-radius:6px}
+.history-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,0.02)}
+.history-key{color:var(--text)}
+.history-meta{color:var(--muted)}
+.history-controls{margin-top:8px}
+.history-actions{display:flex;gap:8px;margin-bottom:8px}
+.bulk-label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+.bulk-input{width:100%}
+.history-msg{margin-top:8px;color:var(--muted)}
+.csv-footer{margin-top:10px}
+.hint{color:var(--muted);font-size:12px}
+.busy{color:var(--accent)}
+
+/* Responsive */
+@media (max-width: 880px) {
+  .csv-modal{width:96%;right:8px;left:8px;bottom:60px}
+  .csv-body{flex-direction:column}
+  .csv-right{width:100%}
+}
