@@ -32,8 +32,32 @@ export default function useOHLCV() {
       const res = await fetch('/psx_snapshots.json');
       if (!res.ok) throw new Error('Failed to fetch snapshots JSON');
       const list = await res.json();
+      // If JSON is very large it likely contains full history; to avoid importing huge amounts
+      // (and duplicate entries) collapse to latest-per-symbol when the file is enormous.
+      let filteredList = list;
+      if (Array.isArray(list) && list.length > 100000) {
+        // keep only the latest timestamp record per symbol
+        const latestBySymbol = new Map();
+        for (const r of list) {
+          const sym = r.symbol;
+          const cur = latestBySymbol.get(sym);
+          if (!cur || (r.ts || 0) > (cur.ts || 0)) latestBySymbol.set(sym, r);
+        }
+        filteredList = Array.from(latestBySymbol.values());
+        console.info('[useOHLCV] large snapshots JSON detected; importing latest-per-symbol only', filteredList.length);
+      } else {
+        // remove exact duplicates (same symbol + ts) if any
+        const seen = new Set();
+        filteredList = list.filter((r) => {
+          const k = `${r.symbol}|${r.ts}`;
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+        if (filteredList.length !== list.length) console.info('[useOHLCV] removed duplicate snapshot records', list.length - filteredList.length);
+      }
       // convert to storage format
-      const items = list.map((r) => ({ symbol: r.symbol, market: r.market || 'PSX', ts: r.ts, price: r.price, volume: r.volume, value: null, raw: r }));
+      const items = filteredList.map((r) => ({ symbol: r.symbol, market: r.market || 'PSX', ts: r.ts, price: r.price, volume: r.volume, value: null, raw: r }));
       // save in batches to avoid blocking
       const BATCH = 800;
       for (let i = 0; i < items.length; i += BATCH) {
