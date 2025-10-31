@@ -593,6 +593,18 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     // increase small inline/logo sizes so logos are more easily recognizable inside small bubbles
     // doubled the multiplier and maximum cap
     const smallLogoSize = Math.max(6, Math.min(40, d.r * 1.8));
+    // create a dedicated circular clip for the small logo so the image is circular (not rectangular)
+    try {
+      defs
+        .append('clipPath')
+        .attr('id', `clip-logo-small-${d.id}`)
+        .append('circle')
+        .attr('r', Math.max(2, Math.round(smallLogoSize / 2)))
+        .attr('cx', 0)
+        .attr('cy', 0);
+    } catch (e) {
+      // ignore (defs might be removed on re-render)
+    }
     ln.append('image')
       .attr('class', 'logo-small')
       .attr('href', d.data.image)
@@ -600,7 +612,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       .attr('height', smallLogoSize)
       .attr('x', -smallLogoSize / 2)
       .attr('y', -smallLogoSize / 2)
-      .attr('clip-path', `url(#clip-${d.id})`)
+      .attr('clip-path', `url(#clip-logo-small-${d.id})`)
       .style('pointer-events', 'none');
     return;
   }
@@ -643,14 +655,27 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     const logoSize = Math.max(12, Math.min(80, d.r * 0.56));
     const logoY = -d.r * 0.6;
     const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${logoY})`);
-    badge.append('circle').attr('r', Math.max(8, logoSize / 2)).attr('fill', 'rgba(0,0,0,0.72)');
+    // remove the dark circular holder and instead clip the image to a circular shape so the
+    // provided logo itself appears circular. Create a dedicated clipPath sized to the image.
+    const imgSize = Math.max(10, Math.round(logoSize * 0.7));
+    try {
+      defs
+        .append('clipPath')
+        .attr('id', `clip-logo-badge-${d.id}`)
+        .append('circle')
+        .attr('r', Math.max(4, Math.round(imgSize / 2)))
+        .attr('cx', 0)
+        .attr('cy', 0);
+    } catch (e) {
+      // ignore
+    }
     badge.append('image')
       .attr('href', d.data.image)
-      .attr('width', Math.max(10, logoSize * 0.7))
-      .attr('height', Math.max(10, logoSize * 0.7))
-      .attr('x', -Math.max(10, logoSize * 0.7) / 2)
-      .attr('y', -Math.max(10, logoSize * 0.7) / 2)
-      .attr('clip-path', `url(#clip-${d.id})`)
+      .attr('width', imgSize)
+      .attr('height', imgSize)
+      .attr('x', -imgSize / 2)
+      .attr('y', -imgSize / 2)
+      .attr('clip-path', `url(#clip-logo-badge-${d.id})`)
       .style('pointer-events', 'none');
   }
       });
