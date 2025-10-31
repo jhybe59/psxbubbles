@@ -590,7 +590,9 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
   // If the calculated text width won't fit inside the bubble and we have an image, render logo instead
   if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
-    const smallLogoSize = Math.max(6, Math.min(20, d.r * 0.9));
+    // increase small inline/logo sizes so logos are more easily recognizable inside small bubbles
+    // doubled the multiplier and maximum cap
+    const smallLogoSize = Math.max(6, Math.min(40, d.r * 1.8));
     ln.append('image')
       .attr('class', 'logo-small')
       .attr('href', d.data.image)
@@ -637,7 +639,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
   // for larger rings, if image exists, render a small badge above the symbol
   if (d.r >= LOGO_ONLY_THRESHOLD && d.data && d.data.image) {
-    const logoSize = Math.max(12, Math.min(40, d.r * 0.28));
+    // enlarge badge logos above the symbol; doubled the multiplier and maximum cap
+    const logoSize = Math.max(12, Math.min(80, d.r * 0.56));
     const logoY = -d.r * 0.6;
     const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${logoY})`);
     badge.append('circle').attr('r', Math.max(8, logoSize / 2)).attr('fill', 'rgba(0,0,0,0.72)');
