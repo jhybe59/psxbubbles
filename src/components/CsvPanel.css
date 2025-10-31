@@ -63,6 +63,8 @@ body.modal-open { overflow: hidden; }
 .btn-import{flex:1;background:linear-gradient(180deg,#0f4f45,#08352a);font-size:12px;padding:6px;border-radius:8px}
 .btn-close-day{flex:1;background:linear-gradient(180deg,#3c2020,#2a1212);font-size:12px;padding:6px;border-radius:8px}
 
+.btn-delete{flex:1;background:linear-gradient(180deg,#6a1e1e,#3a0f0f);font-size:12px;padding:6px;border-radius:8px;color:var(--text)}
+
 .calendar-cell.cell-disabled{opacity:0.45;filter:grayscale(0.6);pointer-events:none;position:relative}
 .calendar-cell.cell-disabled .cell-actions{opacity:0.5}
 .calendar-cell.cell-disabled::after{content:'Locked';position:absolute;right:8px;top:8px;background:rgba(0,0,0,0.35);color:var(--muted);padding:4px 6px;border-radius:6px;font-size:11px}
@@ -70,6 +72,7 @@ body.modal-open { overflow: hidden; }
 .history-title{margin-bottom:6px}
 .history-list{flex:1;overflow:auto;padding:6px;border-radius:6px}
 .history-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,0.02)}
+.history-actions-row{margin-left:8px;display:flex;align-items:center}
 .history-key{color:var(--text)}
 .history-meta{color:var(--muted)}
 .history-controls{margin-top:8px}

@@ -166,6 +166,33 @@ export default function CsvPanel({ refreshCallback, currentInterval }) {
     }
   }
 
+  async function deleteUpload(key) {
+    if (!key) return
+    // confirm with user
+    // eslint-disable-next-line no-restricted-globals
+    if (!confirm(`Delete uploaded snapshots for ${key}? This cannot be undone.`)) return
+    try {
+      setBusy(true)
+      setMessage(`Deleting snapshots for ${key}...`)
+      const parts = key.split('-')
+      const y = parseInt(parts[0], 10)
+      const m = parseInt(parts[1], 10)
+      const d = parseInt(parts[2], 10)
+      const ts = startOfDayUtc(y, m, d)
+      await storage.purgeSnapshotsAt(ts)
+      const h = getHistory()
+      delete h[key]
+      saveHistory(h)
+      setHistoryState(h)
+      setMessage(`Deleted snapshots for ${key}`)
+      if (typeof refreshCallback === 'function') await refreshCallback(currentInterval)
+    } catch (err) {
+      console.error(err)
+      setMessage('Delete failed: ' + (err && err.message ? err.message : String(err)))
+    }
+    setBusy(false)
+  }
+
   async function bulkImportFiles(files) {
     if (!files || !files.length) return
     setBusy(true)
@@ -302,6 +329,9 @@ export default function CsvPanel({ refreshCallback, currentInterval }) {
                           input.click()
                         }}}>Import</button>
                         <button className="btn btn-close-day" onClick={()=>{ if (!disabled) markClosed(monthInfo.year, monthInfo.month, day) }}>Close Day</button>
+                        {meta && meta.status === 'uploaded' && !disabled && (
+                          <button className="btn btn-delete" onClick={()=>deleteUpload(key)}>Delete</button>
+                        )}
                       </div>
                     </div>
                   )
@@ -317,6 +347,9 @@ export default function CsvPanel({ refreshCallback, currentInterval }) {
                   <div key={k} className="history-row">
                     <div className="history-key">{k}</div>
                     <div className="history-meta">{historyState[k].status}{historyState[k].count ? ' • ' + historyState[k].count : ''}</div>
+                    <div className="history-actions-row">
+                      <button className="btn" onClick={()=>deleteUpload(k)}>Delete</button>
+                    </div>
                   </div>
                 ))}
               </div>
