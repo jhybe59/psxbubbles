@@ -84,8 +84,18 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   const w = Math.max(100, size.width - margin.left - margin.right);
   const h = Math.max(100, size.height - margin.top - margin.bottom);
 
-  // Global size multiplier to make all bubbles + labels larger
-  const GLOBAL_SIZE_MULTIPLIER = 1.5; // 50% larger
+  // Compute a dynamic global size multiplier based on how many bubbles we will render.
+  // When there are few bubbles we want them to scale up to fill empty space; when many
+  // bubbles are present we keep sizes more conservative to avoid heavy overlap.
+  function computeGlobalMultiplier(count) {
+    // Updated per user request:
+    // count >= 140 => 2.1
+    // count >= 80  => 2
+    // otherwise    => 2
+    if (count >= 140) return 2.1;
+    if (count >= 80) return 2.0;
+    return 1.7;
+  }
 
     // defs: blur filter for glow and radial gradient for bubble shading
     const defs = svg.append('defs');
@@ -156,12 +166,14 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     if (single) {
       const largest = used.reduce((a, b) => (Math.abs(b.price_change_percentage_24h || 0) > Math.abs(a.price_change_percentage_24h || 0) ? b : a), used[0] || null);
       if (!largest) return;
-  const baseR = radiusScale ? radiusScale(Math.abs(largest.price_change_percentage_24h || 0)) : Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMax]).range([12, 160])(largest.market_cap)));
-  // ensure the single bubble is visually prominent by scaling up relative to viewport
-  let displayR = Math.min(Math.max(baseR, Math.min(w, h) * 0.18), Math.min(w, h) / 2 - 16);
-  // apply global multiplier so single-mode bubble grows with others
-  displayR = Math.round(displayR * GLOBAL_SIZE_MULTIPLIER);
-  const singleNode = { id: largest.id, r: Math.round(baseR * GLOBAL_SIZE_MULTIPLIER), x: w / 2, y: h / 2, data: largest, displayR };
+    const baseR = radiusScale ? radiusScale(Math.abs(largest.price_change_percentage_24h || 0)) : Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMax]).range([12, 160])(largest.market_cap)));
+    // ensure the single bubble is visually prominent by scaling up relative to viewport
+    let displayR = Math.min(Math.max(baseR, Math.min(w, h) * 0.18), Math.min(w, h) / 2 - 16);
+    // compute multiplier based on number of used nodes so single-mode scales sensibly
+    const singleMult = computeGlobalMultiplier(used.length);
+    // apply multiplier so single-mode bubble grows with others
+    displayR = Math.round(displayR * singleMult);
+    const singleNode = { id: largest.id, r: Math.round(baseR * singleMult), x: w / 2, y: h / 2, data: largest, displayR };
 
       // create a radial gradient for this node (richer, glass-like)
       const pctForGrad = singleNode.data.price_change_percentage_24h ?? 0;
@@ -305,10 +317,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           n.r = Math.max(4, Math.round(n.r * finalScale));
         });
       }
-      // Apply global size multiplier so all bubbles (and derived label sizes) increase uniformly
-      if (typeof GLOBAL_SIZE_MULTIPLIER !== 'undefined' && Math.abs(GLOBAL_SIZE_MULTIPLIER - 1) > 1e-6) {
+      // Apply a density-aware global size multiplier so bubbles fill space better when there
+      // are few of them, and remain compact when the view is dense.
+      const GLOBAL_MULT = computeGlobalMultiplier(nodes.length);
+      if (Math.abs(GLOBAL_MULT - 1) > 1e-6) {
         nodes.forEach((n) => {
-          n.r = Math.max(4, Math.round(n.r * GLOBAL_SIZE_MULTIPLIER));
+          n.r = Math.max(4, Math.round(n.r * GLOBAL_MULT));
         });
       }
     } catch (e) {
