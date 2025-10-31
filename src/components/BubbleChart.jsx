@@ -587,9 +587,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
     return di.data && (di.data.price_change_percentage_24h ?? 0);
   })(d);
-  // sizes scale with radius — keep a slightly larger minimum for readability
-  const symSize = Math.max(10, Math.min(48, d.r * 0.32));
-  const pctSize = Math.max(10, Math.min(18, d.r * 0.18));
+  // sizes scale proportionally with the computed radius so text/logo feel uniform
+  // across different bubble sizes. Use sensible minimums to keep tiny bubbles readable.
+  const symSize = Math.max(8, Math.round(d.r * 0.36));
+  const pctSize = Math.max(8, Math.round(d.r * 0.24));
 
   // Determine whether text will fit inside the bubble. If not, prefer showing a logo
   // when available. This helps with dense/clustered views where labels overflow the ring.
@@ -604,9 +605,9 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
   // If the calculated text width won't fit inside the bubble and we have an image, render logo instead
   if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
-    // increase small inline/logo sizes so logos are more easily recognizable inside small bubbles
-    // doubled the multiplier and maximum cap
-    const smallLogoSize = Math.max(6, Math.min(40, d.r * 1.8));
+  // small inline/logo sizes scale with bubble radius and won't exceed the available inner width
+  const availableInnerWidth = Math.max(6, (d.r * 2) * 0.82);
+  const smallLogoSize = Math.max(6, Math.min(Math.round(d.r * 1.0), Math.round(availableInnerWidth)));
     // create a dedicated circular clip for the small logo so the image is circular (not rectangular)
     try {
       defs
@@ -665,19 +666,17 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
   // for larger rings, if image exists, render a small badge above the symbol
   if (d.r >= LOGO_ONLY_THRESHOLD && d.data && d.data.image) {
-    // enlarge badge logos above the symbol; doubled the multiplier and maximum cap
-    const logoSize = Math.max(12, Math.min(80, d.r * 0.56));
+    // badge image scales with radius so it stays proportional to the bubble
     const logoY = -d.r * 0.6;
     const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${logoY})`);
-    // remove the dark circular holder and instead clip the image to a circular shape so the
-    // provided logo itself appears circular. Create a dedicated clipPath sized to the image.
-    const imgSize = Math.max(10, Math.round(logoSize * 0.7));
+    // compute image size proportional to radius but not exceeding inner width
+    const badgeImgSize = Math.max(10, Math.min(Math.round(d.r * 0.7), Math.round((d.r * 2) * 0.6)));
     try {
       defs
         .append('clipPath')
         .attr('id', `clip-logo-badge-${d.id}`)
         .append('circle')
-        .attr('r', Math.max(4, Math.round(imgSize / 2)))
+        .attr('r', Math.max(4, Math.round(badgeImgSize / 2)))
         .attr('cx', 0)
         .attr('cy', 0);
     } catch (e) {
@@ -685,10 +684,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
     badge.append('image')
       .attr('href', d.data.image)
-      .attr('width', imgSize)
-      .attr('height', imgSize)
-      .attr('x', -imgSize / 2)
-      .attr('y', -imgSize / 2)
+      .attr('width', badgeImgSize)
+      .attr('height', badgeImgSize)
+      .attr('x', -badgeImgSize / 2)
+      .attr('y', -badgeImgSize / 2)
       .attr('clip-path', `url(#clip-logo-badge-${d.id})`)
       .style('pointer-events', 'none');
   }
@@ -711,8 +710,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         .attr('stroke-width', (d) => Math.max(2, Math.min(12, d.r * 0.08)));
 
       // labels: fade/scale in by transitioning font-size (note: exact font sizes are computed when labels are rendered)
-      labelNodes.selectAll('.symbol').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.min(48, d.r * 0.32))}px`);
-      labelNodes.selectAll('.pct').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.min(18, d.r * 0.18))}px`);
+  labelNodes.selectAll('.symbol').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.36))}px`);
+  labelNodes.selectAll('.pct').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.24))}px`);
     } catch (e) {
       // ignore animation errors
     }
