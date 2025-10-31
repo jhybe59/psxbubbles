@@ -80,9 +80,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     svg.selectAll('*').remove();
     if (!data || data.length === 0) return;
 
-    const margin = { top: 20, right: 20, bottom: 20, left: 20 };
-    const w = Math.max(100, size.width - margin.left - margin.right);
-    const h = Math.max(100, size.height - margin.top - margin.bottom);
+  const margin = { top: 20, right: 20, bottom: 20, left: 20 };
+  const w = Math.max(100, size.width - margin.left - margin.right);
+  const h = Math.max(100, size.height - margin.top - margin.bottom);
+
+  // Global size multiplier to make all bubbles + labels larger
+  const GLOBAL_SIZE_MULTIPLIER = 1.5; // 50% larger
 
     // defs: blur filter for glow and radial gradient for bubble shading
     const defs = svg.append('defs');
@@ -153,10 +156,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     if (single) {
       const largest = used.reduce((a, b) => (Math.abs(b.price_change_percentage_24h || 0) > Math.abs(a.price_change_percentage_24h || 0) ? b : a), used[0] || null);
       if (!largest) return;
-      const baseR = radiusScale ? radiusScale(Math.abs(largest.price_change_percentage_24h || 0)) : Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMax]).range([12, 160])(largest.market_cap)));
-      // ensure the single bubble is visually prominent by scaling up relative to viewport
-      const displayR = Math.min(Math.max(baseR, Math.min(w, h) * 0.18), Math.min(w, h) / 2 - 16);
-      const singleNode = { id: largest.id, r: baseR, x: w / 2, y: h / 2, data: largest, displayR };
+  const baseR = radiusScale ? radiusScale(Math.abs(largest.price_change_percentage_24h || 0)) : Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMax]).range([12, 160])(largest.market_cap)));
+  // ensure the single bubble is visually prominent by scaling up relative to viewport
+  let displayR = Math.min(Math.max(baseR, Math.min(w, h) * 0.18), Math.min(w, h) / 2 - 16);
+  // apply global multiplier so single-mode bubble grows with others
+  displayR = Math.round(displayR * GLOBAL_SIZE_MULTIPLIER);
+  const singleNode = { id: largest.id, r: Math.round(baseR * GLOBAL_SIZE_MULTIPLIER), x: w / 2, y: h / 2, data: largest, displayR };
 
       // create a radial gradient for this node (richer, glass-like)
       const pctForGrad = singleNode.data.price_change_percentage_24h ?? 0;
@@ -298,6 +303,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       if (Math.abs(finalScale - 1) > 1e-4) {
         nodes.forEach((n) => {
           n.r = Math.max(4, Math.round(n.r * finalScale));
+        });
+      }
+      // Apply global size multiplier so all bubbles (and derived label sizes) increase uniformly
+      if (typeof GLOBAL_SIZE_MULTIPLIER !== 'undefined' && Math.abs(GLOBAL_SIZE_MULTIPLIER - 1) > 1e-6) {
+        nodes.forEach((n) => {
+          n.r = Math.max(4, Math.round(n.r * GLOBAL_SIZE_MULTIPLIER));
         });
       }
     } catch (e) {
@@ -566,69 +577,79 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   const symSize = Math.max(10, Math.min(48, d.r * 0.32));
   const pctSize = Math.max(10, Math.min(18, d.r * 0.18));
 
-        // if very small, try to render a tiny logo centered inside the ring (if image available)
-        const LOGO_ONLY_THRESHOLD = 16;
-        if (d.r <= LOGO_ONLY_THRESHOLD && d.data && d.data.image) {
-          const smallLogoSize = Math.max(6, Math.min(20, d.r * 0.9));
-          ln.append('image')
-            .attr('class', 'logo-small')
-            .attr('href', d.data.image)
-            .attr('width', smallLogoSize)
-            .attr('height', smallLogoSize)
-            .attr('x', -smallLogoSize / 2)
-            .attr('y', -smallLogoSize / 2)
-            .attr('clip-path', `url(#clip-${d.id})`)
-            .style('pointer-events', 'none');
-          return;
-        }
+  // Determine whether text will fit inside the bubble. If not, prefer showing a logo
+  // when available. This helps with dense/clustered views where labels overflow the ring.
+  const symbolText = d.data && (d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || '')) || '';
+  const approxCharWidthFactor = 0.62; // approximation: avg char width relative to font-size
+  const approxTextWidth = symbolText.length * symSize * approxCharWidthFactor;
+  // available inner diameter roughly equals diameter minus a small padding
+  const availableInnerWidth = Math.max(6, (d.r * 2) * 0.82);
 
-        // skip labels for extremely tiny rings with no image
-        if (d.r < 6) return;
+  // thresholds
+  const LOGO_ONLY_THRESHOLD = 16; // very small bubbles always prefer logo when available
+
+  // If the calculated text width won't fit inside the bubble and we have an image, render logo instead
+  if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
+    const smallLogoSize = Math.max(6, Math.min(20, d.r * 0.9));
+    ln.append('image')
+      .attr('class', 'logo-small')
+      .attr('href', d.data.image)
+      .attr('width', smallLogoSize)
+      .attr('height', smallLogoSize)
+      .attr('x', -smallLogoSize / 2)
+      .attr('y', -smallLogoSize / 2)
+      .attr('clip-path', `url(#clip-${d.id})`)
+      .style('pointer-events', 'none');
+    return;
+  }
+
+  // skip labels for extremely tiny rings with no image
+  if (d.r < 6) return;
 
   // symbol: centered slightly above center for better optical balance
-        const symbolY = Math.round(-symSize * 0.12);
-        const symEl = ln.append('text')
-          .attr('class', 'symbol')
-          .text(d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || ''))
-          .attr('text-anchor', 'middle')
-          .attr('y', symbolY)
-          .attr('dominant-baseline', 'middle')
-          .style('pointer-events', 'none')
-          .style('fill', '#ffffff')
-          .style('font-weight', 800)
-          .style('font-size', `${symSize}px`);
-        // only apply the subtle text shadow for larger labels to avoid blurring tiny fonts
-        if (symSize >= 12) symEl.attr('filter', 'url(#textShadow)');
+  const symbolY = Math.round(-symSize * 0.12);
+  const symEl = ln.append('text')
+    .attr('class', 'symbol')
+    .text(symbolText)
+    .attr('text-anchor', 'middle')
+    .attr('y', symbolY)
+    .attr('dominant-baseline', 'middle')
+    .style('pointer-events', 'none')
+    .style('fill', '#ffffff')
+    .style('font-weight', 800)
+    .style('font-size', `${symSize}px`);
+  // only apply the subtle text shadow for larger labels to avoid blurring tiny fonts
+  if (symSize >= 12) symEl.attr('filter', 'url(#textShadow)');
 
-        // percent below the symbol
-        const pctY = Math.round(symbolY + symSize * 0.9 + 6);
-        const pctEl = ln.append('text')
-          .attr('class', 'pct')
-          .text(`${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`)
-          .attr('text-anchor', 'middle')
-          .attr('y', pctY)
-          .attr('dominant-baseline', 'middle')
-          .style('pointer-events', 'none')
-          .style('fill', pct >= 0 ? '#baf3c9' : '#ffb6b6')
-          .style('font-size', `${pctSize}px`)
-          .style('font-weight', 700);
-        if (pctSize >= 12) pctEl.attr('filter', 'url(#textShadow)');
+  // percent below the symbol
+  const pctY = Math.round(symbolY + symSize * 0.9 + 6);
+  const pctEl = ln.append('text')
+    .attr('class', 'pct')
+    .text(`${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`)
+    .attr('text-anchor', 'middle')
+    .attr('y', pctY)
+    .attr('dominant-baseline', 'middle')
+    .style('pointer-events', 'none')
+    .style('fill', pct >= 0 ? '#baf3c9' : '#ffb6b6')
+    .style('font-size', `${pctSize}px`)
+    .style('font-weight', 700);
+  if (pctSize >= 12) pctEl.attr('filter', 'url(#textShadow)');
 
-        // for larger rings, if image exists, render a small badge above the symbol
+  // for larger rings, if image exists, render a small badge above the symbol
   if (d.r >= LOGO_ONLY_THRESHOLD && d.data && d.data.image) {
-          const logoSize = Math.max(12, Math.min(40, d.r * 0.28));
-          const logoY = -d.r * 0.6;
-          const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${logoY})`);
-          badge.append('circle').attr('r', Math.max(8, logoSize / 2)).attr('fill', 'rgba(0,0,0,0.72)');
-          badge.append('image')
-            .attr('href', d.data.image)
-            .attr('width', Math.max(10, logoSize * 0.7))
-            .attr('height', Math.max(10, logoSize * 0.7))
-            .attr('x', -Math.max(10, logoSize * 0.7) / 2)
-            .attr('y', -Math.max(10, logoSize * 0.7) / 2)
-            .attr('clip-path', `url(#clip-${d.id})`)
-            .style('pointer-events', 'none');
-        }
+    const logoSize = Math.max(12, Math.min(40, d.r * 0.28));
+    const logoY = -d.r * 0.6;
+    const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${logoY})`);
+    badge.append('circle').attr('r', Math.max(8, logoSize / 2)).attr('fill', 'rgba(0,0,0,0.72)');
+    badge.append('image')
+      .attr('href', d.data.image)
+      .attr('width', Math.max(10, logoSize * 0.7))
+      .attr('height', Math.max(10, logoSize * 0.7))
+      .attr('x', -Math.max(10, logoSize * 0.7) / 2)
+      .attr('y', -Math.max(10, logoSize * 0.7) / 2)
+      .attr('clip-path', `url(#clip-${d.id})`)
+      .style('pointer-events', 'none');
+  }
       });
 
     // entry animation: grow circles/labels from small to their computed sizes for a smooth transition

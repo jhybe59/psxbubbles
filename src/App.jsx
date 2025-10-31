@@ -369,7 +369,18 @@ function App() {
               ref={chartRef}
               data={(() => {
                 // when using OHLCV data the hook returns objects shaped for the chart
-                return displayedCoins && displayedCoins.length ? displayedCoins : (coins || []);
+                const meta = getAllMetadata();
+                const src = displayedCoins && displayedCoins.length ? displayedCoins : (coins || []);
+                // merge metadata (image, displayName, shortName) into each coin so BubbleChart can render logos
+                return (src || []).map((c) => {
+                  try {
+                    const key = (c.symbol || c.id || '').toString();
+                    const m = meta[key] || {};
+                    return Object.assign({}, c, { image: m.image || c.image, displayName: m.displayName || c.displayName, shortName: m.shortName || c.shortName });
+                  } catch (e) {
+                    return c;
+                  }
+                });
               })()}
               selectedIndex={selectedIndex}
               className="bubble-chart"
