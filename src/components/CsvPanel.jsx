@@ -35,6 +35,30 @@ function toNum(s){
   return Number.isFinite(v) ? v : null;
 }
 
+function parseAbbreviatedNumber(s) {
+  if (s === undefined || s === null) return null;
+  let str = ('' + s).trim();
+  if (!str) return null;
+  // remove commas and surrounding whitespace
+  str = str.replace(/,/g, '').trim();
+  // match suffixes like K, M, B, T (case-insensitive)
+  const m = str.match(/^([-+]?\d*\.?\d+)([kKmMbBtT])?$/);
+  if (m) {
+    const n = Number(m[1]);
+    if (!Number.isFinite(n)) return null;
+    const suf = (m[2] || '').toUpperCase();
+    switch (suf) {
+      case 'K': return n * 1e3;
+      case 'M': return n * 1e6;
+      case 'B': return n * 1e9;
+      case 'T': return n * 1e12;
+      default: return n;
+    }
+  }
+  // fallback: try to parse using toNum
+  return toNum(str);
+}
+
 export default function CsvPanel({ refreshCallback, currentInterval }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,7 +97,9 @@ export default function CsvPanel({ refreshCallback, currentInterval }) {
   const normalize = useCallback((row, dateTs) => {
     const symbol = row.Symbol || row.symbol || row.Ticker || row.ticker || row.SYMBOL
     const price = toNum(row.Close || row.close || row.Price || row.price || row.Last) || 0
-    const vol = toNum(row.Volume || row.volume || row.Vol) || 0
+  const rawVol = row.Volume || row.volume || row.Vol || row.V || ''
+  const volParsed = parseAbbreviatedNumber(rawVol)
+  const vol = (volParsed != null) ? volParsed : 0
     const pctRaw = row['Price Change % 1 day'] || row['1D%'] || row['1d%'] || row['%1d'] || row['Change%'] || row['Change'] || row['%'] || ''
     const pct = toNum(pctRaw) || 0
     return {

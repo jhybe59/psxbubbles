@@ -126,49 +126,53 @@ export default function PriceRange({ marks = [{ value: 0, label: '0' }], value =
 
   return (
     <div className="price-filter">
-      <div className="price-labels">
-        {marks.map((m, i) => {
-          const left = (i / Math.max(1, marks.length - 1)) * 100
-          return (
-            <div key={i} className="tick" style={{ left: `${left}%` }} title={String(m.value)} onClick={() => onTickClick(i)}>
-              {m.label}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="range-wrap" style={{ ['--left' /* style var name */]: `${leftPct}%`, ['--right' /* style var name */]: `${100 - rightPct}%` }}>
-        <input
-          className={`range range-min ${activeThumb === 'min' ? 'active' : ''}`}
-          type="range"
-          min={0}
-          max={maxIdx}
-          step={1}
-          value={minIdx}
-          onChange={handleMinIdx}
-          onMouseDown={() => setActiveThumb('min')}
-          onTouchStart={() => setActiveThumb('min')}
-          onFocus={() => setActiveThumb('min')}
-          onBlur={() => setActiveThumb(null)}
-        />
-        <input
-          className={`range range-max ${activeThumb === 'max' ? 'active' : ''}`}
-          type="range"
-          min={minIdx}
-          max={maxIndex}
-          step={1}
-          value={maxIdx}
-          onChange={handleMaxIdx}
-          onMouseDown={() => setActiveThumb('max')}
-          onTouchStart={() => setActiveThumb('max')}
-          onFocus={() => setActiveThumb('max')}
-          onBlur={() => setActiveThumb(null)}
-        />
-        <div className="range-track" aria-hidden />
-      </div>
-
-      <div className="price-values">
+      {/* row that contains left input, slider, and right input */}
+      <div className="range-row">
         <input className="price-input left" value={leftText} onChange={handleLeftTextChange} />
+
+        <div className="range-wrap" style={{ ['--left' /* style var name */]: `${leftPct}%`, ['--right' /* style var name */]: `${100 - rightPct}%` }}>
+          {/* tick labels inside the range-wrap so they align exactly with the track */}
+          <div className="price-labels">
+            {marks.map((m, i) => {
+              const left = (i / Math.max(1, marks.length - 1)) * 100
+              return (
+                <div key={i} className="tick" style={{ left: `${left}%` }} title={String(m.value)} onClick={() => onTickClick(i)}>
+                  <div className="tick-label">{m.label}</div>
+                  <div className="tick-line" aria-hidden />
+                </div>
+              )
+            })}
+          </div>
+
+          <input
+            className={`range range-min ${activeThumb === 'min' ? 'active' : ''}`}
+            type="range"
+            min={0}
+            max={maxIdx}
+            step={1}
+            value={minIdx}
+            onChange={handleMinIdx}
+            onMouseDown={() => setActiveThumb('min')}
+            onTouchStart={() => setActiveThumb('min')}
+            onFocus={() => setActiveThumb('min')}
+            onBlur={() => setActiveThumb(null)}
+          />
+          <input
+            className={`range range-max ${activeThumb === 'max' ? 'active' : ''}`}
+            type="range"
+            min={minIdx}
+            max={maxIndex}
+            step={1}
+            value={maxIdx}
+            onChange={handleMaxIdx}
+            onMouseDown={() => setActiveThumb('max')}
+            onTouchStart={() => setActiveThumb('max')}
+            onFocus={() => setActiveThumb('max')}
+            onBlur={() => setActiveThumb(null)}
+          />
+          <div className="range-track" aria-hidden />
+        </div>
+
         <input className="price-input right" value={rightText} onChange={handleRightTextChange} />
       </div>
     </div>

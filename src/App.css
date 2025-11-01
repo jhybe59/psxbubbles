@@ -352,13 +352,54 @@ body {
 .coin-top { display:flex; justify-content:space-between; align-items:center; padding:6px 12px }
 .coin-image { width:56px; height:56px; border-radius:10px; background:#111 }
 .coin-title { font-size:18px; font-weight:800 }
+.header-v2 .symbol-row { display:flex; gap:12px; align-items:center }
+.header-v2 .symbol-info { display:flex; flex-direction:column; gap:6px }
+.header-v2 .symbol-line { display:flex; align-items:center; gap:8px }
+.symbol-code { font-weight:900; font-size:18px; color:#fff }
+.symbol-badge { font-size:11px; padding:4px 8px; border-radius:8px; background: rgba(255,255,255,0.03); color:#cfeee2; border:1px solid rgba(255,255,255,0.03); font-weight:700 }
+.header-v2 .price-line { display:flex; align-items:center; gap:10px; margin-top:4px }
+.header-v2 .coin-price { font-size:22px; font-weight:900 }
+.pct-badge { padding:6px 8px; border-radius:10px; font-weight:800; font-size:13px }
+.small-change { color:#9aa4a6; font-size:13px; font-weight:700 }
+
+/* top stats row styling */
+.top-stats { display:flex; gap:18px; align-items:center; margin-top:10px; flex-wrap:wrap }
+.top-stats .stat-col { display:flex; flex-direction:column; min-width:92px }
+.top-stats .stat-label { color:#9aa4a6; font-size:12px }
+.top-stats .stat-value { font-weight:800; color:#ffffff; margin-top:6px }
+
+@media (max-width: 640px) {
+  .header-v2 .coin-price { font-size:18px }
+  .top-stats { gap:10px }
+  .top-stats .stat-col { min-width:72px }
+}
+
+/* small inline OHLC display used in the header box */
+/* inline OHLC moved/removed from header — styles removed */
+
+/* top-box wraps the header + small stat rows so they appear as a single boxed card */
+.top-box {
+  background: linear-gradient(180deg, rgba(8,12,14,0.85), rgba(6,9,11,0.8));
+  border: 1px solid rgba(255,255,255,0.03);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+/* make sure the boxed header looks tight on small screens */
+@media (max-width: 420px) {
+  .top-box { padding: 10px; margin-bottom: 10px }
+  .symbol-line { gap:6px }
+}
 .coin-symbol { opacity:0.8; font-weight:600; margin-left:6px }
 .coin-sub { font-size:12px; color:#9aa4a6 }
 .coin-right { text-align:right }
 .coin-price { font-size:20px; font-weight:900 }
 .coin-pct { font-size:13px; font-weight:800 }
 
-.coin-stats-row { display:flex; gap:24px; padding:6px 12px; margin-top:4px }
+.coin-stats-row { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; margin-top:4px }
+.coin-stats-left { flex: 1 1 auto }
+.coin-stats-right { flex: 0 0 auto; text-align: right }
 .coin-stats-row .stat { color:#9aa4a6; font-size:13px }
 .coin-stats-row .stat strong { color:#fff }
 
@@ -496,23 +537,57 @@ footer.footer {
 
 /* tick labels above the track */
 .price-filter { display:flex; flex-direction:column; align-items:center; gap:6px }
-.price-filter .price-labels { position: relative; width: 100%; max-width: 520px; height: 20px; margin-bottom: 6px; }
-.price-filter .price-labels .tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 12px; color: #cddfe0; white-space: nowrap; cursor: pointer; padding: 2px 4px; }
-.price-filter .price-labels .tick:hover { color: #ffffff; transform: translateX(-50%) scale(1.05); }
+.price-filter .range-wrap { position: relative }
+.price-filter .range-wrap .price-labels { position: absolute; left: 0; right: 0; top: -32px; height: 28px; }
+.price-filter .range-wrap .price-labels .tick { position: absolute; top: 4px; transform: translateX(-50%); font-size: 12px; color: #cddfe0; white-space: nowrap; cursor: pointer; padding: 0 4px; display:flex; flex-direction:column; align-items:center }
+.price-filter .range-wrap .price-labels .tick:hover { color: #ffffff; transform: translateX(-50%) scale(1.02); }
+.price-filter .range-wrap .price-labels .tick .tick-label { margin-bottom: 4px }
+.price-filter .range-wrap .price-labels .tick .tick-line { width: 2px; height: 10px; background: rgba(255,255,255,0.08); border-radius:1px; margin-top:2px }
 
-.price-filter .range-wrap { width: 100%; max-width: 520px; }
+.price-filter .range-row { display:flex; align-items:center; gap:8px; width:100%; max-width:1200px; flex-wrap:nowrap; margin: 0 220px; box-sizing: border-box }
+.price-filter .range-wrap { order: 1; flex: 1 1 auto; min-width: 160px; margin: 0 8px }
 .price-filter .price-values { display:flex; align-items:center; gap:12px; margin-top:6px }
 .price-input {
-  background: rgba(0,0,0,0.55);
+  background: rgba(0,0,0,0.8);
   border: 1px solid rgba(255,255,255,0.04);
   color: #e6f7ff;
   padding: 6px 10px;
   border-radius: 8px;
-  font-weight: 700;
-  min-width: 72px;
+  font-weight: 800;
+  min-width: 44px;
+  max-width: 92px;
   text-align: center;
+  font-size: 13px;
+  flex: 0 0 auto;
 }
 .price-input:focus { outline: none; box-shadow: 0 6px 20px rgba(0,0,0,0.6); }
+
+/* place left input to left and right input to right in the range row */
+.price-input.left { order: 0 }
+.price-input.right { order: 2 }
+.range-wrap { order: 1; }
+
+/* When viewport is small, reduce the margins used to clear floating buttons */
+@media (max-width: 980px) {
+  .price-filter .range-row { margin: 0 120px }
+}
+@media (max-width: 640px) {
+  .price-filter .range-row { margin: 0 36px; gap:6px }
+  .price-input { min-width: 40px; max-width: 72px; padding: 6px 8px }
+}
+
+/* additional responsive breakpoints to avoid overlap with floating buttons */
+@media (max-width: 1400px) {
+  .price-filter .range-row { margin: 0 160px }
+}
+@media (max-width: 1200px) {
+  .price-filter .range-row { margin: 0 120px }
+}
+@media (max-width: 1000px) {
+  .price-filter .range-row { margin: 0 80px }
+  .price-input { min-width: 40px; max-width: 64px }
+  .price-filter .range-wrap { min-width: 120px }
+}
 
 
 /* Responsive breakpoints: mobile, tablet, desktop */
