@@ -44,6 +44,23 @@ Notes:
 
 If you'd like remote/offsite backups (recommended for extra safety), I can add optional upload to S3, Dropbox, or another provider.
 
+Logo migration (data-URI -> repo assets)
+---------------------------------------
+
+If you used the Symbols Panel to upload logos they are stored in localStorage as data-URIs. To extract those images into repo files (so they're available from `public/assets/logos/` and not kept in localStorage), you can:
+
+1. In the app open Symbols Panel and click Export to save `symbol-metadata.json`.
+2. From the project root run:
+
+```powershell
+npm run migrate-logos -- symbol-metadata.json
+```
+
+3. The script will create `public/assets/logos/` and write extracted image files, and output `public/assets/migrated_symbol_metadata.json` with updated `image` paths (e.g. `/assets/logos/ABC.svg`).
+4. You can then import the migrated JSON back into the Symbols Panel (Import) or copy the file into your deployment process so the app uses the repo-hosted SVGs.
+
+Note: the script only processes data-URI images (it will leave existing URLs untouched). After migration you may want to clear large data-URIs from localStorage to save space.
+
 Admin server & Backup panel
 --------------------------
 

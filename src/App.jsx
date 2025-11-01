@@ -9,6 +9,7 @@ import SearchPopover from './components/SearchPopover'
 import IndexManager from './components/IndexManager'
 import CsvPanel from './components/CsvPanel'
 import SymbolsPanel from './components/SymbolsPanel'
+import PriceRange from './components/PriceRange'
 import { createRadiusScale } from './utils/scales'
 import storage from './lib/storage'
 import './App.css'
@@ -70,6 +71,8 @@ function App() {
       // ignore
     }
   }, [indexMap]);
+  // Price range filtering state: start as full discrete marks (1..Infinity)
+  const [priceRange, setPriceRange] = useState([1, Number.POSITIVE_INFINITY])
   const [symbolsPanelOpen, setSymbolsPanelOpen] = useState(false)
   
   // load favorites from localStorage; store array of coin ids
@@ -177,19 +180,33 @@ function App() {
   // and return the filtered results.
   const displayedCoins = useMemo(() => {
     const per = 100;
+    const [pmin, pmax] = priceRange || [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY];
     // If an index is selected, ignore page buckets and show only index members
     if (selectedIndex) {
       const members = indexMap && indexMap[selectedIndex] ? new Set((indexMap[selectedIndex] || []).map(s => s.toLowerCase())) : null;
       if (!members) return [];
-      return filtered.filter((c) => members.has((c.symbol || c.id || '').toLowerCase()));
+      return filtered
+        .filter((c) => members.has((c.symbol || c.id || '').toLowerCase()))
+        .filter((c) => {
+          const p = Number(c.price == null ? c.close || 0 : c.price);
+          return !Number.isNaN(p) && p >= pmin && p <= pmax;
+        });
     }
-    if (pageIndex == null) return filtered;
+    if (pageIndex == null) {
+      return filtered.filter((c) => {
+        const p = Number(c.price == null ? c.close || 0 : c.price);
+        return !Number.isNaN(p) && p >= pmin && p <= pmax;
+      });
+    }
     const start = pageIndex * per;
     // use visible coins for paging so hidden symbols don't occupy slots
     const meta = getAllMetadata();
     const visible = (coins || []).filter((c) => !(meta[c.symbol] && meta[c.symbol].hidden));
-    return visible.slice(start, start + per);
-  }, [filtered, coins, pageIndex, selectedIndex, indexMap]);
+    return visible.slice(start, start + per).filter((c) => {
+      const p = Number(c.price == null ? c.close || 0 : c.price);
+      return !Number.isNaN(p) && p >= pmin && p <= pmax;
+    });
+  }, [filtered, coins, pageIndex, selectedIndex, indexMap, priceRange]);
 
   useEffect(() => {
     function onKey(e) {
@@ -239,6 +256,7 @@ function App() {
   ];
 
   const [indexManagerOpen, setIndexManagerOpen] = useState(false)
+  
 
   // persist page/index selection so UI returns to last state across refreshes
   useEffect(() => {
@@ -254,6 +272,10 @@ function App() {
       else localStorage.setItem('selectedIndex', String(selectedIndex));
     } catch (e) { /* ignore */ }
   }, [selectedIndex]);
+
+  // NOTE: priceRange is discrete via PriceRange marks (1,10,100,500,1000+).
+  // We intentionally don't override user selection on coins load so the
+  // marks-based slider remains stable and predictable.
 
   return (
     <div className="app">
@@ -407,7 +429,21 @@ function App() {
         </section>
       </main>
 
-      <footer className="footer">Built for learning</footer>
+      <footer className="footer">
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,width:'100%'}}>
+          <PriceRange
+            marks={[
+              { value: 1, label: '1' },
+              { value: 10, label: '10' },
+              { value: 100, label: '100' },
+              { value: 500, label: '500' },
+              { value: 1000, label: '1000+', open: true }
+            ]}
+            value={priceRange}
+            onChange={(v) => setPriceRange(v)}
+          />
+        </div>
+      </footer>
 
       {/* controls slide-over removed; header refresh button replaces it */}
 
