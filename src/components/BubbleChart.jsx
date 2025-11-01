@@ -579,118 +579,130 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       // render centered symbol and percent inside each ring (scaled to radius)
       labelNodes.each(function (d) {
         const ln = d3.select(this);
-  const pct = (function getPctLocal(di) {
-    if (di.overridePct != null) return di.overridePct;
-    if (aggregations && selections && selections.size === 'Performance') {
-      const v = aggregations.get(di.data && (di.data.symbol || di.data.id) || di.id);
-      if (v != null) return v;
-    }
-    return di.data && (di.data.price_change_percentage_24h ?? 0);
-  })(d);
-  // sizes scale proportionally with the computed radius so text/logo feel uniform
-  // across different bubble sizes. Use sensible minimums to keep tiny bubbles readable.
-  const symSize = Math.max(8, Math.round(d.r * 0.36));
-  const pctSize = Math.max(8, Math.round(d.r * 0.24));
+        const pct = (function getPctLocal(di) {
+          if (di.overridePct != null) return di.overridePct;
+          if (aggregations && selections && selections.size === 'Performance') {
+            const v = aggregations.get(di.data && (di.data.symbol || di.data.id) || di.id);
+            if (v != null) return v;
+          }
+          return di.data && (di.data.price_change_percentage_24h ?? 0);
+        })(d);
 
-  // Determine whether text will fit inside the bubble. If not, prefer showing a logo
-  // when available. This helps with dense/clustered views where labels overflow the ring.
-  const symbolText = d.data && (d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || '')) || '';
-  const approxCharWidthFactor = 0.62; // approximation: avg char width relative to font-size
-  const approxTextWidth = symbolText.length * symSize * approxCharWidthFactor;
-  // available inner diameter roughly equals diameter minus a small padding
-  const availableInnerWidth = Math.max(6, (d.r * 2) * 0.82);
+        // sizes scale proportionally with the computed radius so text/logo feel uniform
+        // across different bubble sizes. Use sensible minimums to keep tiny bubbles readable.
+        const symSize = Math.max(8, Math.round(d.r * 0.36));
+        const pctSize = Math.max(8, Math.round(d.r * 0.24));
 
-  // thresholds
-  const LOGO_ONLY_THRESHOLD = 16; // very small bubbles always prefer logo when available
+  // small downward nudge so stack doesn't sit flush to the top edge of the bubble
+  const nudge = Math.round(d.r * 0.08); // ~8% of radius
+  const spacing = Math.max(3, Math.round(d.r * 0.06));
+  // nudge the badge/logo slightly upwards relative to the stacked text and increase
+  // the spacing between badge and symbol so there's visible breathing room
+  const logoUp = Math.round(d.r * 0.06); // ~6% of radius upward for badge
+  const badgeSpacing = spacing + Math.round(d.r * 0.04); // slightly larger gap above symbol
 
-  // If the calculated text width won't fit inside the bubble and we have an image, render logo instead
-  if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
-  // small inline/logo sizes scale with bubble radius and won't exceed the available inner width
-  const availableInnerWidth = Math.max(6, (d.r * 2) * 0.82);
-  const smallLogoSize = Math.max(6, Math.min(Math.round(d.r * 1.0), Math.round(availableInnerWidth)));
-    // create a dedicated circular clip for the small logo so the image is circular (not rectangular)
-    try {
-      defs
-        .append('clipPath')
-        .attr('id', `clip-logo-small-${d.id}`)
-        .append('circle')
-        .attr('r', Math.max(2, Math.round(smallLogoSize / 2)))
-        .attr('cx', 0)
-        .attr('cy', 0);
-    } catch (e) {
-      // ignore (defs might be removed on re-render)
-    }
-    ln.append('image')
-      .attr('class', 'logo-small')
-      .attr('href', d.data.image)
-      .attr('width', smallLogoSize)
-      .attr('height', smallLogoSize)
-      .attr('x', -smallLogoSize / 2)
-      .attr('y', -smallLogoSize / 2)
-      .attr('clip-path', `url(#clip-logo-small-${d.id})`)
-      .style('pointer-events', 'none');
-    return;
-  }
+        // Determine whether text will fit inside the bubble. If not, prefer showing a logo
+        const symbolText = d.data && (d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || '')) || '';
+        const approxCharWidthFactor = 0.62; // approximation: avg char width relative to font-size
+        const approxTextWidth = symbolText.length * symSize * approxCharWidthFactor;
+        const availableInnerWidth = Math.max(6, (d.r * 2) * 0.82);
 
-  // skip labels for extremely tiny rings with no image
-  if (d.r < 6) return;
+        // thresholds
+        const LOGO_ONLY_THRESHOLD = 16; // very small bubbles prefer logo
 
-  // symbol: centered slightly above center for better optical balance
-  const symbolY = Math.round(-symSize * 0.12);
-  const symEl = ln.append('text')
-    .attr('class', 'symbol')
-    .text(symbolText)
-    .attr('text-anchor', 'middle')
-    .attr('y', symbolY)
-    .attr('dominant-baseline', 'middle')
-    .style('pointer-events', 'none')
-    .style('fill', '#ffffff')
-    .style('font-weight', 800)
-    .style('font-size', `${symSize}px`);
-  // only apply the subtle text shadow for larger labels to avoid blurring tiny fonts
-  if (symSize >= 12) symEl.attr('filter', 'url(#textShadow)');
+        // If the calculated text width won't fit inside the bubble and we have an image, render logo-only
+        if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
+          // slightly reduce small inline/logo size so it doesn't hug the top edge
+          const smallLogoSize = Math.max(6, Math.min(Math.round(d.r * 0.85), Math.round(availableInnerWidth)));
+          const topY = -Math.round(smallLogoSize / 2) + nudge;
+          try {
+            defs
+              .append('clipPath')
+              .attr('id', `clip-logo-small-${d.id}`)
+              .append('circle')
+              .attr('r', Math.max(2, Math.round(smallLogoSize / 2)))
+              .attr('cx', 0)
+              .attr('cy', 0);
+          } catch (e) {
+            // ignore (defs might be removed on re-render)
+          }
+          ln.append('image')
+            .attr('class', 'logo-small')
+            .attr('href', d.data.image)
+            .attr('width', smallLogoSize)
+            .attr('height', smallLogoSize)
+            .attr('x', -smallLogoSize / 2)
+            .attr('y', topY)
+            .attr('clip-path', `url(#clip-logo-small-${d.id})`)
+            .style('pointer-events', 'none');
+          return;
+        }
 
-  // percent below the symbol
-  const pctY = Math.round(symbolY + symSize * 0.9 + 6);
-  const pctEl = ln.append('text')
-    .attr('class', 'pct')
-    .text(`${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`)
-    .attr('text-anchor', 'middle')
-    .attr('y', pctY)
-    .attr('dominant-baseline', 'middle')
-    .style('pointer-events', 'none')
-    .style('fill', pct >= 0 ? '#baf3c9' : '#ffb6b6')
-    .style('font-size', `${pctSize}px`)
-    .style('font-weight', 700);
-  if (pctSize >= 12) pctEl.attr('filter', 'url(#textShadow)');
+        // skip labels for extremely tiny rings with no image
+        if (d.r < 6) return;
 
-  // for larger rings, if image exists, render a small badge above the symbol
-  if (d.r >= LOGO_ONLY_THRESHOLD && d.data && d.data.image) {
-    // badge image scales with radius so it stays proportional to the bubble
-    const logoY = -d.r * 0.6;
-    const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${logoY})`);
-    // compute image size proportional to radius but not exceeding inner width
-    const badgeImgSize = Math.max(10, Math.min(Math.round(d.r * 0.7), Math.round((d.r * 2) * 0.6)));
-    try {
-      defs
-        .append('clipPath')
-        .attr('id', `clip-logo-badge-${d.id}`)
-        .append('circle')
-        .attr('r', Math.max(4, Math.round(badgeImgSize / 2)))
-        .attr('cx', 0)
-        .attr('cy', 0);
-    } catch (e) {
-      // ignore
-    }
-    badge.append('image')
-      .attr('href', d.data.image)
-      .attr('width', badgeImgSize)
-      .attr('height', badgeImgSize)
-      .attr('x', -badgeImgSize / 2)
-      .attr('y', -badgeImgSize / 2)
-      .attr('clip-path', `url(#clip-logo-badge-${d.id})`)
-      .style('pointer-events', 'none');
-  }
+        // Build a stacked layout (optional badge image on top, symbol, then percent)
+        const hasBadge = d.data && d.data.image && d.r >= LOGO_ONLY_THRESHOLD;
+        // compute badge size slightly smaller than before for better spacing
+        const badgeImgSize = hasBadge ? Math.max(10, Math.min(Math.round(d.r * 0.6), Math.round((d.r * 2) * 0.6))) : 0;
+
+  // total stack height (sum of center-aligned elements), using badgeSpacing between badge and symbol
+  const totalHeight = (hasBadge ? badgeImgSize : 0) + (hasBadge ? badgeSpacing : 0) + symSize + spacing + pctSize;
+  const topY = -Math.round(totalHeight / 2) + nudge;
+
+        // if badge exists, place it at the top of the stack
+        if (hasBadge) {
+          // move badge slightly upward so it doesn't hug the top edge and adds visual balance
+          const badgeCenterY = topY + Math.round(badgeImgSize / 2) - logoUp;
+          try {
+            defs
+              .append('clipPath')
+              .attr('id', `clip-logo-badge-${d.id}`)
+              .append('circle')
+              .attr('r', Math.max(4, Math.round(badgeImgSize / 2)))
+              .attr('cx', 0)
+              .attr('cy', 0);
+          } catch (e) {
+            // ignore
+          }
+          const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${badgeCenterY})`);
+          badge.append('image')
+            .attr('href', d.data.image)
+            .attr('width', badgeImgSize)
+            .attr('height', badgeImgSize)
+            .attr('x', -badgeImgSize / 2)
+            .attr('y', -badgeImgSize / 2)
+            .attr('clip-path', `url(#clip-logo-badge-${d.id})`)
+            .style('pointer-events', 'none');
+        }
+
+        // symbol: centered in stack
+          const symbolCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + Math.round(symSize / 2);
+        const symEl = ln.append('text')
+          .attr('class', 'symbol')
+          .text(symbolText)
+          .attr('text-anchor', 'middle')
+          .attr('y', symbolCenterY)
+          .attr('dominant-baseline', 'middle')
+          .style('pointer-events', 'none')
+          .style('fill', '#ffffff')
+          .style('font-weight', 800)
+          .style('font-size', `${symSize}px`);
+        if (symSize >= 12) symEl.attr('filter', 'url(#textShadow)');
+
+        // percent below the symbol
+  const pctCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + symSize + spacing + Math.round(pctSize / 2);
+        const pctEl = ln.append('text')
+          .attr('class', 'pct')
+          .text(`${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`)
+          .attr('text-anchor', 'middle')
+          .attr('y', pctCenterY)
+          .attr('dominant-baseline', 'middle')
+          .style('pointer-events', 'none')
+          .style('fill', pct >= 0 ? '#baf3c9' : '#ffb6b6')
+          .style('font-size', `${pctSize}px`)
+          .style('font-weight', 700);
+        if (pctSize >= 12) pctEl.attr('filter', 'url(#textShadow)');
       });
 
     // entry animation: grow circles/labels from small to their computed sizes for a smooth transition
