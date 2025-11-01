@@ -58,6 +58,18 @@ function App() {
       return {};
     }
   })
+
+  // DEBUG: log indexMap and raw localStorage key to help diagnose missing indices
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line no-console
+      console.info('[App] indexMap loaded/updated:', indexMap);
+      // eslint-disable-next-line no-console
+      console.info('[App] localStorage.indexMap raw:', localStorage.getItem('indexMap'));
+    } catch (e) {
+      // ignore
+    }
+  }, [indexMap]);
   const [symbolsPanelOpen, setSymbolsPanelOpen] = useState(false)
   
   // load favorites from localStorage; store array of coin ids
