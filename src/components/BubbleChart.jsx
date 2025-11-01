@@ -130,9 +130,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   // subtle drop shadow filter for depth
   defs.append('filter').attr('id', 'drop').append('feDropShadow').attr('dx', 0).attr('dy', 3).attr('stdDeviation', 4).attr('flood-color', '#000').attr('flood-opacity', 0.45);
   // small text shadow filter to improve contrast without heavy stroke
+  // reduced blur and offset to avoid fuzzy glyphs at small sizes
   const textFilter = defs.append('filter').attr('id', 'textShadow');
-  textFilter.append('feOffset').attr('dx', 0).attr('dy', 2).attr('result', 'off');
-  textFilter.append('feGaussianBlur').attr('in', 'off').attr('stdDeviation', 1).attr('result', 'blur');
+  textFilter.append('feOffset').attr('dx', 0).attr('dy', 1).attr('result', 'off');
+  textFilter.append('feGaussianBlur').attr('in', 'off').attr('stdDeviation', 0.6).attr('result', 'blur');
   const feMerge = textFilter.append('feMerge');
   feMerge.append('feMergeNode').attr('in', 'blur');
   feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
@@ -678,7 +679,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
         // symbol: centered in stack
           const symbolCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + Math.round(symSize / 2);
-        const symEl = ln.append('text')
+          const symEl = ln.append('text')
           .attr('class', 'symbol')
           .text(symbolText)
           .attr('text-anchor', 'middle')
@@ -686,9 +687,11 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .attr('dominant-baseline', 'middle')
           .style('pointer-events', 'none')
           .style('fill', '#ffffff')
-          .style('font-weight', 800)
+          .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
+          .style('font-weight', 700)
           .style('font-size', `${symSize}px`);
-        if (symSize >= 12) symEl.attr('filter', 'url(#textShadow)');
+        // apply subtle text shadow only for larger labels to avoid fuzziness on very small text
+        if (symSize >= 14) symEl.attr('filter', 'url(#textShadow)');
 
         // percent below the symbol
   const pctCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + symSize + spacing + Math.round(pctSize / 2);
@@ -700,9 +703,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .attr('dominant-baseline', 'middle')
           .style('pointer-events', 'none')
           .style('fill', pct >= 0 ? '#baf3c9' : '#ffb6b6')
+          .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
           .style('font-size', `${pctSize}px`)
-          .style('font-weight', 700);
-        if (pctSize >= 12) pctEl.attr('filter', 'url(#textShadow)');
+          .style('font-weight', 600);
+        if (pctSize >= 14) pctEl.attr('filter', 'url(#textShadow)');
       });
 
     // entry animation: grow circles/labels from small to their computed sizes for a smooth transition
