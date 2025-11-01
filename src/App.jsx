@@ -543,6 +543,8 @@ function App() {
         />
       )}
 
+      {/* Backup UI removed as requested */}
+
       {/* Debug control removed in demo-only reset */}
       {/* Selected coin modal */}
       {selectedCoin && <CoinModal coin={selectedCoin} onClose={() => setSelectedCoin(null)} />}
