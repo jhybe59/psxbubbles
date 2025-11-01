@@ -138,6 +138,20 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   feMerge.append('feMergeNode').attr('in', 'blur');
   feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
+  // helper: bucketed fill opacity based on absolute percent change (0..%)
+  // Buckets: 0-0.99% -> 0.09, 1-1.99% -> 0.12, 2-2.99% -> 0.16, 3-3.99% -> 0.20, 4-4.99% -> 0.24,
+  // 5-6.99% -> 0.28, 7-9.99% -> 0.32, >=10% -> 0.36
+  function bucketFillOpacity(absPct) {
+    if (absPct < 1) return 0.09;
+    if (absPct < 2) return 0.12;
+    if (absPct < 3) return 0.16;
+    if (absPct < 4) return 0.20;
+    if (absPct < 5) return 0.24;
+    if (absPct < 7) return 0.28;
+    if (absPct < 10) return 0.32;
+    return 0.36;
+  }
+
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
   // If a percent-based radiusScale is provided use it; otherwise fall back to market cap
@@ -213,7 +227,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
       // single-mode: render only a stroked ring (no fill or labels)
       // subtle fill matching the rim color (very low opacity)
-      const fillOpacitySingle = pct >= 0 ? 0.06 : 0.09;
+      const fillOpacitySingle = bucketFillOpacity(Math.abs(pct));
       n.append('circle')
         .attr('class', 'ring-fill')
         .attr('r', Math.max(0, singleNode.displayR - Math.max(2, Math.round(singleNode.displayR * 0.06))))
@@ -250,7 +264,31 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }
       const pctAbs = Math.abs(samplePct);
       // Use localRadiusScale to size rings based on the post-override distribution so demo movers look big
-      const r = Math.max(4, Math.round(localRadiusScale(pctAbs)));
+      let baseR = Math.max(4, Math.round(localRadiusScale(pctAbs)));
+
+      // PSX-aware sizing: compute how much of the allowed daily move this symbol used
+      // Rules: if price <= 10 PKR then daily absolute cap = 1 PKR else cap = 10% of price
+      // Compute normalized = delta / cap in [-1,1], map magnitude -> multiplier (1..MAX_INCREASE)
+      try {
+        const P = (d.data && Number(d.data.price)) || 0;
+        const pctVal = Number(samplePct) || 0; // percent (e.g., 5 means 5%)
+        // absolute change in PKR
+        const delta = (pctVal / 100) * P;
+        const cap = P > 0 ? (P <= 10 ? 1 : 0.1 * P) : null;
+        if (cap && isFinite(cap) && cap > 0) {
+          const normalized = Math.max(-1, Math.min(1, delta / cap));
+          const magnitude = Math.abs(normalized);
+          // parameters (tweakable)
+          const MAX_INCREASE = 2.2; // fully-performing bubble scales up to ~2.2x
+          const ALPHA = 0.6; // curve exponent (sqrt-like emphasis)
+          const factor = 1 + (MAX_INCREASE - 1) * Math.pow(magnitude, ALPHA);
+          baseR = Math.max(4, Math.round(baseR * factor));
+        }
+      } catch (e) {
+        // if any error, fall back to baseR computed earlier
+      }
+
+      const r = baseR;
       const prev = prevMap.get(d.id);
       if (prev) {
         return { id: d.id, r, x: prev.x, y: prev.y, vx: prev.vx, vy: prev.vy, data: d, overridePct: overridePct };
@@ -557,8 +595,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         const negDark = '#2a0b0b'; const negBright = '#ff6b6b';
         const edgeColor = pct >= 0 ? d3.interpolateRgb(posDark, posBright)(t) : d3.interpolateRgb(negDark, negBright)(t);
         const ringW = Math.max(2, Math.min(12, d.r * (0.06 + Math.min(0.18, Math.abs(pct) * 0.0025))));
-        // subtle inner fill using the same edge color (very low opacity)
-        const fillOpacity = pct >= 0 ? 0.06 : 0.09;
+        // subtle inner fill using the same edge color (opacity bucketed by magnitude)
+        const fillOpacity = bucketFillOpacity(Math.abs(pct));
         n.append('circle')
           .attr('class', 'ring-fill')
           .attr('r', Math.max(0, d.r - Math.max(1, Math.round(ringW * 0.5))))
