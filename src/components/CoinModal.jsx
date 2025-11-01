@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import storage from '../lib/storage';
+import InteractiveChart from './InteractiveChart';
+import { buildCandlesFromSnapshots } from '../lib/chartUtils';
 
 // Icon/trade buttons removed for stock-focused UI
 
@@ -19,6 +21,7 @@ export default function CoinModal({ coin, onClose }) {
   const [ohlcSummary, setOhlcSummary] = useState(null);
   const [pillPctMap, setPillPctMap] = useState({});
   const [latestSnapshot, setLatestSnapshot] = useState(null);
+  // only area chart is used now
   const INTERVAL_LOOKUP = { Hour: 1, Day: 1, Week: 5, Month: 22, Year: 252 };
 
   function toNum(v) {
@@ -78,17 +81,46 @@ export default function CoinModal({ coin, onClose }) {
         } catch (e) {
           if (mounted) setLatestSnapshot(null);
         }
-        const rows = await storage.getRange(coin.symbol, earlierTs, latestTs);
+        let rows = await storage.getRange(coin.symbol, earlierTs, latestTs);
+        // If DB is empty for this symbol (snapshots not imported), fall back to the public JSON
+        if (!rows || rows.length === 0) {
+          try {
+            const res = await fetch('/psx_snapshots.json');
+            if (res && res.ok) {
+              const list = await res.json();
+              const filtered = (list || []).filter((r) => (r && (r.symbol === coin.symbol) && (r.ts >= earlierTs) && (r.ts <= latestTs))).map((r) => ({ symbol: r.symbol, ts: r.ts, price: r.price, volume: r.volume, raw: r }));
+              rows = filtered;
+            }
+          } catch (e) {
+            // ignore fetch fallback errors
+          }
+        }
         rows.sort((a, b) => a.ts - b.ts);
-        const s = rows.map((r) => {
-          const raw = r.raw || {};
-          const open = toNum(rawGet(raw, 'Open 1 day', 'Open', 'open'));
-          const high = toNum(rawGet(raw, 'High 1 day', 'High', 'high'));
-          const low = toNum(rawGet(raw, 'Low 1 day', 'Low', 'low'));
-          const close = r.price != null ? r.price : toNum(rawGet(raw, 'Price', 'Close', 'close'));
-          return { ts: r.ts, open, high, low, close, volume: r.volume };
-        }).filter((x) => x.close != null);
+
+        // Choose bucket size based on selected timeframe to produce useful OHLC candles
+        const BUCKET_MS = {
+          Hour: 5 * 60 * 1000, // 5 minutes
+          Day: 60 * 60 * 1000, // 1 hour
+          Week: 6 * 60 * 60 * 1000, // 6 hours
+          Month: 24 * 60 * 60 * 1000, // 1 day
+          Year: 7 * 24 * 60 * 60 * 1000 // 7 days
+        };
+
+        const bucketMs = BUCKET_MS[timeframe] || 60 * 60 * 1000;
+
+        // If raw OHLC are missing, build candles from price samples using buckets
+        let candles = buildCandlesFromSnapshots(rows.map(r => ({ ts: r.ts, price: r.price, volume: r.volume })), bucketMs);
+
+        // buildCandlesFromSnapshots returns time in seconds; convert to ms for our UI
+        const s = candles.map((c) => ({ ts: Number(c.time) * 1000, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })).filter((x) => x.close != null);
         if (mounted) {
+          // debug: log series length and first few points to help diagnose empty chart issues
+          try {
+            // eslint-disable-next-line no-console
+            console.debug('CoinModal loadSeries', { symbol: coin?.symbol, seriesLength: s.length, sample: s.slice(0, 5) });
+            // also log the candles returned (post-bucketing)
+            console.debug('CoinModal mapped series (first 8)', s.slice(0, 8));
+          } catch (e) {}
           setSeries(s);
           if (s && s.length) {
             const open = s[0].open != null ? s[0].open : s[0].close;
@@ -113,6 +145,8 @@ export default function CoinModal({ coin, onClose }) {
                 pctMap[tf] = '-';
               }
             }));
+            // debug: log which snapshot was chosen as latest for this symbol
+            try { console.debug('CoinModal latestSnapshot for', coin?.symbol, latestSnap); } catch (e) {}
             setPillPctMap(pctMap);
           } else setOhlcSummary(null);
         }
@@ -149,6 +183,101 @@ export default function CoinModal({ coin, onClose }) {
     // else unknown
     return null;
   })();
+
+  // Share calculator state: two boxes (shares <=> PKR) — animated target display
+  const [shareCount, setShareCount] = useState('');
+  const [pkrInput, setPkrInput] = useState('');
+  const [shareFocused, setShareFocused] = useState(false);
+  const [pkrFocused, setPkrFocused] = useState(false);
+
+  // Animated display values (visual tweening) — animate the converted results for UX
+  const [displayedTotal, setDisplayedTotal] = useState(0);
+  const displayedRef = useRef(0);
+  const rafRef = useRef(null);
+  const [displayedShares, setDisplayedShares] = useState(0);
+  const displayedSharesRef = useRef(0);
+  const rafRefShares = useRef(null);
+
+  const priceNum = (() => {
+    const p = coin.price != null ? Number(coin.price) : (ohlcSummary && ohlcSummary.close != null ? Number(ohlcSummary.close) : 0);
+    return Number.isFinite(p) ? p : 0;
+  })();
+
+  // Simple derived helpers (used only for sync when typing)
+  const computePkrFromShares = (s) => {
+    if (!Number.isFinite(s) || priceNum === 0) return '';
+    // show two decimals for currency
+    return (s * priceNum).toFixed(2).replace(/\.00$/, '');
+  };
+  const computeSharesFromPkr = (pkr) => {
+    if (!Number.isFinite(pkr) || priceNum === 0) return '';
+    // show up to 4 decimals for shares
+    return (pkr / priceNum).toFixed(4).replace(/\.0000$/, '');
+  };
+
+  const targetTotal = (() => {
+    const s = Number(String(shareCount).replace(/[^0-9.-]+/g, ''));
+    if (!Number.isFinite(s) || s === 0) return 0;
+    return s * priceNum;
+  })();
+
+  const targetSharesFromPkr = (() => {
+    const pkr = Number(String(pkrInput).replace(/[^0-9.-]+/g, ''));
+    if (!Number.isFinite(pkr) || pkr === 0 || priceNum === 0) return 0;
+    return pkr / priceNum;
+  })();
+
+  // animate displayedTotal -> targetTotal
+  useEffect(() => {
+    const duration = 350; // ms
+    const start = displayedRef.current || 0;
+    const end = targetTotal || 0;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    const startTime = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - startTime) / duration);
+      // easeOutQuad
+      const eased = 1 - (1 - t) * (1 - t);
+      const cur = start + (end - start) * eased;
+      displayedRef.current = cur;
+      setDisplayedTotal(cur);
+      if (t < 1) rafRef.current = requestAnimationFrame(step);
+    }
+    rafRef.current = requestAnimationFrame(step);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [targetTotal]);
+
+  // animate displayedShares -> targetSharesFromPkr
+  useEffect(() => {
+    const duration = 350; // ms
+    const start = displayedSharesRef.current || 0;
+    const end = targetSharesFromPkr || 0;
+    if (rafRefShares.current) cancelAnimationFrame(rafRefShares.current);
+    const startTime = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = 1 - (1 - t) * (1 - t);
+      const cur = start + (end - start) * eased;
+      displayedSharesRef.current = cur;
+      setDisplayedShares(cur);
+      if (t < 1) rafRefShares.current = requestAnimationFrame(step);
+    }
+    rafRefShares.current = requestAnimationFrame(step);
+    return () => { if (rafRefShares.current) cancelAnimationFrame(rafRefShares.current); };
+  }, [targetSharesFromPkr]);
+
+  // Initialize defaults: 1 share and its PKR value when coin/price changes
+  useEffect(() => {
+    const initShares = 1;
+    const initPkr = computePkrFromShares(initShares);
+    setShareCount(String(initShares));
+    setPkrInput(String(initPkr));
+    // set displayed values directly (no animation on mount)
+    displayedRef.current = Number(initPkr) || 0;
+    setDisplayedTotal(Number(initPkr) || 0);
+    displayedSharesRef.current = initShares;
+    setDisplayedShares(initShares);
+  }, [coin?.symbol, priceNum]);
 
   return (
     <div className="overlay" style={{ zIndex: 2000 }}>
@@ -189,6 +318,75 @@ export default function CoinModal({ coin, onClose }) {
             <div className="stat">Market Cap<br/><strong>{coin.market_cap?.toLocaleString?.() ?? '-'}</strong></div>
           </div>
         </div>
+
+        {/* Share calculator: exactly two boxes with '=' between them. Editing either box updates the other immediately. */}
+        <div className="share-calc">
+          <label className="share-label">Converter</label>
+          <div className="share-input-row">
+            <div className="share-input-wrap">
+              <span className="share-icon">✎</span>
+              <input
+                className="share-input"
+                type="text"
+                inputMode="decimal"
+                placeholder="Shares"
+                value={shareFocused ? shareCount : (displayedShares ? Number(displayedShares).toFixed(4).replace(/\.0000$/, '') : shareCount)}
+                onFocus={() => setShareFocused(true)}
+                onBlur={() => {
+                  setShareFocused(false);
+                  // when leaving focus, update the raw share string to the current displayed value
+                  setShareCount(displayedShares ? Number(displayedShares).toFixed(4).replace(/\.0000$/, '') : '');
+                }}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setShareCount(v);
+                  // update target total to animate the PKR display
+                  const s = Number(String(v).replace(/[^0-9.-]+/g, ''));
+                  if (Number.isFinite(s)) {
+                    // set pkrInput only when pkr field is focused (so typing there isn't clobbered)
+                    if (pkrFocused) {
+                      setPkrInput(computePkrFromShares(s));
+                    }
+                    // animation will run because targetTotal derived from shareCount changed
+                  }
+                }}
+              />
+            </div>
+
+            <div className="calc-result">
+              <span className="calc-eq">=</span>
+            </div>
+
+            <div className="share-input-wrap pkr-wrap">
+              <span className="share-icon">₨</span>
+              <input
+                className="share-input"
+                type="text"
+                inputMode="decimal"
+                placeholder="PKR"
+                value={pkrFocused ? pkrInput : (displayedTotal ? Number(displayedTotal).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:2}) : pkrInput)}
+                onFocus={() => setPkrFocused(true)}
+                onBlur={() => {
+                  setPkrFocused(false);
+                  // sync raw pkrInput to displayed value when leaving focus
+                  setPkrInput(displayedTotal ? Number(displayedTotal).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:2}) : '');
+                }}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPkrInput(v);
+                  const pkr = Number(String(v).replace(/[^0-9.-]+/g, ''));
+                  if (Number.isFinite(pkr) && priceNum > 0) {
+                    if (shareFocused) {
+                      setShareCount(computeSharesFromPkr(pkr));
+                    }
+                    // animation will run because targetSharesFromPkr derived from pkrInput changed
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+        {/* Area chart only — removed area/line/candles toggle */}
         </div>
         <div className="chart-area">
           <div className="chart-header">
@@ -196,42 +394,17 @@ export default function CoinModal({ coin, onClose }) {
           </div>
 
           <div className="sparkline">
-            <svg width="100%" height="100%" viewBox="0 0 600 140" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="areaGrad" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor={pct >= 0 ? '#6fe987' : '#ff9a9a'} stopOpacity="0.36" />
-                  <stop offset="100%" stopColor="#071014" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              {/* dynamic path will be constructed from series; fallback placeholder if no data */}
-              {series && series.length > 0 ? (
-                (() => {
-                  // build a simple path from close prices
-                  const xs = series.map((s) => s.ts);
-                  const ys = series.map((s) => s.close);
-                  const minX = Math.min(...xs);
-                  const maxX = Math.max(...xs);
-                  const minY = Math.min(...ys);
-                  const maxY = Math.max(...ys);
-                  const mapX = (t) => (maxX === minX ? 0 : ((t - minX) / (maxX - minX)) * 600);
-                  const mapY = (p) => (maxY === minY ? 70 : 140 - ((p - minY) / (maxY - minY)) * 120);
-                  const d = series.map((s, i) => `${i === 0 ? 'M' : 'L'} ${mapX(s.ts).toFixed(2)},${mapY(s.close).toFixed(2)}`).join(' ');
-                  const closeFillPath = d + ` L 600 140 L 0 140 Z`;
-                  return (
-                    <g>
-                      <path d={closeFillPath} fill="url(#areaGrad)" stroke={pct >= 0 ? '#23c55e' : '#ff4d4d'} strokeWidth="2" fillOpacity="0.9" />
-                      {/* annotate last close */}
-                      <circle cx={mapX(series[series.length - 1].ts)} cy={mapY(series[series.length - 1].close)} r="4" fill={pct >= 0 ? '#23c55e' : '#ff6b6b'} />
-                      <text x={mapX(series[series.length - 1].ts)} y={mapY(series[series.length - 1].close) - 8} fontSize="12" fill={pct >= 0 ? '#baf3c9' : '#ffb6b6'} textAnchor="middle">{series[series.length - 1].close}</text>
-                    </g>
-                  );
-                })()
-              ) : (
-                <g>
-                  <path d="M0,60 C80,40 160,80 240,50 320,30 400,70 480,40 560,30 600,36 L600,140 L0,140 Z" fill="url(#areaGrad)" stroke={pct >= 0 ? '#23c55e' : '#ff4d4d'} strokeWidth="2" fillOpacity="0.9" />
-                </g>
-              )}
-            </svg>
+          
+            <InteractiveChart series={series} pct={pct} height={320} />
+            <div style={{marginTop:10, color:'#9fb8b0', fontSize:12}}>
+              <div>Series points: {Array.isArray(series) ? series.length : 0}</div>
+              {Array.isArray(series) && series.length > 0 && (
+                    <div style={{marginTop:6, fontSize:11, color:'#cddfe0'}}>
+                      <strong>Sample:</strong>
+                      <pre style={{margin:6, padding:8, background:'rgba(0,0,0,0.35)', borderRadius:6, overflowX:'auto'}}>{JSON.stringify(series.slice(0,5).map(s=>({t:(function(ts){const n=Number(ts); return Number.isFinite(n)? new Date(n).toISOString() : null})(s.ts), o:s.open, h:s.high, l:s.low, c:s.close, v:s.volume})),null,2)}</pre>
+                    </div>
+                  )}
+            </div>
           </div>
 
           <div className="timeframe-row">

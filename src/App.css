@@ -403,14 +403,38 @@ body {
 .coin-stats-row .stat { color:#9aa4a6; font-size:13px }
 .coin-stats-row .stat strong { color:#fff }
 
+/* Share calculator styles */
+.share-calc { padding: 12px; border-radius: 10px; background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00)); margin: 10px 12px; display:flex; flex-direction:column; align-items: center }
+.share-label { color:#bfc9c8; font-size:13px; margin-bottom:8px; font-weight:700; text-align:center }
+.share-input-row { display:flex; align-items:center; gap:12px; justify-content:center }
+.share-input-wrap { display:flex; align-items:center; background: rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.03); padding:6px 8px; border-radius:10px; justify-content:center }
+.share-input-wrap.pkr-wrap { min-width: 160px }
+.share-icon { margin-right:8px; color:#cfd8d8 }
+.share-input { background: transparent; border: none; color: #e6f7ff; width: 120px; font-size:16px; font-weight:800 }
+.share-input:focus { outline: none }
+.calc-result { display:flex; align-items:center; gap:8px; color:#dfe7e7; font-weight:700; justify-content:center }
+.calc-eq { color:#dfe7e7 }
+.calc-eq { font-size:20px; font-weight:900 }
+.calc-value { font-size:18px; color:#fff; transition: transform 220ms ease, color 220ms }
+.calc-value.positive { color:#24c55e }
+.calc-value.negative { color:#ff4d4d }
+.calc-curr { color:#9aa4a6 }
+
+@media (max-width:640px) {
+  .share-input { width: 80px }
+  .share-calc { margin: 8px 8px }
+}
+
 .chart-area { padding:12px }
-.sparkline { height:140px; border-radius:10px; overflow:hidden; background:linear-gradient(180deg,#071014,#081018); display:flex; align-items:center }
+.sparkline { height:360px; border-radius:10px; overflow:hidden; background:linear-gradient(180deg,#071014,#081018); display:flex; align-items:center }
 
 .timeframe-row { display:flex; gap:12px; margin-top:10px; padding:6px 0 }
 .time-pill { background: rgba(0,0,0,0.35); padding:8px 10px; border-radius:10px; color:#cbd5d5; font-weight:700; text-align:center; min-width:64px }
 .time-pill.active { background: linear-gradient(180deg,#1b2b1f,#0e1a12); box-shadow: 0 8px 24px rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.04) }
 .pill-pct { display:block; font-size:13px; margin-top:4px }
 .pill-pct.pos { color:#7ff0a0 }
+
+/* chart-type styles removed (area-only chart) */
 
 .modal-actions { display:flex; gap:8px; padding:12px }
 .modal-close { position:absolute; right:12px; top:12px; background:transparent; border:none; color:#cfd8d8; font-size:18px; cursor:pointer }
