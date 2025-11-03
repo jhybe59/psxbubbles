@@ -7,10 +7,9 @@
     "dev": "vite",
   "build": "vite build",
   "postinstall": "node -e \"try{require('fs').chmodSync('./node_modules/.bin/vite',0o755)}catch(e){}\"",
-    "lint": "eslint .",
-    "preview": "vite preview",
-    "build-snapshots": "node ./scripts/generate_snapshots_json.cjs",
-    "backup": "node ./scripts/backup.js",
+  "lint": "eslint .",
+  "preview": "vite preview",
+  "backup": "node ./scripts/backup.js",
     "restore": "node ./scripts/restore.js",
     "start-admin": "node ./server/admin.cjs",
     "migrate-logos": "node ./scripts/migrate_logos.js"
