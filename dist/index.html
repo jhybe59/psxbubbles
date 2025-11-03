@@ -5,10 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>my-cryptobubbles</title>
-    <script type="module" crossorigin src="/assets/index-CdjkHQZj.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BZBOSKnv.css">
+    <script type="module" crossorigin src="/assets/index-B6-OSi1B.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-hrATH4du.css">
   </head>
   <body>
     <div id="root"></div>
+    <!-- Load Lightweight Charts UMD standalone build as a fallback global so the chart API is available
+         in dev environments where package exports/resolution may cause the ESM import to return
+         an unexpected shape. This is safe in dev, and Vite will serve node_modules files. -->
+    <script src="/node_modules/lightweight-charts/dist/lightweight-charts.standalone.development.js"></script>
   </body>
 </html>

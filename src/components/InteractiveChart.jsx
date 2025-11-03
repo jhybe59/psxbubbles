@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart } from 'lightweight-charts';
 
 // Props:
 // - series: array of { ts, open, high, low, close, volume }
@@ -8,160 +7,138 @@ import { createChart } from 'lightweight-charts';
 export default function InteractiveChart({ series = [], height = 140, pct = 0 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
-  const lineRef = useRef(null);
+  const seriesRef = useRef(null);
+  const debugRef = useRef(null);
 
+  // Initialize chart dynamically to avoid bundler alias issues
   useEffect(() => {
-    if (!containerRef.current) return;
-    // defensive: initialize chart inside try/catch to avoid blowing up the modal
-  try {
-      // clean up any existing chart
-      if (chartRef.current) {
-        try { chartRef.current.remove(); } catch (e) { /* ignore */ }
-        chartRef.current = null;
-      }
+    let ro = null;
+    let cancelled = false;
 
-      const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
-      height,
-      layout: {
-        background: { type: 'solid', color: '#071014' },
-        textColor: '#dfe7e7',
-      },
-      grid: {
-        vertLines: { color: 'rgba(255,255,255,0.03)' },
-        horzLines: { color: 'rgba(255,255,255,0.03)' },
-      },
-      crosshair: {
-        mode: 1,
-      },
-      rightPriceScale: { visible: true, borderColor: 'rgba(255,255,255,0.04)' },
-      timeScale: { borderColor: 'rgba(255,255,255,0.04)' },
-    });
-
-      chartRef.current = chart;
-
-    const colorPositive = '#23c55e';
-    const colorNegative = '#ff6b6b';
-    const color = pct >= 0 ? colorPositive : colorNegative;
-
-    const areaSeries = chart.addAreaSeries({
-      topColor: pct >= 0 ? 'rgba(36,197,94,0.36)' : 'rgba(255,77,77,0.22)',
-      bottomColor: 'rgba(7,16,20,0)',
-      lineColor: color,
-      lineWidth: 2,
-    });
-    lineRef.current = areaSeries;
-
-    function toLineData(s) {
-      return (s || []).filter((p) => p && (p.close != null || p.price != null) && Number.isFinite(Number(p.close != null ? p.close : p.price))).map((p) => ({ time: Math.floor(p.ts / 1000), value: Number(p.close != null ? p.close : p.price) }));
-    }
-
-    const areaData = toLineData(series || []);
-    if (areaData && areaData.length) areaSeries.setData(areaData);
-    else areaSeries.setData([]);
-
-    // markers for last/high/low
-    if (areaData && areaData.length) {
-      const values = areaData.map((d) => d.value);
-      const maxVal = Math.max(...values);
-      const minVal = Math.min(...values);
-      const last = areaData[areaData.length - 1];
-      const markers = [];
-      const highIndex = areaData.findIndex((d) => d.value === maxVal);
-      if (highIndex >= 0) markers.push({ time: areaData[highIndex].time, position: 'aboveBar', color: '#fff', shape: 'circle', text: `H ${maxVal}` });
-      const lowIndex = areaData.findIndex((d) => d.value === minVal);
-      if (lowIndex >= 0) markers.push({ time: areaData[lowIndex].time, position: 'belowBar', color: '#fff', shape: 'circle', text: `L ${minVal}` });
-      markers.push({ time: last.time, position: 'aboveBar', color, shape: 'circle', text: String(last.value) });
-      try { areaSeries.setMarkers(markers); } catch (e) { /* ignore */ }
-    }
-
-      let resizeObserver = null;
-    try {
-      resizeObserver = new ResizeObserver(() => {
-        if (containerRef.current && chartRef.current) {
-          chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+    async function initChart() {
+      if (!containerRef.current) return;
+      try {
+        // Prefer a global UMD build if available (we inject it in index.html as a fallback),
+        // otherwise import the package normally so Vite can optimize it.
+        let mod = null;
+        if (typeof window !== 'undefined' && window.LightweightCharts) {
+          mod = window.LightweightCharts;
+        } else {
+          mod = await import('lightweight-charts');
         }
-      });
-      resizeObserver.observe(containerRef.current);
-    } catch (e) {
-      // ResizeObserver may not be available in some envs; ignore
-    }
+        // show exports for diagnosis
+        console.debug('InteractiveChart: lightweight-charts exports', Object.keys(mod));
+        if (debugRef.current) debugRef.current.textContent = `lwc exports: ${Object.keys(mod).join(',')}`;
 
-      return () => {
-        if (resizeObserver && containerRef.current) resizeObserver.unobserve(containerRef.current);
+        const createChart = mod.createChart || (mod.default && mod.default.createChart) || (mod.default || null);
+        if (typeof createChart !== 'function') {
+          console.error('InteractiveChart: createChart not found on module', mod);
+          if (debugRef.current) debugRef.current.textContent = 'createChart missing';
+          return;
+        }
+
+        // remove existing chart if any
         if (chartRef.current) {
-          try { chartRef.current.remove(); } catch (e) { /* ignore */ }
+          try { chartRef.current.remove(); } catch (e) {}
           chartRef.current = null;
+          seriesRef.current = null;
         }
-      };
-    } catch (err) {
-      // If chart initialization fails, log and mark error so we render a fallback
-      // eslint-disable-next-line no-console
-      console.error('InteractiveChart init error', err);
-      // store the error on the container so it's visible in DOM inspector
-      if (containerRef.current) containerRef.current.dataset.chartError = String(err && err.message ? err.message : err);
-      return () => {};
-    }
-  }, []); // initialize only once
 
-  // update data when series prop changes
-  useEffect(() => {
-    // debug: log series size for troubleshooting empty chart
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('InteractiveChart.update series.length=', (series || []).length);
-    } catch (e) {}
-    if (!lineRef.current || !candleRef.current) return;
-    // update area/line
-    const areaData = (series || []).filter((p) => p && (p.close != null || p.price != null)).map((p) => ({ time: Math.floor(p.ts / 1000), value: Number(p.close != null ? p.close : p.price) }));
-    const candleData = (series || []).filter((p) => p && (p.open != null || p.close != null || p.price != null)).map((p) => ({ time: Math.floor(p.ts / 1000), open: Number(p.open != null ? p.open : (p.price != null ? p.price : p.close)), high: Number(p.high != null ? p.high : (p.price != null ? p.price : p.close)), low: Number(p.low != null ? p.low : (p.price != null ? p.price : p.close)), close: Number(p.close != null ? p.close : (p.price != null ? p.price : p.open)) }));
+        const chart = createChart(containerRef.current, {
+          width: containerRef.current.clientWidth || 400,
+          height,
+          layout: { background: { type: 'solid', color: '#071014' }, textColor: '#dfe7e7' },
+          grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
+          crosshair: { mode: 1 },
+          rightPriceScale: { visible: true, borderColor: 'rgba(255,255,255,0.04)' },
+          timeScale: { borderColor: 'rgba(255,255,255,0.04)' }
+        });
+        chartRef.current = chart;
 
-    if (chartType === 'candles') {
-      if (candleData.length) candleRef.current.setData(candleData);
-      else candleRef.current.setData([]);
-      lineRef.current.setData([]);
-    } else {
-      if (areaData.length) lineRef.current.setData(areaData);
-      else lineRef.current.setData([]);
-      candleRef.current.setData([]);
-    }
-
-    // update volume if present
-    const volData = (series || []).filter((p) => p && (p.volume != null)).map((p) => ({ time: Math.floor(p.ts / 1000), value: Number(p.volume || 0) }));
-    if (volumeRef.current) {
-      if (volData.length) volumeRef.current.setData(volData);
-      else volumeRef.current.setData([]);
-    }
-
-    // markers on active representation
-    try {
-      const markerSrc = areaData.length ? areaData : candleData.map((c) => ({ time: c.time, value: c.close }));
-      if (markerSrc && markerSrc.length) {
-        const values = markerSrc.map((d) => d.value != null ? d.value : d.close).filter((v) => v != null);
-        if (values.length) {
-          const maxVal = Math.max(...values);
-          const minVal = Math.min(...values);
-          const last = markerSrc[markerSrc.length - 1];
-          const markers = [];
-          const highIndex = markerSrc.findIndex((d) => (d.value != null ? d.value : d.close) === maxVal);
-          if (highIndex >= 0) markers.push({ time: markerSrc[highIndex].time, position: 'aboveBar', color: '#fff', shape: 'circle', text: `H ${maxVal}` });
-          const lowIndex = markerSrc.findIndex((d) => (d.value != null ? d.value : d.close) === minVal);
-          if (lowIndex >= 0) markers.push({ time: markerSrc[lowIndex].time, position: 'belowBar', color: '#fff', shape: 'circle', text: `L ${minVal}` });
-          markers.push({ time: last.time, position: 'aboveBar', color: pct >= 0 ? '#23c55e' : '#ff6b6b', shape: 'circle', text: String((last.value != null) ? last.value : (last.close != null ? last.close : '')) });
-          lineRef.current.setMarkers(markers);
+        // Diagnostic: log chart own keys and prototype methods to help identify missing APIs
+        try {
+          const own = Object.getOwnPropertyNames(chart).join(',');
+          const proto = Object.getOwnPropertyNames(Object.getPrototypeOf(chart)).join(',');
+          console.debug('InteractiveChart: chart own props ->', own);
+          console.debug('InteractiveChart: chart proto methods ->', proto);
+          if (debugRef.current) debugRef.current.textContent = `chart.props:${own.split(',').length} proto:${proto.split(',').length}`;
+        } catch (e) {
+          console.debug('InteractiveChart: diagnostic failed', e);
         }
-      } else {
-        lineRef.current.setMarkers([]);
+
+        // Prefer area series, fall back to line or candle if needed
+        let areaSeries = null;
+        if (typeof chart.addAreaSeries === 'function') {
+          areaSeries = chart.addAreaSeries({ topColor: pct >= 0 ? 'rgba(36,197,94,0.36)' : 'rgba(255,77,77,0.22)', bottomColor: 'rgba(7,16,20,0)', lineColor: pct >= 0 ? '#23c55e' : '#ff6b6b', lineWidth: 2 });
+        } else if (typeof chart.addLineSeries === 'function') {
+          areaSeries = chart.addLineSeries({ color: pct >= 0 ? '#23c55e' : '#ff6b6b', lineWidth: 2 });
+        } else if (typeof chart.addCandlestickSeries === 'function') {
+          areaSeries = chart.addCandlestickSeries({ upColor: '#23c55e', downColor: '#ff6b6b' });
+        } else {
+          console.error('InteractiveChart: no suitable series API on chart', chart);
+          if (debugRef.current) debugRef.current.textContent = 'no series API';
+        }
+
+        seriesRef.current = areaSeries;
+
+        // set initial data if present
+        if (seriesRef.current && series && series.length) {
+          // prefer OHLC if available
+          const candleData = series.filter((p) => p && (p.open != null || p.close != null)).map((p) => ({ time: Math.floor((p.ts || p.time || p.t) / 1000), open: Number(p.open != null ? p.open : p.price), high: Number(p.high != null ? p.high : p.price), low: Number(p.low != null ? p.low : p.price), close: Number(p.close != null ? p.close : p.price) }));
+          const lineData = series.filter((p) => p && (p.close != null || p.price != null)).map((p) => ({ time: Math.floor((p.ts || p.time || p.t) / 1000), value: Number(p.close != null ? p.close : p.price) }));
+          try {
+            if (candleData && candleData.length && typeof seriesRef.current.setData === 'function') seriesRef.current.setData(candleData);
+            else if (lineData && lineData.length && typeof seriesRef.current.setData === 'function') seriesRef.current.setData(lineData);
+            try { chart.timeScale().fitContent(); } catch (e) {}
+          } catch (e) { console.error('InteractiveChart: setData failed', e); }
+        }
+
+        // resize observer
+        try {
+          ro = new ResizeObserver(() => {
+            if (containerRef.current && chartRef.current) chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+          });
+          ro.observe(containerRef.current);
+        } catch (e) {}
+
+      } catch (err) {
+        console.error('InteractiveChart init error', err);
+        if (debugRef.current) debugRef.current.textContent = `init error: ${String(err && err.message ? err.message : err)}`;
       }
-    } catch (e) {
-      // ignore marker errors
     }
+
+    initChart();
+
+    return () => {
+      cancelled = true;
+      try { if (ro && containerRef.current) ro.disconnect(); } catch (e) {}
+      try { if (chartRef.current) chartRef.current.remove(); } catch (e) {}
+      chartRef.current = null; seriesRef.current = null;
+    };
+  }, [height]);
+
+  // update data when series changes
+  useEffect(() => {
+    try {
+      const s = seriesRef.current;
+      const chart = chartRef.current;
+      if (!s || !chart) return;
+      const candleData = series.filter((p) => p && (p.open != null || p.close != null)).map((p) => ({ time: Math.floor((p.ts || p.time || p.t) / 1000), open: Number(p.open != null ? p.open : p.price), high: Number(p.high != null ? p.high : p.price), low: Number(p.low != null ? p.low : p.price), close: Number(p.close != null ? p.close : p.price) }));
+      const lineData = series.filter((p) => p && (p.close != null || p.price != null)).map((p) => ({ time: Math.floor((p.ts || p.time || p.t) / 1000), value: Number(p.close != null ? p.close : p.price) }));
+      if (candleData && candleData.length && typeof s.setData === 'function') s.setData(candleData);
+      else if (lineData && lineData.length && typeof s.setData === 'function') s.setData(lineData);
+      else if (typeof s.setData === 'function') s.setData([]);
+      try { if (chart && chart.timeScale) chart.timeScale().fitContent(); } catch (e) {}
+      try { console.debug('InteractiveChart.update data', (lineData && lineData.length ? lineData.slice(0,5) : candleData && candleData.slice(0,5))); } catch (e) {}
+    } catch (e) { console.error('InteractiveChart.update error', e); }
   }, [series, pct]);
 
-  const hasData = (series || []).length > 0;
+  const hasData = Array.isArray(series) && series.length > 0;
+
   return (
     <div style={{ position: 'relative', width: '100%', height }}>
       <div style={{ width: '100%', height }} ref={containerRef} />
+      <div ref={debugRef} style={{ position: 'absolute', left: 8, top: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.5)', color: '#cfe9e3', fontSize: 11, borderRadius: 6, pointerEvents: 'none' }} />
       {!hasData && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7780', pointerEvents: 'none' }}>
           <small>No chart data</small>

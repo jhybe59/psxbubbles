@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 
 // marks: array of { value: number, label: string, open?: boolean }
 function formatLabel(v) {
@@ -33,6 +33,9 @@ export default function PriceRange({ marks = [{ value: 0, label: '0' }], value =
   // show editable text fields for left/right values; keep them as strings while typing
   const [leftText, setLeftText] = useState(() => (marks[minIdx] ? String(marks[minIdx].value) : ''))
   const [rightText, setRightText] = useState(() => (marks[maxIdx] ? (marks[maxIdx].open ? '∞' : String(marks[maxIdx].value)) : ''))
+
+  // remember the initial incoming value so the reset button can restore it
+  const initialValueRef = useRef(value)
 
   useEffect(() => {
     const [i0, i1] = valueToIndices(value)
@@ -174,6 +177,25 @@ export default function PriceRange({ marks = [{ value: 0, label: '0' }], value =
         </div>
 
         <input className="price-input right" value={rightText} onChange={handleRightTextChange} />
+        {/* reset button: restores the slider to the initial incoming `value` */}
+        <button
+          type="button"
+          className="price-reset"
+          aria-label="Reset price range"
+          title="Reset"
+          onClick={() => {
+            const [i0, i1] = valueToIndices(initialValueRef.current)
+            setMinIdx(i0)
+            setMaxIdx(i1)
+            commitChange(i0, i1)
+          }}
+        >
+          {/* simple circular arrow icon — keep markup minimal so styling can be applied in CSS */}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+            <path d="M21 12a9 9 0 10-1.56 4.89L21 20v-8.11A8.99 8.99 0 0021 12z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M21 4v6h-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
       </div>
     </div>
   )

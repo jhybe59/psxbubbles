@@ -154,8 +154,30 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-  // If a percent-based radiusScale is provided use it; otherwise fall back to market cap
-  const inferredMax = d3.max(data, (d) => Math.abs(d.price_change_percentage_24h || 0)) || 1;
+  // Determine inferred maxima used for sizing based on the active size selection.
+  // If a custom radiusScale prop is provided prefer it; otherwise we'll build
+  // a d3.scaleSqrt for the chosen metric (Performance -> percent, Volume -> volume, Market Cap -> market_cap).
+  const inferredMaxPct = d3.max(data, (d) => Math.abs(d.price_change_percentage_24h || 0)) || 1;
+  const inferredMaxVol = d3.max(data, (d) => {
+    if (!d) return 0;
+    if (d.volume != null) return Number(String(d.volume).replace(/,/g, '')) || 0;
+    if (d.total_volume != null) return Number(String(d.total_volume).replace(/,/g, '')) || 0;
+    if (d['24h_volume'] != null) return Number(String(d['24h_volume']).replace(/,/g, '')) || 0;
+    if (d.v != null) return Number(String(d.v).replace(/,/g, '')) || 0;
+    if (d.data) {
+      if (d.data.volume != null) return Number(String(d.data.volume).replace(/,/g, '')) || 0;
+      if (d.data.total_volume != null) return Number(String(d.data.total_volume).replace(/,/g, '')) || 0;
+      if (d.data['24h_volume'] != null) return Number(String(d.data['24h_volume']).replace(/,/g, '')) || 0;
+    }
+    return 0;
+  }) || 1;
+  const inferredMaxMc = d3.max(data, (d) => {
+    if (!d) return 0;
+    if (d.market_cap != null) return Number(d.market_cap) || 0;
+    if (d.data && d.data.market_cap != null) return Number(d.data.market_cap) || 0;
+    if (d.marketCap != null) return Number(d.marketCap) || 0;
+    return 0;
+  }) || 1;
 
     // reduce number of rendered nodes in dense views to improve legibility and perf
     // If a specific index is selected we want to render all its members so user can see progress.
@@ -164,24 +186,111 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
   // Demo overrides removed: sizing will now be driven only by real data / provided aggregations.
 
-    // compute a local max absolute pct (including any demo overrides) so sizing maps correctly
+    // Build a sizing scale according to current selections.size. This scale converts
+    // the chosen metric into a visual radius. Range tuned to previous defaults.
+    let sizeMetric = 'Performance';
+    if (selections && selections.size) sizeMetric = selections.size;
+    let sizeMax = 1;
+    if (sizeMetric === 'Performance') {
+      // percent-based sizing (absolute percent)
+      sizeMax = d3.max(used, (d) => {
+        const demo = d.__overrideDemo != null ? d.__overrideDemo : (d.price_change_percentage_24h || 0);
+        if (aggregations && selections && selections.size === 'Performance') {
+          const agg = aggregations.get(d.symbol || d.id || (d.name && d.name.toUpperCase()));
+          return Math.abs(agg != null ? agg : demo);
+        }
+        return Math.abs(demo);
+      }) || inferredMaxPct || 1;
+    } else if (sizeMetric === 'Volume') {
+      // volume-based sizing
+      sizeMax = d3.max(used, (d) => {
+        if (!d) return 0;
+        if (d.volume != null) return Number(String(d.volume).replace(/,/g, '')) || 0;
+        if (d.total_volume != null) return Number(String(d.total_volume).replace(/,/g, '')) || 0;
+        if (d['24h_volume'] != null) return Number(String(d['24h_volume']).replace(/,/g, '')) || 0;
+        if (d.v != null) return Number(String(d.v).replace(/,/g, '')) || 0;
+        if (d.data) {
+          if (d.data.volume != null) return Number(String(d.data.volume).replace(/,/g, '')) || 0;
+          if (d.data.total_volume != null) return Number(String(d.data.total_volume).replace(/,/g, '')) || 0;
+          if (d.data['24h_volume'] != null) return Number(String(d.data['24h_volume']).replace(/,/g, '')) || 0;
+        }
+        return 0;
+      }) || inferredMaxVol || 1;
+    } else {
+      // Market Cap
+      sizeMax = d3.max(used, (d) => {
+        if (!d) return 0;
+        if (d.market_cap != null) return Number(d.market_cap) || 0;
+        if (d.data && d.data.market_cap != null) return Number(d.data.market_cap) || 0;
+        if (d.marketCap != null) return Number(d.marketCap) || 0;
+        return 0;
+      }) || inferredMaxMc || 1;
+    }
+
+    const localRadiusScale = d3.scaleSqrt().domain([0, Math.max(1, sizeMax)]).range([8, 92]);
+
+    // localMaxPct: used for color interpolation and magnitude-based visuals (based on percent change)
     const localMaxPct = d3.max(used, (d) => {
       const demo = d.__overrideDemo != null ? d.__overrideDemo : (d.price_change_percentage_24h || 0);
-      // if aggregations provided and size selection is Performance, prefer aggregation for magnitude
       if (aggregations && selections && selections.size === 'Performance') {
         const agg = aggregations.get(d.symbol || d.id || (d.name && d.name.toUpperCase()));
         return Math.abs(agg != null ? agg : demo);
       }
       return Math.abs(demo);
-    }) || 1;
-    // local radius scale: map 0..localMaxPct -> reasonable radius range (8..90) to make rings visually distinct
-    const localRadiusScale = d3.scaleSqrt().domain([0, localMaxPct]).range([8, 92]);
+    }) || inferredMaxPct || 1;
+
+    // small helpers to safely extract numeric metrics from a node/data object
+    function extractVolumeItem(x) {
+      if (!x) return 0;
+      const candidate = x.volume ?? x.total_volume ?? x['24h_volume'] ?? x.v ?? (x.data ? (x.data.volume ?? x.data.total_volume ?? x.data['24h_volume']) : undefined);
+      const cleaned = String(candidate ?? 0).replace(/,/g, '');
+      return Number(cleaned) || 0;
+    }
+    function extractMarketCapItem(x) {
+      if (!x) return 0;
+      const candidate = x.market_cap ?? (x.data ? x.data.market_cap : undefined) ?? x.marketCap ?? 0;
+      return Number(candidate) || 0;
+    }
 
     // If single mode is requested, pick the largest absolute percent-change coin and render it centered
     if (single) {
-      const largest = used.reduce((a, b) => (Math.abs(b.price_change_percentage_24h || 0) > Math.abs(a.price_change_percentage_24h || 0) ? b : a), used[0] || null);
+      // pick the largest according to current sizing metric
+      const largest = used.reduce((a, b) => {
+        try {
+          if (selections && selections.size === 'Volume') {
+            const va = extractVolumeItem(a);
+            const vb = extractVolumeItem(b);
+            return vb > va ? b : a;
+          }
+          if (selections && selections.size === 'Market Cap') {
+            const ma = extractMarketCapItem(a);
+            const mb = extractMarketCapItem(b);
+            return mb > ma ? b : a;
+          }
+        } catch (e) {
+          // fall back to percent if any error
+        }
+        return Math.abs(b.price_change_percentage_24h || 0) > Math.abs(a.price_change_percentage_24h || 0) ? b : a;
+      }, used[0] || null);
       if (!largest) return;
-    const baseR = radiusScale ? radiusScale(Math.abs(largest.price_change_percentage_24h || 0)) : Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMax]).range([12, 160])(largest.market_cap)));
+    // compute baseR using the active size metric (allow external radiusScale override)
+    if (radiusScale) {
+      // delegate to provided radiusScale (assumed to accept the chosen metric)
+      const largestMetricVal = (selections && selections.size === 'Performance') ? Math.abs(largest.price_change_percentage_24h || 0) : (selections && selections.size === 'Volume' ? extractVolumeItem(largest) : extractMarketCapItem(largest));
+      // radiusScale expected to map raw metric -> radius
+      var baseR = Math.max(12, Math.round(radiusScale(largestMetricVal)));
+    } else {
+      // use our computed localRadiusScale
+      if (selections && selections.size === 'Volume') {
+        const lv = extractVolumeItem(largest) || 1;
+        var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lv || sizeMax)]).range([12, 160])(lv)));
+      } else if (selections && selections.size === 'Market Cap') {
+        const lm = extractMarketCapItem(largest) || 1;
+        var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lm || sizeMax)]).range([12, 160])(lm)));
+      } else {
+        var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMaxPct]).range([12, 160])(Math.abs(largest.price_change_percentage_24h || 0))));
+      }
+    }
     // ensure the single bubble is visually prominent by scaling up relative to viewport
     let displayR = Math.min(Math.max(baseR, Math.min(w, h) * 0.18), Math.min(w, h) / 2 - 16);
     // compute multiplier based on number of used nodes so single-mode scales sensibly
@@ -264,7 +373,18 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }
       const pctAbs = Math.abs(samplePct);
       // Use localRadiusScale to size rings based on the post-override distribution so demo movers look big
-      let baseR = Math.max(4, Math.round(localRadiusScale(pctAbs)));
+      // base radius depends on active size metric. For Performance use pctAbs,
+      // for Volume use the node's volume, otherwise use market_cap.
+      let baseR;
+      if (selections && selections.size === 'Volume') {
+        const volVal = extractVolumeItem(d) || 0;
+        baseR = Math.max(4, Math.round(localRadiusScale(volVal)));
+      } else if (selections && selections.size === 'Market Cap') {
+        const mcVal = extractMarketCapItem(d) || 0;
+        baseR = Math.max(4, Math.round(localRadiusScale(mcVal)));
+      } else {
+        baseR = Math.max(4, Math.round(localRadiusScale(pctAbs)));
+      }
 
       // PSX-aware sizing: compute how much of the allowed daily move this symbol used
       // Rules: if price <= 10 PKR then daily absolute cap = 1 PKR else cap = 10% of price
@@ -733,14 +853,67 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
         // percent below the symbol
   const pctCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + symSize + spacing + Math.round(pctSize / 2);
+        // helper to format large integer-like numbers into K/M/B (for volume)
+        function formatLargeNumber(n) {
+          const num = Number(n) || 0;
+          const abs = Math.abs(num);
+          if (abs >= 1e9) return (num / 1e9).toFixed(2).replace(/\.00$/, '') + 'B';
+          if (abs >= 1e6) return (num / 1e6).toFixed(2).replace(/\.00$/, '') + 'M';
+          if (abs >= 1e3) return (num / 1e3).toFixed(2).replace(/\.00$/, '') + 'K';
+          // small numbers: show up to 2 decimals if not integer
+          return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.00$/, '');
+        }
+
+        // Determine what to render in the lower stack: percent, price, or absolute price change or volume
+        let contentText = '';
+        let contentColor = '#baf3c9';
+        if (selections && selections.content === 'Price') {
+          // prefer common price fields - fallback to 0
+          const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
+          const priceNum = Number(priceRaw) || 0;
+          // formatting: 2 decimals for >=1, more precision for small prices
+          let fmt;
+          if (priceNum === 0) fmt = '0';
+          else if (Math.abs(priceNum) >= 1) fmt = priceNum.toFixed(2);
+          else if (Math.abs(priceNum) >= 0.01) fmt = priceNum.toPrecision(3);
+          else fmt = priceNum.toPrecision(4);
+          // show price without a leading currency symbol (use PKR context)
+          contentText = fmt;
+          contentColor = '#ffffff';
+  } else if (selections && selections.content === 'Price Change') {
+          // show the absolute price change amount (in PKR) computed from percent and price
+          const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
+          const priceNum = Number(priceRaw) || 0;
+          const pctVal = Number(pct) || 0; // pct is percent (e.g., 2.5)
+          const delta = (pctVal / 100) * priceNum;
+          const absDelta = Math.abs(delta);
+          let fmt;
+          if (absDelta === 0) fmt = '0';
+          else if (absDelta >= 1) fmt = delta.toFixed(2);
+          else if (absDelta >= 0.01) fmt = delta.toPrecision(3);
+          else fmt = delta.toPrecision(4);
+          // include explicit + sign for positive moves
+          contentText = `${delta >= 0 ? '+' : ''}${fmt}`;
+          contentColor = delta >= 0 ? '#baf3c9' : '#ffb6b6';
+        } else if (selections && selections.content === 'Volume') {
+          // show formatted 24h volume or known volume fields
+          const volRaw = d.data && (d.data.volume ?? d.data.total_volume ?? d.data['24h_volume'] ?? d.data.market_cap ?? 0);
+          const volNum = Number(volRaw) || 0;
+          contentText = formatLargeNumber(volNum);
+          contentColor = '#ffffff';
+        } else {
+          contentText = `${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`;
+          contentColor = pct >= 0 ? '#baf3c9' : '#ffb6b6';
+        }
+
         const pctEl = ln.append('text')
-          .attr('class', 'pct')
-          .text(`${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`)
+          .attr('class', selections && selections.content === 'Price' ? 'price' : (selections && selections.content === 'Price Change' ? 'price-change' : 'pct'))
+          .text(contentText)
           .attr('text-anchor', 'middle')
           .attr('y', pctCenterY)
           .attr('dominant-baseline', 'middle')
           .style('pointer-events', 'none')
-          .style('fill', pct >= 0 ? '#baf3c9' : '#ffb6b6')
+          .style('fill', contentColor)
           .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
           .style('font-size', `${pctSize}px`)
           .style('font-weight', 600);
@@ -799,7 +972,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         })(d);
         tooltip
           .style('display', 'block')
-          .html(`<strong>${d.data.name} (${d.data.symbol.toUpperCase()})</strong><br/>$${d.data.price}<br/>24h: ${ttPct.toFixed(2)}%`);
+          .html(`<strong>${d.data.name} (${d.data.symbol.toUpperCase()})</strong><br/>${d.data.price}<br/>24h: ${ttPct.toFixed(2)}%`);
       })
       .on('mousemove', function (event) {
         const ttNode = tooltip.node();
@@ -883,7 +1056,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       tooltip.remove();
       svg.on('.zoom', null);
     };
-  }, [data, size.width, size.height, single, radiusScale]);
+  }, [data, size.width, size.height, single, radiusScale, selections, aggregations]);
 
   // Periodically sample node positions to update the visible count without rerendering on every tick.
   useEffect(() => {

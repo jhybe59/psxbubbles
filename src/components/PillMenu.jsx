@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-export default function PillMenu({ anchorRect, onClose, currentInterval, setCurrentInterval, selections, setSelections }) {
+export default function PillMenu({ anchorRect, onClose, currentInterval, setCurrentInterval, selections, setSelections, avgFavPctForInterval, pctToColor }) {
   // anchorRect: {left, top, width, height} in page coordinates - we position menu near it
   useEffect(() => {
     function onKey(e) {
@@ -37,10 +37,41 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
     style.width = '380px';
   }
 
+  // Trimmed/streamlined option lists to remove extra/rarely-used items
   const periods = ['1 Min','5 Min','15 Min','Hour','4 Hours','Day','Week','Month','3 Months','Year'];
-  const sizes = ['Performance','Rank ⇅','Market Cap','24h Volume'];
-  const contents = ['Performance','Rank ⇅','Market Cap','24h Volume','Price','Rank','Name','Dominance'];
-  const colors = ['Performance','Rank ⇅','Neutral'];
+  const sizes = ['Performance','Market Cap','Volume'];
+  const contents = ['Performance','Price','Price Change','Volume'];
+  const colors = ['Performance','Neutral'];
+
+  // Keyboard navigation: handle arrow navigation between pills and Enter/Space to activate
+  useEffect(() => {
+    function onKey(e) {
+      if (!rootRef.current) return;
+      const pills = Array.from(rootRef.current.querySelectorAll('.pill-menu-pill'));
+      if (!pills.length) return;
+
+      const active = document.activeElement;
+      const idx = pills.indexOf(active);
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = pills[(idx + 1) % pills.length];
+        next?.focus();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prev = pills[(idx - 1 + pills.length) % pills.length];
+        prev?.focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        // activate focused pill
+        if (active && active.classList && active.classList.contains('pill-menu-pill')) {
+          (active).click && (active).click();
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
   <div ref={rootRef} className="pill-menu" style={style} role="dialog" aria-modal="false">
@@ -50,19 +81,24 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
       </div>
 
       <div className="pill-menu-section">
-        {periods.map((p) => (
-          <button
-            key={p}
-            className={`pill-menu-pill ${p === currentInterval ? 'active' : ''}`}
-            onClick={() => {
-              setCurrentInterval(p);
-              // close after selection
-              onClose();
-            }}
-          >
-            {p}
-          </button>
-        ))}
+        {periods.map((p) => {
+          // compute color for this period independently so selecting one doesn't override others
+          const pct = (typeof avgFavPctForInterval === 'function') ? avgFavPctForInterval(p) : 0;
+          const bg = (typeof pctToColor === 'function') ? pctToColor(pct) : undefined;
+          return (
+            <button
+              key={p}
+              className={`pill-menu-pill ${p === currentInterval ? 'active' : ''}`}
+              onClick={() => setCurrentInterval(p)}
+              aria-pressed={p === currentInterval}
+              tabIndex={0}
+              style={bg ? { background: bg } : undefined}
+              title={`${pct.toFixed(2)}% avg`}
+            >
+              {p}
+            </button>
+          );
+        })}
       </div>
 
       <div className="pill-menu-subtitle">Bubble size</div>
@@ -71,10 +107,9 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
           <button
             key={s}
             className={`pill-menu-pill ${selections.size === s ? 'active' : ''}`}
-            onClick={() => {
-              setSelections({ ...selections, size: s });
-              onClose();
-            }}
+            onClick={() => setSelections({ ...selections, size: s })}
+            aria-pressed={selections.size === s}
+            tabIndex={0}
           >
             {s}
           </button>
@@ -83,18 +118,23 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
 
       <div className="pill-menu-subtitle">Bubble content</div>
       <div className="pill-menu-section">
-        {contents.map((c) => (
-          <button
-            key={c}
-            className={`pill-menu-pill ${selections.content === c ? 'active' : ''}`}
-            onClick={() => {
-              setSelections({ ...selections, content: c });
-              onClose();
-            }}
-          >
-            {c}
-          </button>
-        ))}
+        {contents.map((c) => {
+          // keep the pill's semantic value equal to its label so we can
+          // distinguish 'Price' vs 'Price Change' in consumers
+          const valueToSet = c
+          const isActive = selections.content === valueToSet
+          return (
+            <button
+              key={c}
+              className={`pill-menu-pill ${isActive ? 'active' : ''}`}
+              onClick={() => setSelections({ ...selections, content: valueToSet })}
+              aria-pressed={isActive}
+              tabIndex={0}
+            >
+              {c}
+            </button>
+          )
+        })}
       </div>
 
       <div className="pill-menu-subtitle">Bubble color</div>
@@ -103,10 +143,9 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
           <button
             key={c}
             className={`pill-menu-pill ${selections.color === c ? 'active' : ''}`}
-            onClick={() => {
-              setSelections({ ...selections, color: c });
-              onClose();
-            }}
+            onClick={() => setSelections({ ...selections, color: c })}
+            aria-pressed={selections.color === c}
+            tabIndex={0}
           >
             {c}
           </button>

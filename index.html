@@ -8,6 +8,10 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Load Lightweight Charts UMD standalone build as a fallback global so the chart API is available
+         in dev environments where package exports/resolution may cause the ESM import to return
+         an unexpected shape. This is safe in dev, and Vite will serve node_modules files. -->
+    <script src="/node_modules/lightweight-charts/dist/lightweight-charts.standalone.development.js"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

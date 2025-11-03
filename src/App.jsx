@@ -10,6 +10,7 @@ import IndexManager from './components/IndexManager'
 import CsvPanel from './components/CsvPanel'
 import SymbolsPanel from './components/SymbolsPanel'
 import PriceRange from './components/PriceRange'
+import SnapshotPanel from './components/SnapshotPanel'
 import { createRadiusScale } from './utils/scales'
 import storage from './lib/storage'
 import './App.css'
@@ -256,6 +257,7 @@ function App() {
   ];
 
   const [indexManagerOpen, setIndexManagerOpen] = useState(false)
+  const [snapshotPanelOpen, setSnapshotPanelOpen] = useState(false)
   
 
   // persist page/index selection so UI returns to last state across refreshes
@@ -323,6 +325,7 @@ function App() {
             {loading ? 'Loading snapshots...' : (snapCount != null ? `${snapCount} snapshots` : '')}
             {error ? ` — ${error}` : ''}
             <button style={{marginLeft:8}} onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)}>Re-import</button>
+            <button style={{marginLeft:8}} onClick={() => setSnapshotPanelOpen(true)}>Snapshots ▾</button>
           </div>
           {/* Demo-only: removed Live, Debug, Backfill and Fetch controls */}
         </div>
@@ -338,7 +341,6 @@ function App() {
               <button
                 key={p}
                 className={`pill ${p === currentInterval ? 'active' : ''}`}
-                style={{ background: bg }}
                 title={`${pct.toFixed(2)}% avg`}
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
@@ -359,7 +361,9 @@ function App() {
                   }
                 }}
               >
-                {p}
+                {/* small colored swatch to show per-period avg color (keeps button visuals consistent) */}
+                <span className="pill-swatch" style={{ background: bg }} aria-hidden="true" />
+                <span className="pill-label">{p}</span>
               </button>
             );
           })}
@@ -374,6 +378,9 @@ function App() {
           setCurrentInterval={setCurrentInterval}
           selections={pillSelections}
           setSelections={setPillSelections}
+          // pass helpers so the menu can render per-period colors consistently
+          avgFavPctForInterval={avgFavPctForInterval}
+          pctToColor={pctToColor}
         />
       )}
 
@@ -568,6 +575,9 @@ function App() {
           indexMap={indexMap}
           setIndexMap={setIndexMap}
         />
+      )}
+      {snapshotPanelOpen && (
+        <SnapshotPanel open={snapshotPanelOpen} onClose={() => setSnapshotPanelOpen(false)} onImported={() => { importSnapshotsIfNeeded && importSnapshotsIfNeeded(false); refreshForInterval && refreshForInterval(currentInterval); }} />
       )}
       <CsvPanel refreshCallback={refreshForInterval} currentInterval={currentInterval} />
 
