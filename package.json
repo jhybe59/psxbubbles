@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+  "build": "vite build",
+  "postinstall": "node -e \"try{require('fs').chmodSync('./node_modules/.bin/vite',0o755)}catch(e){}\"",
     "lint": "eslint .",
     "preview": "vite preview",
     "build-snapshots": "node ./scripts/generate_snapshots_json.cjs",
