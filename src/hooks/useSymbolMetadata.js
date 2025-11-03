@@ -97,3 +97,36 @@ export default {
   importMetadata,
   clearAllMetadata
 };
+
+// On first load in the browser, if no metadata is present in localStorage,
+// attempt to import the static migrated metadata file generated at
+// `public/assets/migrated_symbol_metadata.json`. This makes logos available
+// for fresh visitors (e.g. production deployed site) without requiring the
+// per-browser localStorage export that the dev copy may have.
+// The fetch is async; when it writes into localStorage it dispatches the
+// `symbolMetadataUpdated` event so components subscribed via the hook will
+// re-read and re-render with logos.
+if (typeof window !== 'undefined') {
+  try {
+    const existing = readAll();
+    if (!existing || Object.keys(existing).length === 0) {
+      (async () => {
+        try {
+          const res = await fetch('/assets/migrated_symbol_metadata.json', { cache: 'no-cache' });
+          if (res && res.ok) {
+            const json = await res.json();
+            if (json && typeof json === 'object') {
+              // merge into localStorage (preserve any existing keys just in case)
+              const merged = Object.assign({}, readAll(), json);
+              writeAll(merged);
+            }
+          }
+        } catch (e) {
+          // ignore fetch errors (best-effort fallback)
+        }
+      })();
+    }
+  } catch (e) {
+    // ignore
+  }
+}
