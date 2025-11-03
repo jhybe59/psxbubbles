@@ -238,13 +238,16 @@ function App() {
   }, [])
 
   // when the user switches interval, ask OHLCV hook to refresh computed interval values
+  // Only trigger a data refresh if autoRefresh is enabled; otherwise the change is purely UI
+  // and no network/compute refresh should occur. This prevents unrelated button clicks
+  // from causing unexpected data refreshes.
   useEffect(() => {
     try {
-      if (refreshForInterval) refreshForInterval(currentInterval);
+      if (autoRefresh && refreshForInterval) refreshForInterval(currentInterval);
     } catch (e) {
       // ignore
     }
-  }, [currentInterval, refreshForInterval]);
+  }, [currentInterval, refreshForInterval, autoRefresh]);
 
   // read snapshot count for header status periodically
   useEffect(() => {
@@ -332,6 +335,15 @@ function App() {
             onClick={() => refreshForInterval && refreshForInterval(currentInterval)}
           >
             ⟳
+          </button>
+          <button
+            className="search-icon"
+            title="Toggle auto-refresh on interval change"
+            aria-pressed={autoRefresh}
+            onClick={() => setAutoRefresh((s) => !s)}
+            style={{ marginLeft: 8 }}
+          >
+            {autoRefresh ? 'Auto' : 'Manual'}
           </button>
           <button
             className="search-icon"
@@ -575,7 +587,7 @@ function App() {
                         </button>
                         <button
                           title={`Open Index Manager for ${ix}`}
-                          onClick={(e) => { e.stopPropagation(); setIndexManagerOpen(true); setSelectedIndex(ix); }}
+                          onClick={(e) => { e.stopPropagation(); setIndexManagerOpen(true); /* do NOT setSelectedIndex here - opening the manager should not change the active index or trigger a data refresh */ }}
                           style={{ marginLeft: 8, background: 'transparent', border: 'none', color: '#9fb8b0', cursor: 'pointer' }}
                         >✎</button>
                       </div>
