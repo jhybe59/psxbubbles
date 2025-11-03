@@ -13,6 +13,62 @@ export default function IndexManager({ open, onClose, coins = [], indexMap = {},
     setSelected(new Set());
   }, [open]);
 
+  // Export current indexMap to a downloadable JSON file
+  function exportIndexMap() {
+    try {
+      const data = JSON.stringify(indexMap || {}, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'index_map.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Import index map JSON via paste prompt (simple UX for admins). This will
+  // replace the in-memory indexMap and write to localStorage so other tabs
+  // and subsequent visits pick it up.
+  function importIndexMap() {
+    try {
+      const text = prompt('Paste JSON for full index map (will replace current)');
+      if (!text) return;
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object') return alert('Invalid JSON');
+      try { localStorage.setItem('indexMap', JSON.stringify(parsed)); } catch (e) { /* ignore */ }
+      setIndexMap(parsed);
+      alert('Index map imported');
+    } catch (e) {
+      alert('Failed to import index map: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  // Publish index map to server endpoint. Prompts for a token and posts
+  // the current indexMap to /api/index_map. This requires the server
+  // admin process to be running and ADMIN_SECRET (or INDEX_API_TOKEN)
+  // set to the same token.
+  async function publishIndexMap() {
+    try {
+      const token = prompt('Enter publish token (admin secret)');
+      if (!token) return;
+      const res = await fetch('/api/index_map', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify(indexMap || {})
+      });
+      const json = await res.json();
+      if (!res.ok) return alert('Publish failed: ' + (json && json.error ? json.error : res.statusText));
+      alert('Index map published to server');
+    } catch (e) {
+      alert('Publish error: ' + (e && e.message ? e.message : e));
+    }
+  }
+
   const members = (indexMap && indexMap[activeIndex]) ? indexMap[activeIndex] : [];
 
   const available = useMemo(() => {
@@ -53,6 +109,9 @@ export default function IndexManager({ open, onClose, coins = [], indexMap = {},
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
           <h3 style={{margin:0}}>Index Manager</h3>
           <div>
+            <button onClick={exportIndexMap} title="Export index map">Export</button>
+            <button onClick={importIndexMap} title="Import index map" style={{marginLeft:8}}>Import</button>
+            <button onClick={publishIndexMap} title="Publish index map" style={{marginLeft:8}}>Publish</button>
             <button onClick={onClose} style={{marginLeft:8}}>Close</button>
           </div>
         </div>

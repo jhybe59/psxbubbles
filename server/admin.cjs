@@ -84,5 +84,26 @@ app.post('/api/restore', (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: String(err) }); }
 });
 
+// Publish index map (authenticated)
+app.post('/api/index_map', (req, res) => {
+  try {
+    // auth via Bearer token in Authorization header or ?token=
+    const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || req.query.token;
+    const token = (typeof auth === 'string' && auth.startsWith('Bearer ')) ? auth.slice(7) : auth;
+    const expected = process.env.ADMIN_SECRET || process.env.INDEX_API_TOKEN;
+    if (expected && String(token) !== String(expected)) return res.status(403).json({ ok: false, error: 'unauthorized' });
+
+    const body = req.body;
+    if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'invalid body' });
+
+    // write to public/assets/migrated_index_map.json (atomic write)
+    const outPath = path.join(cwd, 'public', 'assets', 'migrated_index_map.json');
+    const tmpPath = outPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(body, null, 2), 'utf8');
+    fs.renameSync(tmpPath, outPath);
+    return res.json({ ok: true, path: outPath });
+  } catch (err) { return res.status(500).json({ ok: false, error: String(err) }); }
+});
+
 const port = process.env.ADMIN_PORT || 4001;
 app.listen(port, () => console.log(`[admin] backup server listening on http://localhost:${port} (backups dir: ${backupsDir})`));

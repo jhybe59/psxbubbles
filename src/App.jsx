@@ -61,6 +61,26 @@ function App() {
     }
   })
 
+  // ALWAYS load the canonical index map from the repo public asset so indices
+  // are authoritative and identical across all devices. This will override
+  // any per-browser localStorage indexMap so the repo file is the source of
+  // truth. (If you prefer merge behavior instead, we can change this.)
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/assets/migrated_index_map.json', { cache: 'no-cache' });
+        if (!res || !res.ok) return;
+        const json = await res.json();
+        if (json && typeof json === 'object') {
+          try { localStorage.setItem('indexMap', JSON.stringify(json)); } catch (e) { /* ignore */ }
+          setIndexMap(json);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
+
   // DEBUG: log indexMap and raw localStorage key to help diagnose missing indices
   useEffect(() => {
     try {
