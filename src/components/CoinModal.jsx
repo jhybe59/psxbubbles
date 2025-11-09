@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import storage from '../lib/storage';
+import { ENABLE_REPO_SNAPSHOTS } from '../config';
 import InteractiveChart from './InteractiveChart';
 import { buildCandlesFromSnapshots } from '../lib/chartUtils';
 
@@ -82,8 +83,8 @@ export default function CoinModal({ coin, onClose }) {
           if (mounted) setLatestSnapshot(null);
         }
         let rows = await storage.getRange(coin.symbol, earlierTs, latestTs);
-        // If DB is empty for this symbol (snapshots not imported), fall back to the public JSON
-        if (!rows || rows.length === 0) {
+        // If DB is empty for this symbol (snapshots not imported), optionally fall back to the public JSON
+        if ((!rows || rows.length === 0) && ENABLE_REPO_SNAPSHOTS) {
           try {
             const res = await fetch('/psx_snapshots.json');
             if (res && res.ok) {

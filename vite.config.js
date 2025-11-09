@@ -20,7 +20,13 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: {
+      // Forward API requests to the local Express service so relative `/api/*`
+      // calls from the SPA hit the Docker stack instead of the Vite dev server.
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
   },
-  // No dev proxy configured. PSX upstream is currently disabled to avoid
-  // accidental requests while the project operates in demo mode.
 })

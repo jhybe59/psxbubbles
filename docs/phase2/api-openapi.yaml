@@ -1,0 +1,349 @@
+openapi: 3.1.0
+info:
+  title: PSX Bubbles Phase 2 API
+  version: 0.2.0
+  description: >
+    REST endpoints powering the PSX Bubbles frontend. Phase 2 introduces market
+    analytics (indices, sector stats, watchlists) backed by TimescaleDB
+    aggregates and Redis materialization.
+servers:
+  - url: https://api.example.com/api
+    description: Production
+  - url: http://localhost:8080/api
+    description: Development
+tags:
+  - name: Market
+    description: Market-wide analytics and stats
+  - name: Indices
+    description: Index metadata and aggregates
+  - name: Watchlists
+    description: User or system watchlist derived data
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  parameters:
+    IntervalParam:
+      name: interval
+      in: query
+      description: >
+        Aggregation interval backing the response. `Day` maps to 1d continuous
+        aggregate, intraday intervals map to Timescale views. `auto` lets the
+        server choose based on market session state.
+      required: false
+      schema:
+        type: string
+        enum: [auto, 1m, 5m, 15m, 1h, Day]
+        default: Day
+    IndexParam:
+      name: index
+      in: query
+      description: Filter analytics to a PSX index (e.g. `KSE100`, `KSE30`).
+      required: false
+      schema:
+        type: string
+    IncludeMembersParam:
+      name: includeMembers
+      in: query
+      description: Include member symbols when querying index metadata.
+      required: false
+      schema:
+        type: boolean
+        default: false
+    WatchlistIdParam:
+      name: watchlistId
+      in: path
+      required: true
+      description: Identifier for a saved/custom watchlist.
+      schema:
+        type: string
+  responses:
+    UnauthorizedError:
+      description: Invalid or missing API key.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationError:
+      description: Input validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Unhandled exception or dependency outage.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required: [code, message]
+    MarketStatsResponse:
+      type: object
+      properties:
+        interval:
+          type: string
+          example: Day
+        asOf:
+          type: string
+          format: date-time
+        advancers:
+          type: integer
+          minimum: 0
+        decliners:
+          type: integer
+          minimum: 0
+        unchanged:
+          type: integer
+          minimum: 0
+        volumeTotal:
+          type: number
+          format: double
+        turnoverTotal:
+          type: number
+          format: double
+        topGainers:
+          type: array
+          items:
+            $ref: '#/components/schemas/SymbolSnapshot'
+        topLosers:
+          type: array
+          items:
+            $ref: '#/components/schemas/SymbolSnapshot'
+        sectors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SectorSnapshot'
+      required:
+        - interval
+        - asOf
+        - advancers
+        - decliners
+        - unchanged
+        - volumeTotal
+        - turnoverTotal
+        - sectors
+    SectorSnapshot:
+      type: object
+      properties:
+        sector:
+          type: string
+        symbols:
+          type: integer
+        advancers:
+          type: integer
+        decliners:
+          type: integer
+        pctChange:
+          type: number
+          format: double
+        turnover:
+          type: number
+          format: double
+      required:
+        - sector
+        - symbols
+        - advancers
+        - decliners
+        - pctChange
+    SymbolSnapshot:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+          format: double
+        intervalPct:
+          type: number
+          format: double
+        dailyPct:
+          type: number
+          format: double
+        volume:
+          type: number
+          format: double
+        turnover:
+          type: number
+          format: double
+        ts:
+          type: string
+          format: date-time
+      required:
+        - symbol
+        - price
+        - intervalPct
+        - dailyPct
+        - ts
+    IndexSummary:
+      type: object
+      properties:
+        code:
+          type: string
+          example: KSE100
+        name:
+          type: string
+          example: KSE 100 Index
+        members:
+          type: integer
+        latest:
+          type: object
+          properties:
+            asOf:
+              type: string
+              format: date-time
+            level:
+              type: number
+              format: double
+            changePct:
+              type: number
+              format: double
+            turnover:
+              type: number
+              format: double
+        membersList:
+          type: array
+          description: Included when `includeMembers=true`.
+          items:
+            type: string
+      required: [code, name, members, latest]
+    WatchlistResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        interval:
+          type: string
+        asOf:
+          type: string
+          format: date-time
+        symbols:
+          type: array
+          items:
+            $ref: '#/components/schemas/SymbolSnapshot'
+      required: [id, name, interval, asOf, symbols]
+paths:
+  /market-stats:
+    get:
+      summary: Market breadth and sector analytics
+      description: >
+        Returns aggregated market statistics including advancers/decliners,
+        sector performance snapshots, and top movers. Data derives from
+        Timescale continuous aggregates and materialized sector tables.
+      tags: [Market]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IntervalParam'
+        - $ref: '#/components/parameters/IndexParam'
+      responses:
+        '200':
+          description: Successful analytics payload.
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Hash computed from `asOf` + `interval`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketStatsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /indices:
+    get:
+      summary: List supported PSX indices with latest levels.
+      tags: [Indices]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IncludeMembersParam'
+      responses:
+        '200':
+          description: Array of index summaries ordered by priority.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  indices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IndexSummary'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /indices/{code}:
+    get:
+      summary: Detailed view for a specific index.
+      tags: [Indices]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            example: KSE100
+        - $ref: '#/components/parameters/IncludeMembersParam'
+      responses:
+        '200':
+          description: Index detail including constituent snapshots.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexSummary'
+        '404':
+          description: Index not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /watchlists/{watchlistId}:
+    get:
+      summary: Fetch derived stats for a saved watchlist.
+      tags: [Watchlists]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WatchlistIdParam'
+        - $ref: '#/components/parameters/IntervalParam'
+      responses:
+        '200':
+          description: Watchlist response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistResponse'
+        '404':
+          description: Watchlist not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+

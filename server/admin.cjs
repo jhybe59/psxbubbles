@@ -85,6 +85,34 @@ app.post('/api/restore', (req, res) => {
 });
 
 // Publish index map (authenticated)
+app.get('/api/index_map', (req, res) => {
+  try {
+    const outPath = path.join(cwd, 'public', 'assets', 'migrated_index_map.json');
+    if (!fs.existsSync(outPath)) return res.status(404).json({ ok: false, error: 'index map not found' });
+    const raw = fs.readFileSync(outPath, 'utf8') || '{}';
+    const json = JSON.parse(raw);
+    const stats = fs.statSync(outPath);
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.json({ ok: true, data: json, updatedAt: stats.mtimeMs });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) });
+  }
+});
+
+app.get('/api/symbol_metadata', (req, res) => {
+  try {
+    const outPath = path.join(cwd, 'public', 'assets', 'migrated_symbol_metadata.json');
+    if (!fs.existsSync(outPath)) return res.status(404).json({ ok: false, error: 'metadata not found' });
+    const raw = fs.readFileSync(outPath, 'utf8') || '{}';
+    const json = JSON.parse(raw);
+    const stats = fs.statSync(outPath);
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.json({ ok: true, data: json, updatedAt: stats.mtimeMs });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) });
+  }
+});
+
 app.post('/api/index_map', (req, res) => {
   try {
     // auth via Bearer token in Authorization header or ?token=

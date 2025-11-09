@@ -2,10 +2,31 @@ import { useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'symbolMetadata_v1';
 
+export function normalizeSymbolKey(symbol) {
+  if (symbol == null) return '';
+  return String(symbol).trim().toUpperCase();
+}
+
+function normalizeAllKeys(obj) {
+  if (!obj || typeof obj !== 'object') return {};
+  const next = {};
+  Object.entries(obj).forEach(([key, value]) => {
+    const normalized = normalizeSymbolKey(key);
+    if (!normalized) return;
+    if (next[normalized]) {
+      next[normalized] = Object.assign({}, next[normalized], value || {});
+    } else {
+      next[normalized] = value || {};
+    }
+  });
+  return next;
+}
+
 function readAll() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const parsed = raw ? JSON.parse(raw) : {};
+    return normalizeAllKeys(parsed);
   } catch (e) {
     return {};
   }
@@ -13,7 +34,8 @@ function readAll() {
 
 function writeAll(obj) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    const normalized = normalizeAllKeys(obj);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
     // fire a storage-like event locally so listeners update in same tab
     try {
       window.dispatchEvent(new Event('symbolMetadataUpdated'));
@@ -30,28 +52,32 @@ export function getAllMetadata() {
 
 export function getMetadata(symbol) {
   if (!symbol) return null;
+  const key = normalizeSymbolKey(symbol);
   const all = readAll();
-  return all[symbol] || null;
+  return all[key] || null;
 }
 
 export function setMetadata(symbol, meta) {
   if (!symbol) return false;
+  const key = normalizeSymbolKey(symbol);
   const all = readAll();
-  all[symbol] = Object.assign({}, all[symbol] || {}, meta);
+  all[key] = Object.assign({}, all[key] || {}, meta);
   return writeAll(all);
 }
 
 export function removeMetadata(symbol) {
   if (!symbol) return false;
+  const key = normalizeSymbolKey(symbol);
   const all = readAll();
-  delete all[symbol];
+  delete all[key];
   return writeAll(all);
 }
 
 export function importMetadata(obj) {
   if (!obj || typeof obj !== 'object') return false;
+  const normalizedIncoming = normalizeAllKeys(obj);
   const all = readAll();
-  const merged = Object.assign({}, all, obj);
+  const merged = Object.assign({}, all, normalizedIncoming);
   return writeAll(merged);
 }
 
@@ -106,19 +132,27 @@ export default {
 // The fetch is async; when it writes into localStorage it dispatches the
 // `symbolMetadataUpdated` event so components subscribed via the hook will
 // re-read and re-render with logos.
-if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined') {
   try {
     const existing = readAll();
     if (!existing || Object.keys(existing).length === 0) {
       (async () => {
         try {
-          const res = await fetch('/assets/migrated_symbol_metadata.json', { cache: 'no-cache' });
-          if (res && res.ok) {
-            const json = await res.json();
-            if (json && typeof json === 'object') {
-              // merge into localStorage (preserve any existing keys just in case)
-              const merged = Object.assign({}, readAll(), json);
-              writeAll(merged);
+          const candidates = ['/api/symbol_metadata', '/assets/migrated_symbol_metadata.json'];
+          for (let i = 0; i < candidates.length; i += 1) {
+            const url = candidates[i];
+            try {
+              const res = await fetch(url, { cache: 'no-cache' });
+              if (!res || !res.ok) continue;
+              const json = await res.json();
+              const payload = json && json.data && typeof json.data === 'object' ? json.data : json;
+              if (payload && typeof payload === 'object') {
+                const merged = Object.assign({}, readAll(), payload);
+                writeAll(merged);
+                break;
+              }
+            } catch (fetchErr) {
+              // try next candidate
             }
           }
         } catch (e) {

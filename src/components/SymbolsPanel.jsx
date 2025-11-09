@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { getAllMetadata, useSymbolMetadata, importMetadata, clearAllMetadata, setMetadata, removeMetadata } from '../hooks/useSymbolMetadata';
+import { getAllMetadata, importMetadata, clearAllMetadata, setMetadata, removeMetadata, normalizeSymbolKey } from '../hooks/useSymbolMetadata';
 import './SymbolsPanel.css';
 
 export default function SymbolsPanel({ symbols = [], open = true, onClose = () => {} }) {
@@ -7,6 +7,21 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
   const [editing, setEditing] = useState(null); // symbol being edited
   const [allMeta, setAllMeta] = useState(() => getAllMetadata());
   const [dragOverSym, setDragOverSym] = useState(null);
+  const diagnostics = useMemo(() => {
+    const symbolKeys = new Set((symbols || []).map((s) => normalizeSymbolKey(s.symbol || s.id || '')));
+    const metadataKeys = new Set(Object.keys(allMeta || {}).map((k) => normalizeSymbolKey(k)));
+    const missing = [];
+    symbolKeys.forEach((key) => {
+      if (key && !metadataKeys.has(key)) missing.push(key);
+    });
+    const orphans = [];
+    metadataKeys.forEach((key) => {
+      if (key && !symbolKeys.has(key)) orphans.push(key);
+    });
+    missing.sort();
+    orphans.sort();
+    return { missing, orphans };
+  }, [symbols, allMeta]);
 
   // simple filtered list
   const list = useMemo(() => {
@@ -21,12 +36,14 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
   }
 
   function openEditor(sym) {
+    const key = normalizeSymbolKey(sym.symbol || sym.id || sym);
+    const meta = allMeta[key] || {};
     setEditing({
-      symbol: sym.symbol || sym.id || sym,
-      displayName: (allMeta[sym.symbol]?.displayName) || sym.name || '',
-      shortName: (allMeta[sym.symbol]?.shortName) || (sym.symbol || '').slice(0, 6),
-      image: (allMeta[sym.symbol]?.image) || '',
-      splitFactor: (allMeta[sym.symbol]?.splitFactor) || ''
+      symbol: key,
+      displayName: meta.displayName || sym.name || '',
+      shortName: meta.shortName || (sym.symbol || '').slice(0, 6),
+      image: meta.image || '',
+      splitFactor: meta.splitFactor || ''
     });
   }
 
@@ -48,10 +65,11 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
     reader.onload = () => {
       try {
         const cur = getAllMetadata() || {};
-        const prev = cur[symKey] || {};
+        const normalizedKey = normalizeSymbolKey(symKey);
+        const prev = cur[normalizedKey] || {};
         const img = reader.result;
         // merge and save image only (preserve existing meta)
-        setMetadata(symKey, Object.assign({}, prev, { image: img }));
+        setMetadata(normalizedKey, Object.assign({}, prev, { image: img }));
         refreshMeta();
       } catch (err) {
         // ignore
@@ -85,9 +103,10 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
     reader.onload = () => {
       try {
         const cur = getAllMetadata() || {};
-        const prev = cur[symKey] || {};
+        const normalizedKey = normalizeSymbolKey(symKey);
+        const prev = cur[normalizedKey] || {};
         const img = reader.result;
-        setMetadata(symKey, Object.assign({}, prev, { image: img }));
+        setMetadata(normalizedKey, Object.assign({}, prev, { image: img }));
         refreshMeta();
       } catch (err) {
         // ignore
@@ -108,9 +127,10 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
     if (!confirm(`Hide ${symKey} from the app display? (The symbol will remain in the database but will not be shown.)`)) return;
     try {
       const cur = getAllMetadata() || {};
-      const prev = cur[symKey] || {};
+      const normalizedKey = normalizeSymbolKey(symKey);
+      const prev = cur[normalizedKey] || {};
       // mark as hidden
-      setMetadata(symKey, Object.assign({}, prev, { hidden: true }));
+      setMetadata(normalizedKey, Object.assign({}, prev, { hidden: true }));
     } catch (e) {
       // ignore
     }
@@ -123,10 +143,11 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
     if (!symKey) return;
     try {
       const cur = getAllMetadata() || {};
-      const prev = cur[symKey] || {};
+      const normalizedKey = normalizeSymbolKey(symKey);
+      const prev = cur[normalizedKey] || {};
       const next = Object.assign({}, prev);
       if (next.hidden) delete next.hidden;
-      setMetadata(symKey, next);
+      setMetadata(normalizedKey, next);
     } catch (e) {}
     refreshMeta();
   }
@@ -173,7 +194,37 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
     refreshMeta();
   }
 
+  function addPlaceholdersForMissing() {
+    if (!diagnostics.missing.length) return;
+    const payload = diagnostics.missing.reduce((acc, key) => {
+      if (!key) return acc;
+      acc[key] = { displayName: key, shortName: key.slice(0, 6), image: '', splitFactor: '' };
+      return acc;
+    }, {});
+    importMetadata(payload);
+    refreshMeta();
+    alert(`Added placeholder metadata for ${Object.keys(payload).length} symbols.`);
+  }
+
+  function removeOrphanMetadataEntries() {
+    if (!diagnostics.orphans.length) return;
+    if (!confirm(`Remove ${diagnostics.orphans.length} metadata entries that no longer match live symbols?`)) return;
+    diagnostics.orphans.forEach((key) => removeMetadata(key));
+    refreshMeta();
+  }
+
+  function exportDiagnostics() {
+    const blob = new Blob([JSON.stringify(diagnostics, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'symbol-metadata-diagnostics.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (!open) return null;
+  const editingMeta = editing && editing.symbol ? (allMeta[editing.symbol] || {}) : null;
 
   return (
     <div className="symbols-panel-backdrop" onClick={() => onClose()}>
@@ -188,37 +239,52 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
           </div>
         </div>
 
+        <div className="sp-diagnostics">
+          <div>
+            <strong>Diagnostics:</strong> {diagnostics.missing.length} missing, {diagnostics.orphans.length} orphaned
+          </div>
+          <div className="sp-diagnostics-actions">
+            <button onClick={addPlaceholdersForMissing} disabled={!diagnostics.missing.length}>Add placeholders</button>
+            <button onClick={removeOrphanMetadataEntries} disabled={!diagnostics.orphans.length}>Remove orphaned</button>
+            <button onClick={exportDiagnostics}>Export report</button>
+          </div>
+        </div>
+
         <div className="sp-search">
           <input placeholder="Search symbol or name" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
 
         <div className="sp-body">
           <div className="sp-list">
-            {list.map((s) => (
-              <div key={s.symbol || s.id} className="sp-row">
-                <div className="sp-row-left">
-                  <label
-                    className={`sp-thumb ${dragOverSym === (s.symbol || s.id || '') ? 'drag-over' : ''}`}
-                    htmlFor={`logo-${(s.symbol || s.id || '')}`}
-                    onDragEnter={(e) => onThumbDragEnter(e, (s.symbol || s.id || ''))}
-                    onDragOver={onThumbDragOver}
-                    onDragLeave={onThumbDragLeave}
-                    onDrop={(e) => onThumbDrop(e, (s.symbol || s.id || ''))}
-                  >
-                    <input id={`logo-${(s.symbol || s.id || '')}`} className="sp-file-input" type="file" accept="image/*" onChange={(e) => onRowLogoChange(e, (s.symbol || s.id || ''))} />
-                    {allMeta[s.symbol]?.image ? <img src={allMeta[s.symbol].image} alt="logo" /> : <div className="sp-placeholder">{(s.symbol || '').slice(0,3)}</div>}
-                  </label>
-                  <div>
-                    <div className="sp-name">{allMeta[s.symbol]?.displayName || s.name || s.symbol}</div>
-                    <div className="sp-symbol">{(s.symbol || s.id || '').toUpperCase()}</div>
+            {list.map((s) => {
+              const key = normalizeSymbolKey(s.symbol || s.id || '');
+              const meta = allMeta[key] || {};
+              return (
+                <div key={key || s.symbol || s.id} className="sp-row">
+                  <div className="sp-row-left">
+                    <label
+                      className={`sp-thumb ${dragOverSym === key ? 'drag-over' : ''}`}
+                      htmlFor={`logo-${key}`}
+                      onDragEnter={(e) => onThumbDragEnter(e, key)}
+                      onDragOver={onThumbDragOver}
+                      onDragLeave={onThumbDragLeave}
+                      onDrop={(e) => onThumbDrop(e, key)}
+                    >
+                      <input id={`logo-${key}`} className="sp-file-input" type="file" accept="image/*" onChange={(e) => onRowLogoChange(e, key)} />
+                      {meta.image ? <img src={meta.image} alt="logo" /> : <div className="sp-placeholder">{key.slice(0,3) || (s.symbol || '').slice(0,3)}</div>}
+                    </label>
+                    <div>
+                      <div className="sp-name">{meta.displayName || s.name || s.symbol}</div>
+                      <div className="sp-symbol">{key}</div>
+                    </div>
+                  </div>
+                  <div className="sp-row-right">
+                    <button onClick={() => openEditor(s)}>Edit</button>
+                    <button className="sp-delete" onClick={() => deleteMetadata(key)} title="Hide symbol from display">✖</button>
                   </div>
                 </div>
-                <div className="sp-row-right">
-                  <button onClick={() => openEditor(s)}>Edit</button>
-                  <button className="sp-delete" onClick={() => deleteMetadata((s.symbol || s.id || ''))} title="Hide symbol from display">✖</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="sp-editor">
@@ -236,7 +302,7 @@ export default function SymbolsPanel({ symbols = [], open = true, onClose = () =
                   <button onClick={saveEditing}>Save</button>
                   <button onClick={applySplit}>Store Split</button>
                   <button onClick={() => setEditing(null)}>Cancel</button>
-                  {allMeta[editing.symbol]?.hidden ? (
+                  {editingMeta?.hidden ? (
                     <button className="sp-delete" onClick={() => unhideMetadata(editing.symbol)}>Unhide</button>
                   ) : (
                     <button className="sp-delete" onClick={() => deleteMetadata(editing.symbol)}>Hide</button>

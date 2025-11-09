@@ -108,6 +108,165 @@ body {
   gap: 10px;
 }
 
+.market-summary-container {
+  position: relative;
+  padding: 0 24px;
+  margin: 12px 0 0;
+  display: flex;
+  justify-content: center;
+  z-index: 20;
+}
+
+.market-summary-container.open {
+  z-index: 60;
+}
+
+.market-summary-toggle {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.market-summary-button {
+  width: 100%;
+  max-width: 720px;
+  background: linear-gradient(180deg, rgba(16,26,32,0.92), rgba(10,16,20,0.92));
+  border: 1px solid rgba(255,255,255,0.04);
+  color: #eaeaea;
+  padding: 12px 18px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 12px 26px rgba(0,0,0,0.45);
+  transition: background 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+.market-summary-button:hover,
+.market-summary-button:focus {
+  background: linear-gradient(180deg, rgba(22,34,42,0.98), rgba(14,22,28,0.96));
+  border-color: rgba(61,220,132,0.25);
+  outline: none;
+}
+
+.market-summary-button:active {
+  transform: translateY(1px);
+}
+
+.market-summary-label {
+  flex: 1 1 auto;
+  text-align: left;
+  letter-spacing: 0.02em;
+}
+
+.market-summary-status {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(255,255,255,0.08);
+  color: #d8e6e4;
+}
+
+.market-summary-status.loading {
+  color: #f5d67a;
+}
+
+.market-summary-status.ok {
+  color: #7fe6ae;
+  background: rgba(61,220,132,0.12);
+}
+
+.market-summary-status.approx {
+  color: #f5d67a;
+  background: rgba(245,214,122,0.14);
+}
+
+.market-summary-status.error {
+  color: #ff9b9b;
+  background: rgba(255,155,155,0.14);
+}
+
+.market-summary-status.empty {
+  color: #9fb8b0;
+}
+
+.market-summary-chevron {
+  flex: 0 0 auto;
+  font-size: 16px;
+  transition: transform 160ms ease;
+  color: #9fb8b0;
+}
+
+.market-summary-chevron.open {
+  transform: rotate(180deg);
+}
+
+.market-summary-panel {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 16px 20px;
+  width: min(720px, calc(100% - 48px));
+  background: linear-gradient(180deg, rgba(8,12,16,0.92), rgba(5,7,9,0.92));
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 12px;
+  box-shadow: 0 14px 30px rgba(0,0,0,0.5);
+  z-index: 80;
+  pointer-events: auto;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+.market-summary-error {
+  color: #ff9b9b;
+  font-size: 13px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.market-summary-note {
+  background: rgba(61,220,132,0.08);
+  color: #bfead2;
+  font-size: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(61,220,132,0.16);
+}
+
+.market-summary-retry {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #f6f9f8;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.market-summary-retry:hover {
+  background: rgba(61,220,132,0.16);
+  border-color: rgba(61,220,132,0.35);
+  color: #bff3d5;
+}
+
+.market-summary-loading,
+.market-summary-empty {
+  font-size: 13px;
+  color: #9fb8b0;
+  margin-bottom: 8px;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
@@ -398,6 +557,149 @@ body {
 .coin-sub { font-size:12px; color:#9aa4a6 }
 .coin-right { text-align:right }
 .coin-price { font-size:20px; font-weight:900 }
+
+/* Market Summary component */
+.market-summary {
+  margin: 24px 24px 0;
+  padding: 16px;
+  background: rgba(13, 18, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  color: #d9efea;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.market-summary header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.market-summary h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+.market-summary .subtitle {
+  font-size: 12px;
+  color: #8ca69f;
+  margin-top: 4px;
+}
+
+.market-summary .actions button {
+  background: linear-gradient(145deg, #1b4b3c, #1f5d49);
+  border: none;
+  color: #e7fff7;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.market-summary .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.market-summary .card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.market-summary .card .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #9fb8b0;
+  margin-bottom: 6px;
+}
+
+.market-summary .card .value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.market-summary .card .value.pos {
+  color: #56f29a;
+}
+
+.market-summary .card .value.neg {
+  color: #ff7a7a;
+}
+
+.market-summary .card .value.neutral {
+  color: #cdd5d2;
+}
+
+.market-summary .movers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.market-summary .movers-section {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.market-summary .section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #8ca69f;
+  letter-spacing: 0.08em;
+}
+
+.market-summary .mover-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.market-summary .mover-row .symbol {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.market-summary .badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.market-summary .badge.pos {
+  color: #0d261c;
+  background: rgba(66, 201, 133, 0.9);
+  border-color: rgba(66, 201, 133, 0.7);
+}
+
+.market-summary .badge.neg {
+  color: #310d0d;
+  background: rgba(250, 120, 120, 0.9);
+  border-color: rgba(250, 120, 120, 0.7);
+}
+
+.market-summary .badge.neutral {
+  color: #cdd5d2;
+}
+
+.market-summary .muted {
+  color: #899993;
+  font-size: 12px;
+}
+
 .coin-pct { font-size:13px; font-weight:800 }
 
 .coin-stats-row { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; margin-top:4px }

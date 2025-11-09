@@ -1,93 +1,219 @@
-# React + Vite
+# My Cryptobubbles
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interactive market bubble viz for equities and digital assets. The project started as a CSV-driven prototype and now supports a live ingestion pipeline backed by TimescaleDB, while keeping the legacy upload tooling available for backfills.
 
-Currently, two official plugins are available:
+## Table of contents
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Overview
+- Quick start (demo mode)
+- Live mode setup
+- Environment variables
+- Ingestion runbook
+- Legacy workflows
+- Backup & restore
+- Logo migration utility
+- Additional documentation
 
-## React Compiler
+## Overview
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+- React + Vite single-page app that renders bubbles sized by market cap, colored by performance, with rich admin tooling (symbols, indices, backups).
+- Local IndexedDB cache stores snapshot data imported from the ingestion pipeline or manual CSV uploads.
+- Admin server (`npm run start-admin`) exposes authenticated endpoints for publishing index memberships and managing repo backups. The dedicated API service (`npm run start:api`) is optimized for live mode and proxies Timescale aggregates.
+- Legacy CSV workflow remains available for ad-hoc data entry but is no longer the primary ingestion path.
 
-Note: This will impact Vite dev & build performances.
+## Quick start (demo mode)
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-
-
-## Backup & Restore
-
-This project includes simple local backup and restore scripts to create a ZIP snapshot of the repository (including the `.git` folder) so you can restore a previous state if the repo becomes damaged.
-
-- Backups are stored outside the repository folder (one level up) in a folder named `<projectname>_backups` (e.g. `my-cryptobubbles_backups`). This helps them survive repository-level deletes.
-- To create a backup:
-
-```powershell
-npm install          # install new dependencies (archiver, adm-zip)
-npm run backup       # creates a timestamped zip backup
-```
-
-- To restore a backup:
-
-```powershell
-npm run restore              # interactive list to choose a backup
-# or
-npm run restore <filename>   # restore a specific backup filename
-```
-
-Notes:
-- The restore script will prompt for confirmation and will overwrite files in the current directory.
-- Backups exclude `node_modules` by default to keep archives small.
-
-If you'd like remote/offsite backups (recommended for extra safety), I can add optional upload to S3, Dropbox, or another provider.
-
-Logo migration (data-URI -> repo assets)
----------------------------------------
-
-If you used the Symbols Panel to upload logos they are stored in localStorage as data-URIs. To extract those images into repo files (so they're available from `public/assets/logos/` and not kept in localStorage), you can:
-
-1. In the app open Symbols Panel and click Export to save `symbol-metadata.json`.
-2. From the project root run:
-
-```powershell
-npm run migrate-logos -- symbol-metadata.json
-```
-
-3. The script will create `public/assets/logos/` and write extracted image files, and output `public/assets/migrated_symbol_metadata.json` with updated `image` paths (e.g. `/assets/logos/ABC.svg`).
-4. You can then import the migrated JSON back into the Symbols Panel (Import) or copy the file into your deployment process so the app uses the repo-hosted SVGs.
-
-Note: the script only processes data-URI images (it will leave existing URLs untouched). After migration you may want to clear large data-URIs from localStorage to save space.
-
-Admin server & Backup panel
---------------------------
-
-This project now includes a small local admin server that exposes backup/restore endpoints and a front-end panel to control backups from the app UI.
-
-1. Install dependencies (if you haven't already):
+Demo mode keeps everything local and uses generated sample data so the UI can be exercised without external dependencies.
 
 ```powershell
 npm install
+npm run dev
 ```
 
-2. Start the admin server (separate terminal):
+Open the Vite dev URL (typically http://localhost:5173). The app seeds IndexedDB with bundled demo snapshots and random coin data from `src/api/demoCoins.js`. No network calls are made, and the admin panels will operate on local storage only.
+
+To preview backup tooling in demo mode, run the admin server in a second terminal:
 
 ```powershell
 npm run start-admin
 ```
 
-By default the admin server listens on http://localhost:4001 and stores backups in the folder one level up from the repo named `<projectname>_backups`.
+Then open the “Backups” floating button in the UI to interact with backup/restore endpoints.
 
-3. Start the app (dev server):
+For a self-contained sandbox of Timescale + Redis + API worker, use the provided compose stack:
 
 ```powershell
+# Start Timescale, Redis, API, and ingestion worker locally (detached)
+npm run dev:stack
+
+# Launch the frontend pointing at the compose stack
 npm run dev
 ```
 
-4. Open the app in your browser (Vite will show the URL). Use the floating "Backups" button (bottom-right) to open the Backup & Restore panel. The panel will call the admin server at `/api/*` endpoints (dev setup proxies requests to the same origin when you run both servers locally).
+Shut the stack down with:
+
+```powershell
+npm run dev:stack:down
+```
+
+Update `config/env.example` (copy to `.env`) if you need to tweak ports or credentials before starting the containers. If `psql` is available locally you can also apply all SQL migrations to the running Timescale instance with `npm run db:migrate` and seed sample instruments via `npm run db:seed`.
+
+## Live mode setup
+
+Live mode connects the UI to the ingestion pipeline that writes validated minute bars into TimescaleDB and exposes curated JSON payloads through the admin service. The repo ships in demo mode (`liveMode` flag hardcoded to `false` in `src/App.jsx`); follow the checklist below to promote an environment to live data.
+
+### 1. Provision dependencies
+
+- **TimescaleDB** instance per environment (dev/stage/prod) with schemas from `docs/phase1/schema.md` applied.
+- **Ingestion worker** deployment (see `docs/phase1/worker.md`) configured to poll upstream feeds, deduplicate, and upsert into TimescaleDB.
+- **Bubble API / Admin service** capable of serving `/api/index_map`, `/api/symbol_metadata`, and ingestion health endpoints. During development you can reuse `npm run start-admin`; production uses the hardened service described in `docs/phase7/deployment-monitoring.md`.
+
+### 2. Configure environment
+
+1. Create `.env.local` (or environment-specific secret) with the variables shown in the table below.
+2. Generate or rotate the admin bearer token and share it with authorized operators (store in your vault; never commit).
+3. Apply database migrations (`npm run db:migrate`) and seed baseline instruments (`npm run db:seed`) so indices/favorites render correctly.
+4. If you previously disabled the poller by stubbing `server/poller.cjs`, deploy the real worker container instead. The UI should not be modified; ingestion writes data into TimescaleDB and exposes aggregates via the API.
+
+### 3. Build and run
+
+```powershell
+# Install dependencies once
+npm install
+
+# Terminal 1 – API service (live mode)
+npm run start:api
+
+# Terminal 2 – Ingestion worker
+npm run worker:ingest
+
+# (Optional) Hydrate instruments table directly from PSX Terminal
+npm run sync:symbols
+
+# Terminal 3 – Frontend
+npm run build   # optional for prod build
+npm run preview # or npm run dev during integration testing
+```
+
+In production, front the built assets with your CDN and run the admin/API service inside your preferred environment (Kubernetes, ECS, etc.). Ensure reverse proxy rules forward `/api/*` to the admin service while allowing `/assets/*` and SPA routes to be served as static files.
+
+### 4. Validate live data
+
+- Open the UI and confirm the latest snapshot timestamp (navbar) updates every minute.
+- Use the Index Manager to publish a test change. A `200 OK` response indicates the token is accepted and `public/assets/migrated_index_map.json` updated.
+- Cross-check TimescaleDB metrics (`ingestion_lag_seconds`, `ingestion_failures_total`) via Grafana dashboards referenced in `docs/phase7/deployment-monitoring.md`.
+- If data fails to arrive, consult the runbook below for recovery steps.
+
+### Switching from the mock feed to your provider
+
+- Update `PSX_API_BASE_URL` and `PSX_API_TOKEN` in your `.env`/Secrets Manager.
+- Stop the mock service if it is still running (`pkill -f mock-psx-api.js` or close its terminal).
+- Restart the ingestion worker (`npm run worker:ingest` locally or redeploy in your cluster).
+- Monitor worker logs and ingestion lag to ensure the provider feed is healthy before toggling the frontend flag for end users.
+
+## Environment variables
+
+| Name | Required | Default | Where | Notes |
+| ---- | -------- | ------- | ----- | ----- |
+| `ADMIN_PORT` | No | `4001` | Admin service (`server/admin.cjs`) | Port that the local backup/index admin server listens on. |
+| `ADMIN_SECRET` | Recommended | _none_ | Admin service | Bearer token required to publish index maps. Provide to trusted operators only. |
+| `INDEX_API_TOKEN` | Optional | _none_ | Admin service | Backwards-compatible name checked if `ADMIN_SECRET` is unset; safe to configure both for migrations. |
+| `TIMESCALE_HOST` | Yes (live) | `localhost` | API + worker | TimescaleDB hostname. See `config/env.example` for paired `PORT`, `DB`, `USER`, `PASSWORD`, `SSL`. |
+| `REDIS_URL` | Yes (live) | `redis://localhost:6379` | API + worker | Connection string used by BullMQ and rate limiting. |
+| `PSX_API_BASE_URL` | Yes (live) | _none_ | Worker | Upstream provider endpoint returning minute bars. |
+| `PSX_API_TOKEN` | Yes (live) | _none_ | Worker | Bearer token for the upstream provider. |
+| `API_PORT` | No | `8080` | API service | Listening port for Express when running `npm run start:api`. |
+| `API_KEY_PRIMARY` | Recommended | `dev-api-key` | API service + frontend | API key enforced by the API service; mirror in `VITE_LIVE_API_KEY` for the web app. |
+| `VITE_ENABLE_LIVE_API` | Optional | `false` | Frontend | Toggle live mode. Set to `true` when the Timescale-backed API is reachable. |
+| `VITE_LIVE_API_BASE_URL` | Optional | `/api` | Frontend | Base path/URL for bubble endpoints. Useful behind reverse proxies. |
+| `VITE_LIVE_API_KEY` | Optional | _none_ | Frontend | Injects the API key in `x-api-key` header when live mode is enabled. |
+| `VITE_AUTO_REFRESH_MS` | Optional | `60000` | Frontend | Auto-refresh cadence for live mode (set to `0` to disable auto refresh). |
+
+Additional backend/worker variables (e.g. Timescale connection strings, upstream API keys, alerting toggles) live alongside the ingestion service and are tracked in `docs/phase0/env-matrix.md`. Maintain those in your infra repository or secrets manager; reference this README for the frontend/admin subset only.
+
+## Ingestion runbook
+
+Operational playbook for the live ingestion stack. Keep this nearby for on-call rotations.
+
+### Normal operations
+
+- Scheduler triggers minute workers; verify `ingestion_batches_processed_total` increments steadily.
+- Timescale continuous aggregates refresh jobs should complete within their SLA (see `docs/phase7/deployment-monitoring.md`).
+- UI health check: `/api/healthz` returns `200` with current `ingestion_lag_seconds` under 90 seconds.
+
+### Manual triggers & backfills
+
+1. Pause autoscaling to keep a consistent worker count if running a large backfill.
+2. Use the ingestion admin CLI (see `docs/phase1/admin-cli.md`) `reingest` commands to enqueue ranges. Monitor queue depth to avoid overruns.
+3. After completion, validate Timescale row counts for affected symbols and rerun the UI smoke test.
+
+### Failure recovery
+
+- **Lag breach (>90s)**: Check upstream API status, inspect worker logs, and confirm Timescale is writable. Restart the worker deployment if stuck; if lag persists, escalate to the data provider.
+- **Timescale outage**: Fail over to replica per `docs/phase0/architecture/overview.md`. Workers should backoff automatically; resume once primary is healthy.
+- **Admin publish failures (403)**: Rotate `ADMIN_SECRET`, redeploy admin service, and update on-call vault entry. Flush `localStorage.indexMap` in browsers if stale state persists.
+- **Corrupt snapshots**: Use the backup tooling to restore the latest healthy `public/assets` payload, or as a last resort fall back to the legacy CSV workflow for targeted symbols.
+
+### Escalation
+
+- Notify the data engineering channel after 10 minutes of unresolved lag or on repeated ingestion failures. Include Grafana dashboard links and worker logs.
+- Page the database team if Timescale replication lag or storage saturation alarms fire (see `docs/phase7/deployment-monitoring.md`).
+
+## Legacy workflows
+
+### Legacy CSV workflow (deprecated)
+
+The CSV Manager (`CSV ▾` floating button) provides manual snapshot uploads into IndexedDB. This path is maintained solely for:
+
+- Emergency backfills when ingestion is down.
+- Side-by-side validation against provider exports.
+- Air-gapped demos with curated datasets.
+
+Usage reminders:
+
+- Enable “Replace DB” to wipe prior snapshots before a bulk import.
+- Filenames should include `YYYY-MM-DD` to auto-target the calendar date.
+- After resolving incidents, delete manual uploads and allow live ingestion to repopulate data.
+
+Add a “Legacy CSV workflow” callout in ops docs or runbooks whenever referenced so new engineers treat it as deprecated tooling.
+
+### Repository snapshot imports
+
+If `ENABLE_REPO_SNAPSHOTS` in `src/config.js` is set to `true`, the app will auto-import `public/psx_snapshots.json` once into IndexedDB. Leave it `false` in production; live environments should rely on Timescale + ingestion.
+
+## Backup & restore
+
+The repo ships with local backup helpers that archive the working tree (including `.git`) to a sibling directory named `<project>_backups`.
+
+```powershell
+# Create backup
+npm run backup
+
+# Restore interactively or by filename
+npm run restore
+npm run restore <backup.zip>
+```
 
 Notes:
-- The admin server must be running for the UI panel to function.
-- The restore operation creates a pre-restore safety snapshot before extracting the backup.
+
+- `node_modules` is excluded from archives to keep backups small.
+- Restore prompts before overwriting and extracts directly into the repo root.
+- Run `npm run start-admin` to access the same functionality from the UI backup panel.
+
+## Logo migration utility
+
+If symbol logos were captured as data URIs inside localStorage, export `symbol-metadata.json` from the Symbols Panel and run:
+
+```powershell
+npm run migrate-logos -- symbol-metadata.json
+```
+
+The script writes physical assets to `public/assets/logos/` and creates `public/assets/migrated_symbol_metadata.json`. Re-import or commit the migrated file so logos load without relying on localStorage.
+
+## Additional documentation
+
+- Deployment and monitoring deep dive: `docs/phase7/deployment-monitoring.md`
+- Ingestion pipeline design: `docs/phase1/worker.md`
+- Environment sizing matrix: `docs/phase0/env-matrix.md`
+- Testing strategy and integration guidance: `docs/phase6/testing-strategy.md`
+- k6 load test harness: `tests/perf/bubbles-load.js`

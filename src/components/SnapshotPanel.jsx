@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import storage from '../lib/storage';
+import { ENABLE_REPO_SNAPSHOTS } from '../config';
 
 function humanDate(ts) {
   try {
@@ -46,6 +47,11 @@ export default function SnapshotPanel({ open = true, onClose = null, onImported 
     (async () => {
       try {
         setError(null);
+        if (!ENABLE_REPO_SNAPSHOTS) {
+          // repo imports disabled — don't fetch public pruned JSON
+          setAvailableMap(new Map());
+          return;
+        }
         const res = await fetch('/psx_snapshots_pruned.json');
         if (!res.ok) {
           setAvailableMap(new Map());

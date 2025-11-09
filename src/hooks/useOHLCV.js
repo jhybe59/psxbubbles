@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import storage from '../lib/storage';
+import { ENABLE_REPO_SNAPSHOTS, ENABLE_LIVE_API, LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
 
 // mapping of friendly interval -> trading-day count
 const INTERVAL_LOOKUP = {
@@ -8,6 +9,50 @@ const INTERVAL_LOOKUP = {
   'Month': 22,
   'Year': 252
 };
+
+const LIVE_INTERVAL_MAP = {
+  '1 Min': '1m',
+  '5 Min': '5m',
+  '15 Min': '15m',
+  'Hour': '1h',
+  'Day': 'Day',
+  'Week': 'Day',
+  'Month': 'Day',
+  'Year': 'Day'
+};
+
+const fallbackName = (symbol) => (symbol || '').toUpperCase();
+
+async function fetchLiveInterval(interval) {
+  const apiInterval = LIVE_INTERVAL_MAP[interval] || LIVE_INTERVAL_MAP.Day;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const base = LIVE_API_BASE_URL.startsWith('http')
+    ? LIVE_API_BASE_URL
+    : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+  const url = new URL('bubbles', base.endsWith('/') ? base : `${base}/`);
+  url.searchParams.set('interval', apiInterval);
+  const headers = { 'Content-Type': 'application/json' };
+  if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
+  const res = await fetch(url.toString(), { headers });
+  if (!res.ok) {
+    throw new Error(`Live API error (${res.status})`);
+  }
+  const json = await res.json();
+  if (!json || !Array.isArray(json.symbols)) {
+    return [];
+  }
+  return json.symbols.map((row) => ({
+    id: row.symbol,
+    symbol: row.symbol,
+    name: row.name || fallbackName(row.symbol),
+    price: Number(row.price ?? 0),
+    volume: row.volume != null ? Number(row.volume) : null,
+    price_change_percentage_24h: Number(row.intervalPct ?? 0),
+    daily_change_1d: row.dailyPct != null ? Number(row.dailyPct) : null,
+    ts: row.ts ? Number(new Date(row.ts).getTime()) : null,
+    raw: row
+  }));
+}
 
 export default function useOHLCV() {
   const [coins, setCoins] = useState([]);
@@ -18,7 +63,18 @@ export default function useOHLCV() {
 
   const importSnapshotsIfNeeded = useCallback(async (force = false) => {
     try {
+      if (ENABLE_LIVE_API) {
+        setSnapshotCount(null);
+        return { imported: false, count: null };
+      }
+
       const cnt = await storage.countSnapshots();
+      // If repository-driven snapshots are disabled, do not auto-import from
+      // public/psx_snapshots.json. Respect manual CSV uploads only.
+      if (!ENABLE_REPO_SNAPSHOTS) {
+        setSnapshotCount(cnt);
+        return { imported: false, count: cnt };
+      }
       if (!force && cnt && cnt > 0) {
         setSnapshotCount(cnt);
         return { imported: false, count: cnt };
@@ -79,6 +135,15 @@ export default function useOHLCV() {
     setLoading(true);
     setError(null);
     try {
+      if (ENABLE_LIVE_API) {
+        const liveCoins = await fetchLiveInterval(interval);
+        setCoins(liveCoins);
+        setSnapshotCount(liveCoins.length);
+        setLatestTimestamp(liveCoins.reduce((latest, row) => (row.ts && row.ts > latest ? row.ts : latest), null));
+        setLoading(false);
+        return liveCoins;
+      }
+
       // ensure db has snapshots
       await importSnapshotsIfNeeded();
       // gather timestamps
@@ -138,12 +203,21 @@ export default function useOHLCV() {
   }, [importSnapshotsIfNeeded]);
 
   useEffect(() => {
-    // on mount try to ensure snapshots exist and compute Day by default
     (async () => {
-      await importSnapshotsIfNeeded();
+      if (!ENABLE_LIVE_API) {
+        await importSnapshotsIfNeeded();
+      }
       await refreshForInterval('Day');
     })();
   }, [importSnapshotsIfNeeded, refreshForInterval]);
 
-  return { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval };
+  return {
+    coins,
+    loading,
+    error,
+    importSnapshotsIfNeeded,
+    refreshForInterval,
+    snapCount: snapshotCount,
+    latestTimestamp
+  };
 }

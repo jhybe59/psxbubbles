@@ -1,6 +1,5 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import useOHLCV from './hooks/useOHLCV'
-import useStocks from './hooks/useStocks'
 import Controls from './components/Controls'
 import CoinModal from './components/CoinModal'
 import BubbleChart from './components/BubbleChart'
@@ -11,19 +10,18 @@ import CsvPanel from './components/CsvPanel'
 import SymbolsPanel from './components/SymbolsPanel'
 import PriceRange from './components/PriceRange'
 import SnapshotPanel from './components/SnapshotPanel'
+import MarketSummary from './components/MarketSummary'
+import useMarketStats from './hooks/useMarketStats'
 import { createRadiusScale } from './utils/scales'
-import storage from './lib/storage'
 import './App.css'
 import { getAllMetadata } from './hooks/useSymbolMetadata'
+import { ENABLE_LIVE_API, AUTO_REFRESH_MS } from './config'
+import { sanitizeIndexMap } from './utils/indexMap'
 
 function App() {
-  const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval } = useOHLCV();
-  const [snapCount, setSnapCount] = useState(null);
-  // Demo-only app: no live mode or external fetches. Keep demo data only.
-  const liveMode = false;
-  const { stocks, lastUpdated, connected } = useStocks({ enabled: false, retentionDays: 1 });
+  const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp } = useOHLCV();
   const [query, setQuery] = useState('')
-  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [autoRefresh, setAutoRefresh] = useState(() => ENABLE_LIVE_API && AUTO_REFRESH_MS > 0)
   const [showControls, setShowControls] = useState(false)
   const chartRef = useRef(null)
   const [singleView, setSingleView] = useState(false)
@@ -55,31 +53,78 @@ function App() {
   const [indexMap, setIndexMap] = useState(() => {
     try {
       const raw = localStorage.getItem('indexMap');
-      return raw ? JSON.parse(raw) : {};
+      const parsed = raw ? JSON.parse(raw) : {};
+      return sanitizeIndexMap(parsed);
     } catch {
       return {};
     }
   })
 
-  // ALWAYS load the canonical index map from the repo public asset so indices
-  // are authoritative and identical across all devices. This will override
-  // any per-browser localStorage indexMap so the repo file is the source of
-  // truth. (If you prefer merge behavior instead, we can change this.)
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/assets/migrated_index_map.json', { cache: 'no-cache' });
-        if (!res || !res.ok) return;
-        const json = await res.json();
-        if (json && typeof json === 'object') {
-          try { localStorage.setItem('indexMap', JSON.stringify(json)); } catch (e) { /* ignore */ }
-          setIndexMap(json);
+  const loadIndexMap = useCallback(async ({ silent = false } = {}) => {
+    const applyMap = (data, source) => {
+      if (!data || typeof data !== 'object') return null;
+      const sanitized = sanitizeIndexMap(data);
+      try { localStorage.setItem('indexMap', JSON.stringify(sanitized)); } catch (e) { /* ignore */ }
+      setIndexMap(sanitized);
+      return { ok: true, data: sanitized, source };
+    };
+
+    const attempts = [
+      async () => {
+        try {
+          const res = await fetch('/api/index_map', { cache: 'no-cache' });
+          if (!res || !res.ok) return null;
+          const json = await res.json();
+          const data = json && json.data && typeof json.data === 'object' ? json.data : json;
+          return applyMap(data, 'api');
+        } catch (err) {
+          if (!silent) {
+            try { console.warn('[App] Failed to load index map from API:', err); } catch (logErr) { /* ignore */ }
+          }
+          return null;
         }
-      } catch (e) {
-        // ignore
+      },
+      async () => {
+        try {
+          const res = await fetch('/assets/migrated_index_map.json', { cache: 'no-cache' });
+          if (!res || !res.ok) return null;
+          const data = await res.json();
+          return applyMap(data, 'asset');
+        } catch (err) {
+          if (!silent) {
+            try { console.warn('[App] Failed to load index map asset:', err); } catch (logErr) { /* ignore */ }
+          }
+          return null;
+        }
       }
-    })();
+    ];
+
+    for (let i = 0; i < attempts.length; i += 1) {
+      const result = await attempts[i]();
+      if (result) return result;
+    }
+
+    if (!silent) {
+      try { console.warn('[App] Unable to load index map from any source.'); } catch (logErr) { /* ignore */ }
+    }
+    return { ok: false };
   }, []);
+
+  const handleIndexPublish = useCallback((payload) => {
+    if (payload && typeof payload === 'object') {
+      const sanitized = sanitizeIndexMap(payload);
+      try { localStorage.setItem('indexMap', JSON.stringify(sanitized)); } catch (e) { /* ignore */ }
+      setIndexMap(sanitized);
+      return;
+    }
+    loadIndexMap({ silent: true });
+  }, [loadIndexMap, setIndexMap])
+
+  // Load the canonical index map from the admin API (with asset fallback) so
+  // all clients converge on the same membership set.
+  useEffect(() => {
+    loadIndexMap();
+  }, [loadIndexMap]);
 
   // DEBUG: log indexMap and raw localStorage key to help diagnose missing indices
   useEffect(() => {
@@ -238,50 +283,105 @@ function App() {
   }, [])
 
   // when the user switches interval, ask OHLCV hook to refresh computed interval values
-  // Only trigger a data refresh if autoRefresh is enabled; otherwise the change is purely UI
-  // and no network/compute refresh should occur. This prevents unrelated button clicks
-  // from causing unexpected data refreshes.
   useEffect(() => {
     try {
-      if (autoRefresh && refreshForInterval) refreshForInterval(currentInterval);
+      if (refreshForInterval) refreshForInterval(currentInterval);
     } catch (e) {
       // ignore
     }
-  }, [currentInterval, refreshForInterval, autoRefresh]);
+  }, [currentInterval, refreshForInterval]);
 
-  // read snapshot count for header status periodically
+  // read snapshot count for header status periodically (legacy mode only)
   useEffect(() => {
-    let mounted = true;
-    (async () => {
+    if (!ENABLE_LIVE_API || !autoRefresh || !AUTO_REFRESH_MS || AUTO_REFRESH_MS <= 0) return undefined
+    const intervalMs = Number.isFinite(AUTO_REFRESH_MS) ? AUTO_REFRESH_MS : 60000
+    const handle = setInterval(() => {
       try {
-        const res = await importSnapshotsIfNeeded(false);
-        if (mounted && res && res.count != null) setSnapCount(res.count);
-      } catch {
+        refreshForInterval && refreshForInterval(currentInterval)
+      } catch (e) {
         // ignore
       }
-    })();
-    return () => { mounted = false };
-  }, [importSnapshotsIfNeeded]);
+    }, intervalMs)
+    return () => clearInterval(handle)
+  }, [autoRefresh, currentInterval, refreshForInterval])
 
   // compute max absolute percent change for percent-based sizing
   const maxAbsChange = coins && coins.length ? Math.max(...coins.map(c => Math.abs(c.price_change_percentage_24h || 0))) : 1;
   // Use a much smaller max radius and near-linear gamma for testing to avoid huge bubbles
   const radiusScale = useMemo(() => createRadiusScale(maxAbsChange, 8, 72, 1.05), [maxAbsChange]);
 
-  // Snapshot refresh not exposed in demo-only UI
-
-  // small built-in demo symbol set used as a fallback when live fetch fails
-  const demoSymbols = [
-    { symbol: 'AABS', price: 12.34, ts: Date.now(), volume: 1000 },
-    { symbol: 'AASM', price: 4.56, ts: Date.now(), volume: 200 },
-    { symbol: 'ABL', price: 78.9, ts: Date.now(), volume: 5000 },
-    { symbol: 'ACI', price: 1.23, ts: Date.now(), volume: 50 },
-    { symbol: 'ALNRS', price: 9.87, ts: Date.now(), volume: 300 }
-  ];
-
   const [indexManagerOpen, setIndexManagerOpen] = useState(false)
   const [snapshotPanelOpen, setSnapshotPanelOpen] = useState(false)
-  
+  const [marketSummaryOpen, setMarketSummaryOpen] = useState(false)
+
+  const summaryInterval = currentInterval === 'Day' ? 'Day' : '5m';
+  const { stats: marketStats, indices: indexSummaries, loading: marketLoading, error: marketError, refresh: refreshMarketStats } = useMarketStats({
+    interval: summaryInterval,
+    indexCode: selectedIndex || undefined,
+    pollMs: ENABLE_LIVE_API ? 45000 : 0
+  });
+  const fallbackMarketSummary = useMemo(() => {
+    if (!ENABLE_LIVE_API) return null;
+    if (marketStats) return null;
+    if (!selectedIndex) return null;
+    if (!displayedCoins || !displayedCoins.length) return null;
+    const clampNumber = (value) => (value == null ? null : Number(value));
+    const advancers = displayedCoins.filter((c) => Number(c.price_change_percentage_24h) > 0).length;
+    const decliners = displayedCoins.filter((c) => Number(c.price_change_percentage_24h) < 0).length;
+    const unchanged = displayedCoins.length - advancers - decliners;
+    const volumeTotal = displayedCoins.reduce((sum, c) => sum + (Number(c.volume) || 0), 0);
+    const turnoverTotal = displayedCoins.reduce((sum, c) => {
+      if (c.raw && c.raw.turnover != null) return sum + Number(c.raw.turnover);
+      const price = Number(c.price ?? c.raw?.close ?? 0);
+      const volume = Number(c.volume ?? c.raw?.volume_sum ?? 0);
+      if (!Number.isFinite(price) || !Number.isFinite(volume)) return sum;
+      return sum + (price * volume);
+    }, 0);
+    const sorted = displayedCoins
+      .filter((c) => typeof c.price_change_percentage_24h === 'number' && Number.isFinite(c.price_change_percentage_24h));
+    const topGainers = [...sorted]
+      .sort((a, b) => (b.price_change_percentage_24h ?? 0) - (a.price_change_percentage_24h ?? 0))
+      .slice(0, 10)
+      .map((row) => ({
+        symbol: row.symbol,
+        price: clampNumber(row.price),
+        intervalPct: clampNumber(row.price_change_percentage_24h),
+        dailyPct: clampNumber(row.daily_change_1d),
+        volume: clampNumber(row.volume),
+        turnover: clampNumber(row.raw?.turnover),
+        ts: row.ts ?? null
+      }));
+    const topLosers = [...sorted]
+      .sort((a, b) => (a.price_change_percentage_24h ?? 0) - (b.price_change_percentage_24h ?? 0))
+      .slice(0, 10)
+      .map((row) => ({
+        symbol: row.symbol,
+        price: clampNumber(row.price),
+        intervalPct: clampNumber(row.price_change_percentage_24h),
+        dailyPct: clampNumber(row.daily_change_1d),
+        volume: clampNumber(row.volume),
+        turnover: clampNumber(row.raw?.turnover),
+        ts: row.ts ?? null
+      }));
+    const latestTs = displayedCoins.reduce((latest, row) => {
+      if (row.ts && (!latest || row.ts > latest)) return row.ts;
+      return latest;
+    }, latestTimestamp);
+    return {
+      interval: summaryInterval,
+      index: selectedIndex,
+      asOf: latestTs || null,
+      advancers,
+      decliners,
+      unchanged,
+      volumeTotal: clampNumber(volumeTotal),
+      turnoverTotal: clampNumber(turnoverTotal),
+      topGainers,
+      topLosers
+    };
+  }, [ENABLE_LIVE_API, displayedCoins, marketStats, selectedIndex, summaryInterval, latestTimestamp]);
+  const effectiveMarketStats = marketStats || fallbackMarketSummary;
+  const usingFallbackSummary = !!fallbackMarketSummary && !marketStats;
 
   // persist page/index selection so UI returns to last state across refreshes
   useEffect(() => {
@@ -338,15 +438,6 @@ function App() {
           </button>
           <button
             className="search-icon"
-            title="Toggle auto-refresh on interval change"
-            aria-pressed={autoRefresh}
-            onClick={() => setAutoRefresh((s) => !s)}
-            style={{ marginLeft: 8 }}
-          >
-            {autoRefresh ? 'Auto' : 'Manual'}
-          </button>
-          <button
-            className="search-icon"
             title="Symbols"
             aria-label="Symbols panel"
             onClick={() => setSymbolsPanelOpen(true)}
@@ -354,10 +445,34 @@ function App() {
             ☰
           </button>
           <div style={{marginLeft:12, color:'#9fb8b0', fontSize:12}}>
-            {loading ? 'Loading snapshots...' : (snapCount != null ? `${snapCount} snapshots` : '')}
+            {ENABLE_LIVE_API
+              ? (loading
+                ? 'Refreshing…'
+                : (latestTimestamp
+                  ? `Live as of ${new Date(latestTimestamp).toLocaleTimeString()}`
+                  : 'Live data ready'))
+              : (loading ? 'Loading snapshots...' : (snapCount != null ? `${snapCount} snapshots` : ''))}
             {error ? ` — ${error}` : ''}
-            <button style={{marginLeft:8}} onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)}>Re-import</button>
-            <button style={{marginLeft:8}} onClick={() => setSnapshotPanelOpen(true)}>Snapshots ▾</button>
+            {!ENABLE_LIVE_API && (
+              <>
+                <button style={{marginLeft:8}} onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)}>Re-import</button>
+                <button style={{marginLeft:8}} onClick={() => setSnapshotPanelOpen(true)}>Snapshots ▾</button>
+              </>
+            )}
+            {ENABLE_LIVE_API && (
+              <>
+                <span style={{ marginLeft: 8 }}>
+                  {snapCount != null ? `${snapCount} symbols` : ''}
+                </span>
+                <button
+                  style={{marginLeft:8}}
+                  onClick={() => setAutoRefresh((v) => !v)}
+                  aria-pressed={autoRefresh}
+                >
+                  Auto {autoRefresh ? 'On' : 'Off'}
+                </button>
+              </>
+            )}
           </div>
           {/* Demo-only: removed Live, Debug, Backfill and Fetch controls */}
         </div>
@@ -401,6 +516,68 @@ function App() {
           })}
         </div>
       </div>
+      {ENABLE_LIVE_API && (
+        <div className={`market-summary-container ${marketSummaryOpen ? 'open' : ''}`}>
+          <div className="market-summary-toggle">
+            <button
+              type="button"
+              className="market-summary-button"
+              onClick={() => setMarketSummaryOpen((open) => !open)}
+              aria-expanded={marketSummaryOpen}
+              aria-controls="market-summary-panel"
+            >
+              <span className="market-summary-label">Market Summary</span>
+              <span
+                className={[
+                  'market-summary-status',
+                  marketError ? 'error' : '',
+                  !marketError && marketLoading ? 'loading' : '',
+                  !marketError && !marketLoading && effectiveMarketStats ? (usingFallbackSummary ? 'approx' : 'ok') : '',
+                  !marketError && !marketLoading && !effectiveMarketStats ? 'empty' : ''
+                ].filter(Boolean).join(' ')}
+              >
+                {marketError
+                  ? 'Error'
+                  : (marketLoading
+                    ? 'Loading…'
+                    : (effectiveMarketStats
+                      ? (usingFallbackSummary ? 'Approx' : 'Updated')
+                      : 'No data'))}
+              </span>
+              <span className={`market-summary-chevron ${marketSummaryOpen ? 'open' : ''}`} aria-hidden="true">▼</span>
+            </button>
+          </div>
+          {marketSummaryOpen && (
+            <div className="market-summary-panel" id="market-summary-panel">
+              {marketError && (
+                <div className="market-summary-error">
+                  Market stats error: {marketError}
+                  <button type="button" onClick={() => refreshMarketStats()} className="market-summary-retry">Retry</button>
+                </div>
+              )}
+              {usingFallbackSummary && !marketError && (
+                <div className="market-summary-note">
+                  Index aggregates are not available yet; showing a live approximation from the current bubble data.
+                </div>
+              )}
+              {!marketError && marketLoading && (
+                <div className="market-summary-loading">Loading market data…</div>
+              )}
+              {!marketError && !marketLoading && !effectiveMarketStats && (
+                <div className="market-summary-empty">No market data available.</div>
+              )}
+              {effectiveMarketStats && (
+                <MarketSummary
+                  stats={effectiveMarketStats}
+                  indices={indexSummaries}
+                  loading={marketLoading}
+                  onRetry={() => refreshMarketStats()}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {/* Pill popover menu (opens when a pill is clicked) */}
       {pillMenuOpen && (
         <PillMenu
@@ -418,7 +595,7 @@ function App() {
 
       {searchOpen && (
         <SearchPopover
-          coins={liveMode ? stocks.map(s => ({ id: s.symbol, name: s.symbol, symbol: s.symbol, price: s.price })) : ((() => { const m = getAllMetadata(); return (coins || []).filter((c) => !(m[c.symbol] && m[c.symbol].hidden)); })())}
+          coins={(() => { const m = getAllMetadata(); return (coins || []).filter((c) => !(m[c.symbol] && m[c.symbol].hidden)); })()}
           anchorRect={searchAnchor}
           onSelect={(c) => setSelectedCoin(c)}
           onClose={() => setSearchOpen(false)}
@@ -430,12 +607,19 @@ function App() {
           {(!coins || coins.length === 0) ? (
             <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',color:'#9fb8b0'}}>
               <div style={{fontSize:18,fontWeight:700,marginBottom:8}}>No chart data available</div>
-              <div style={{marginBottom:8}}>Snapshots in DB: {snapCount != null ? snapCount : 'unknown'}</div>
-              <div style={{marginBottom:12}}>If this stays blank: open DevTools → Application → IndexedDB → `psx-snapshots-db` and check `snapshots` store.</div>
-              <div>
-                <button onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)} style={{marginRight:8}}>Re-import snapshots</button>
-                <button onClick={() => refreshForInterval && refreshForInterval(currentInterval)}>Refresh interval</button>
-              </div>
+              <div style={{marginBottom:8}}>Symbols available: {snapCount != null ? snapCount : 'unknown'}</div>
+              {!ENABLE_LIVE_API && (
+                <>
+                  <div style={{marginBottom:12}}>If this stays blank: open DevTools → Application → IndexedDB → `psx-snapshots-db` and check `snapshots` store.</div>
+                  <div>
+                    <button onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)} style={{marginRight:8}}>Re-import snapshots</button>
+                    <button onClick={() => refreshForInterval && refreshForInterval(currentInterval)}>Refresh interval</button>
+                  </div>
+                </>
+              )}
+              {ENABLE_LIVE_API && (
+                <div style={{marginBottom:12}}>Live feed connected. Try refreshing the interval or toggling auto-refresh.</div>
+              )}
             </div>
           ) : (
             <BubbleChart
@@ -587,7 +771,7 @@ function App() {
                         </button>
                         <button
                           title={`Open Index Manager for ${ix}`}
-                          onClick={(e) => { e.stopPropagation(); setIndexManagerOpen(true); /* do NOT setSelectedIndex here - opening the manager should not change the active index or trigger a data refresh */ }}
+                          onClick={(e) => { e.stopPropagation(); setIndexManagerOpen(true); setSelectedIndex(ix); }}
                           style={{ marginLeft: 8, background: 'transparent', border: 'none', color: '#9fb8b0', cursor: 'pointer' }}
                         >✎</button>
                       </div>
@@ -606,18 +790,21 @@ function App() {
           coins={coins}
           indexMap={indexMap}
           setIndexMap={setIndexMap}
+          onPublishSuccess={handleIndexPublish}
         />
       )}
       {snapshotPanelOpen && (
         <SnapshotPanel open={snapshotPanelOpen} onClose={() => setSnapshotPanelOpen(false)} onImported={() => { importSnapshotsIfNeeded && importSnapshotsIfNeeded(false); refreshForInterval && refreshForInterval(currentInterval); }} />
       )}
-      <CsvPanel refreshCallback={refreshForInterval} currentInterval={currentInterval} />
+      {!ENABLE_LIVE_API && (
+        <CsvPanel refreshCallback={refreshForInterval} currentInterval={currentInterval} />
+      )}
 
       {symbolsPanelOpen && (
         <SymbolsPanel
           open={symbolsPanelOpen}
           onClose={() => setSymbolsPanelOpen(false)}
-          symbols={coins && coins.length ? coins : (demoSymbols || [])}
+          symbols={coins && coins.length ? coins : []}
         />
       )}
 
