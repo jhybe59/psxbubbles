@@ -299,19 +299,60 @@ const fetchViaKlines = async (symbols = []) => {
   return allRows;
 };
 
-const fetchViaTicks = async () => {
+const coerceTickTimestamp = (value) => {
+  if (value == null) return Date.now();
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return Date.now();
+  return numeric < 10 ** 12 ? numeric * 1000 : numeric;
+};
+
+const fetchViaTicks = async (symbols = []) => {
   const market = config.psxApi.market || 'REG';
-  try {
-    const response = await executeRequest('ticks', () => client.get(`/ticks/${market}`));
-    const payload = unwrapPayload(response);
-    return payload.map((row) => ({
-      symbol: row.symbol ?? row.ticker,
-      ...row
-    }));
-  } catch (err) {
-    logger.error({ err, market }, 'Failed to fetch ticks snapshot');
-    throw err;
+  const targets = symbols.length ? symbols : [];
+  if (!targets.length) return [];
+
+  const rows = [];
+
+  for (const symbol of targets) {
+    try {
+      const response = await executeRequest('ticks', () => client.get(`/ticks/${market}/${symbol}`));
+      const payload = response?.data?.data ?? response?.data;
+      if (!payload) continue;
+
+      const price = Number(payload.price ?? payload.last ?? payload.close);
+      if (!Number.isFinite(price)) {
+        logger.warn({ symbol, market, payload }, 'Tick payload missing price');
+        continue;
+      }
+
+      const changePercent = payload.changePercent != null ? Number(payload.changePercent) : null;
+      const pctScaled = Number.isFinite(changePercent) ? changePercent * 100 : null;
+
+      rows.push({
+        symbol: (payload.symbol ?? symbol ?? '').toString().trim().toUpperCase(),
+        ts: coerceTickTimestamp(payload.timestamp ?? payload.ts ?? payload.time),
+        price,
+        open: payload.open ?? price,
+        high: payload.high ?? price,
+        low: payload.low ?? price,
+        close: payload.close ?? price,
+        volume: payload.volume ?? payload.tradesVolume ?? 0,
+        turnover: payload.value ?? payload.turnover ?? null,
+        intervalPct: pctScaled,
+        dailyPct: pctScaled,
+        raw: payload
+      });
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        logger.warn({ symbol, market }, 'Tick snapshot not found (404), skipping symbol');
+        continue;
+      }
+      logger.error({ err, symbol, market }, 'Failed to fetch tick snapshot');
+      throw err;
+    }
   }
+
+  return rows;
 };
 
 export const fetchMinuteBars = async (symbols = []) => {
@@ -326,7 +367,7 @@ export const fetchMinuteBars = async (symbols = []) => {
   }
 
   if (strategy === 'ticks') {
-    return fetchViaTicks();
+    return fetchViaTicks(symbols);
   }
 
   return fetchViaKlines(symbols);

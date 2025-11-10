@@ -40,12 +40,83 @@ const jobCounter = new Counter({
   labelNames: ['status']
 });
 
-const processJob = async () => {
+const chunkSymbols = (symbols, size) => {
+  if (!Array.isArray(symbols) || !symbols.length) return [];
+  const chunkSize = Math.max(1, size || symbols.length || 1);
+  const chunks = [];
+  for (let i = 0; i < symbols.length; i += chunkSize) {
+    chunks.push(symbols.slice(i, i + chunkSize));
+  }
+  return chunks;
+};
+
+const getMinuteOfDay = (date = new Date()) => (date.getHours() * 60) + date.getMinutes();
+
+const processJob = async (_job) => {
   const symbols = await loadSymbols();
   logger.info({ count: symbols.length }, 'Fetched symbol universe');
 
+  const now = new Date();
+  const minuteOfDay = getMinuteOfDay(now);
+  const {
+    symbolsPerMinute,
+    marketOpenMinute,
+    marketCloseMinute,
+    symbolFetchDelayMinutes
+  } = config.worker;
+
+  const effectiveOpenMinute = Number.isFinite(marketOpenMinute) ? marketOpenMinute : 0;
+  const effectiveCloseMinute = Number.isFinite(marketCloseMinute) && marketCloseMinute > effectiveOpenMinute
+    ? marketCloseMinute
+    : null;
+  const startMinute = effectiveOpenMinute + Math.max(0, symbolFetchDelayMinutes || 0);
+
+  if (minuteOfDay < startMinute) {
+    logger.info({
+      minuteOfDay,
+      startMinute,
+      reason: 'before_schedule_window'
+    }, 'Skipping ingestion cohort');
+    return;
+  }
+
+  if (effectiveCloseMinute != null && minuteOfDay > effectiveCloseMinute) {
+    logger.info({
+      minuteOfDay,
+      effectiveCloseMinute,
+      reason: 'after_market_close'
+    }, 'Skipping ingestion cohort');
+    return;
+  }
+
+  const cohorts = chunkSymbols(symbols, symbolsPerMinute);
+  if (!cohorts.length) {
+    logger.warn('No symbol cohorts available for ingestion');
+    return;
+  }
+
+  const minutesSinceStart = minuteOfDay - startMinute;
+  const cohortIndex = minutesSinceStart % cohorts.length;
+  const cohortSymbols = cohorts[cohortIndex];
+
+  if (!cohortSymbols || !cohortSymbols.length) {
+    logger.warn({
+      cohortIndex,
+      cohorts: cohorts.length
+    }, 'Selected ingestion cohort is empty, skipping');
+    return;
+  }
+
+  logger.info({
+    minuteOfDay,
+    cohortIndex,
+    cohorts: cohorts.length,
+    cohortSize: cohortSymbols.length,
+    totalSymbols: symbols.length
+  }, 'Processing ingestion cohort');
+
   const fetchEnd = fetchDuration.startTimer();
-  const payload = await fetchMinuteBars(symbols);
+  const payload = await fetchMinuteBars(cohortSymbols);
   fetchEnd();
 
   const normalised = payload
@@ -80,7 +151,13 @@ const processJob = async () => {
     ingestionLagGauge.set(lagSeconds);
   }
 
-  logger.info({ inserted, symbols: normalised.length }, 'Ingested minute bars');
+  logger.info({
+    inserted,
+    rows: normalised.length,
+    cohortIndex,
+    cohorts: cohorts.length,
+    cohortSize: cohortSymbols.length
+  }, 'Ingested minute bars cohort');
 };
 
 const start = async () => {
@@ -100,7 +177,7 @@ const start = async () => {
   const worker = buildWorker(async (job) => {
     logger.debug({ jobId: job.id }, 'Starting ingestion job');
     try {
-      await processJob();
+      await processJob(job);
       jobCounter.inc({ status: 'success' });
     } catch (err) {
       logger.error({ err }, 'Ingestion job failed');

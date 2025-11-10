@@ -320,68 +320,7 @@ function App() {
     indexCode: selectedIndex || undefined,
     pollMs: ENABLE_LIVE_API ? 45000 : 0
   });
-  const fallbackMarketSummary = useMemo(() => {
-    if (!ENABLE_LIVE_API) return null;
-    if (marketStats) return null;
-    if (!selectedIndex) return null;
-    if (!displayedCoins || !displayedCoins.length) return null;
-    const clampNumber = (value) => (value == null ? null : Number(value));
-    const advancers = displayedCoins.filter((c) => Number(c.price_change_percentage_24h) > 0).length;
-    const decliners = displayedCoins.filter((c) => Number(c.price_change_percentage_24h) < 0).length;
-    const unchanged = displayedCoins.length - advancers - decliners;
-    const volumeTotal = displayedCoins.reduce((sum, c) => sum + (Number(c.volume) || 0), 0);
-    const turnoverTotal = displayedCoins.reduce((sum, c) => {
-      if (c.raw && c.raw.turnover != null) return sum + Number(c.raw.turnover);
-      const price = Number(c.price ?? c.raw?.close ?? 0);
-      const volume = Number(c.volume ?? c.raw?.volume_sum ?? 0);
-      if (!Number.isFinite(price) || !Number.isFinite(volume)) return sum;
-      return sum + (price * volume);
-    }, 0);
-    const sorted = displayedCoins
-      .filter((c) => typeof c.price_change_percentage_24h === 'number' && Number.isFinite(c.price_change_percentage_24h));
-    const topGainers = [...sorted]
-      .sort((a, b) => (b.price_change_percentage_24h ?? 0) - (a.price_change_percentage_24h ?? 0))
-      .slice(0, 10)
-      .map((row) => ({
-        symbol: row.symbol,
-        price: clampNumber(row.price),
-        intervalPct: clampNumber(row.price_change_percentage_24h),
-        dailyPct: clampNumber(row.daily_change_1d),
-        volume: clampNumber(row.volume),
-        turnover: clampNumber(row.raw?.turnover),
-        ts: row.ts ?? null
-      }));
-    const topLosers = [...sorted]
-      .sort((a, b) => (a.price_change_percentage_24h ?? 0) - (b.price_change_percentage_24h ?? 0))
-      .slice(0, 10)
-      .map((row) => ({
-        symbol: row.symbol,
-        price: clampNumber(row.price),
-        intervalPct: clampNumber(row.price_change_percentage_24h),
-        dailyPct: clampNumber(row.daily_change_1d),
-        volume: clampNumber(row.volume),
-        turnover: clampNumber(row.raw?.turnover),
-        ts: row.ts ?? null
-      }));
-    const latestTs = displayedCoins.reduce((latest, row) => {
-      if (row.ts && (!latest || row.ts > latest)) return row.ts;
-      return latest;
-    }, latestTimestamp);
-    return {
-      interval: summaryInterval,
-      index: selectedIndex,
-      asOf: latestTs || null,
-      advancers,
-      decliners,
-      unchanged,
-      volumeTotal: clampNumber(volumeTotal),
-      turnoverTotal: clampNumber(turnoverTotal),
-      topGainers,
-      topLosers
-    };
-  }, [ENABLE_LIVE_API, displayedCoins, marketStats, selectedIndex, summaryInterval, latestTimestamp]);
-  const effectiveMarketStats = marketStats || fallbackMarketSummary;
-  const usingFallbackSummary = !!fallbackMarketSummary && !marketStats;
+  
 
   // persist page/index selection so UI returns to last state across refreshes
   useEffect(() => {
@@ -517,64 +456,51 @@ function App() {
         </div>
       </div>
       {ENABLE_LIVE_API && (
-        <div className={`market-summary-container ${marketSummaryOpen ? 'open' : ''}`}>
-          <div className="market-summary-toggle">
-            <button
-              type="button"
-              className="market-summary-button"
-              onClick={() => setMarketSummaryOpen((open) => !open)}
-              aria-expanded={marketSummaryOpen}
-              aria-controls="market-summary-panel"
+        <div className="market-summary-toggle">
+          <button
+            type="button"
+            className="market-summary-button"
+            onClick={() => setMarketSummaryOpen((open) => !open)}
+            aria-expanded={marketSummaryOpen}
+            aria-controls="market-summary-panel"
+          >
+            <span className="market-summary-label">Market Summary</span>
+            <span
+              className={[
+                'market-summary-status',
+                marketError ? 'error' : '',
+                !marketError && marketLoading ? 'loading' : '',
+                !marketError && !marketLoading && marketStats ? 'ok' : '',
+                !marketError && !marketLoading && !marketStats ? 'empty' : ''
+              ].filter(Boolean).join(' ')}
             >
-              <span className="market-summary-label">Market Summary</span>
-              <span
-                className={[
-                  'market-summary-status',
-                  marketError ? 'error' : '',
-                  !marketError && marketLoading ? 'loading' : '',
-                  !marketError && !marketLoading && effectiveMarketStats ? (usingFallbackSummary ? 'approx' : 'ok') : '',
-                  !marketError && !marketLoading && !effectiveMarketStats ? 'empty' : ''
-                ].filter(Boolean).join(' ')}
-              >
-                {marketError
-                  ? 'Error'
-                  : (marketLoading
-                    ? 'Loading…'
-                    : (effectiveMarketStats
-                      ? (usingFallbackSummary ? 'Approx' : 'Updated')
-                      : 'No data'))}
-              </span>
-              <span className={`market-summary-chevron ${marketSummaryOpen ? 'open' : ''}`} aria-hidden="true">▼</span>
-            </button>
-          </div>
-          {marketSummaryOpen && (
-            <div className="market-summary-panel" id="market-summary-panel">
-              {marketError && (
-                <div className="market-summary-error">
-                  Market stats error: {marketError}
-                  <button type="button" onClick={() => refreshMarketStats()} className="market-summary-retry">Retry</button>
-                </div>
-              )}
-              {usingFallbackSummary && !marketError && (
-                <div className="market-summary-note">
-                  Index aggregates are not available yet; showing a live approximation from the current bubble data.
-                </div>
-              )}
-              {!marketError && marketLoading && (
-                <div className="market-summary-loading">Loading market data…</div>
-              )}
-              {!marketError && !marketLoading && !effectiveMarketStats && (
-                <div className="market-summary-empty">No market data available.</div>
-              )}
-              {effectiveMarketStats && (
-                <MarketSummary
-                  stats={effectiveMarketStats}
-                  indices={indexSummaries}
-                  loading={marketLoading}
-                  onRetry={() => refreshMarketStats()}
-                />
-              )}
+              {marketError ? 'Error' : (marketLoading ? 'Loading…' : (marketStats ? 'Updated' : 'No data'))}
+            </span>
+            <span className={`market-summary-chevron ${marketSummaryOpen ? 'open' : ''}`} aria-hidden="true">▼</span>
+          </button>
+        </div>
+      )}
+      {ENABLE_LIVE_API && marketSummaryOpen && (
+        <div className="market-summary-panel" id="market-summary-panel">
+          {marketError && (
+            <div className="market-summary-error">
+              Market stats error: {marketError}
+              <button type="button" onClick={() => refreshMarketStats()} className="market-summary-retry">Retry</button>
             </div>
+          )}
+          {!marketError && marketLoading && (
+            <div className="market-summary-loading">Loading market data…</div>
+          )}
+          {!marketError && !marketLoading && !marketStats && (
+            <div className="market-summary-empty">No market data available.</div>
+          )}
+          {marketStats && (
+            <MarketSummary
+              stats={marketStats}
+              indices={indexSummaries}
+              loading={marketLoading}
+              onRetry={() => refreshMarketStats()}
+            />
           )}
         </div>
       )}
