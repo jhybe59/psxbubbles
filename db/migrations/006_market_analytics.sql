@@ -66,6 +66,7 @@ GROUP BY mb.bucket, im.index_code;
 CREATE OR REPLACE VIEW sector_performance_latest AS
 SELECT DISTINCT ON (sector)
   sector,
+  bucket,
   bucket AS as_of,
   symbols,
   advancers,
@@ -80,6 +81,7 @@ ORDER BY sector, bucket DESC;
 CREATE OR REPLACE VIEW index_performance_latest AS
 SELECT DISTINCT ON (index_code)
   index_code,
+  bucket,
   bucket AS as_of,
   members,
   pct_change,

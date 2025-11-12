@@ -88,13 +88,13 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   // When there are few bubbles we want them to scale up to fill empty space; when many
   // bubbles are present we keep sizes more conservative to avoid heavy overlap.
   function computeGlobalMultiplier(count) {
-    // Updated per user request:
-    // count >= 140 => 2.1
-    // count >= 80  => 2
-    // otherwise    => 2
-    if (count >= 140) return 2.1;
-    if (count >= 80) return 2.0;
-    return 1.7;
+    // Scale bubbles based on density: modest boost for sparse views, mild shrink for very dense ones.
+    if (count >= 200) return 0.9;
+    if (count >= 140) return 0.95;
+    if (count >= 100) return 1.0;
+    if (count >= 60) return 1.07;
+    if (count >= 30) return 1.14;
+    return 1.24;
   }
 
     // defs: blur filter for glow and radial gradient for bubble shading
@@ -478,8 +478,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }
       // Apply a density-aware global size multiplier so bubbles fill space better when there
       // are few of them, and remain compact when the view is dense.
-      const GLOBAL_MULT = computeGlobalMultiplier(nodes.length);
-      if (Math.abs(GLOBAL_MULT - 1) > 1e-6) {
+  const GLOBAL_MULT = computeGlobalMultiplier(nodes.length);
+  if (Math.abs(GLOBAL_MULT - 1) > 1e-6) {
         nodes.forEach((n) => {
           n.r = Math.max(4, Math.round(n.r * GLOBAL_MULT));
         });
@@ -583,6 +583,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     });
 
     // custom gentle wander/noise so bubbles slowly drift
+    const nodeCount = nodes.length;
+
     function wanderForce(strength = 0.22) {
       let nodesInternal;
       function force(alpha) {
@@ -592,10 +594,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           if (n.__phase == null) n.__phase = (Math.random() * 2 - 1) * Math.PI;
           const phase = n.__phase;
           const freq = 0.6 + Math.max(0, 0.5 - n.r / 120);
+          const crowdScale = nodeCount <= 40 ? 1 : (nodeCount <= 120 ? 0.65 : 0.45);
+          const tunedStrength = strength * crowdScale;
           const ax = Math.sin(t * freq + phase) * 0.12 * (0.4 + n.r / 120);
           const ay = Math.cos(t * (freq * 0.85) + phase * 0.7) * 0.08 * (0.4 + n.r / 120);
-          n.vx = (n.vx || 0) + ax * strength * alpha;
-          n.vy = (n.vy || 0) + ay * strength * alpha;
+          n.vx = (n.vx || 0) + ax * tunedStrength * alpha;
+          n.vy = (n.vy || 0) + ay * tunedStrength * alpha;
         }
       }
       force.initialize = (ns) => (nodesInternal = ns);
@@ -629,15 +633,23 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       return force;
     }
 
-    // gentler strengths to avoid large jumps on data refresh
+    const crowdCollisionBuffer = (d) => {
+      const margin = Math.max(4, Math.min(18, d.r * 0.18));
+      return d.r + margin;
+    };
+    const anchorStrength = nodeCount <= 40 ? 0.12 : (nodeCount <= 120 ? 0.085 : 0.06);
+    const wanderStrength = nodeCount <= 40 ? 0.42 : (nodeCount <= 120 ? 0.32 : 0.24);
+    const chargeStrength = nodeCount <= 60 ? -6 : (nodeCount <= 140 ? -4.5 : -3.5);
+
     const simulation = d3.forceSimulation(nodes)
-      .force('charge', d3.forceManyBody().strength(-6))
-      .force('collision', d3.forceCollide().radius((d) => d.r + Math.max(1, d.r * 0.06)).iterations(2))
-      .force('anchorX', anchorX(0.08))
-      .force('anchorY', anchorY(0.08))
-      .force('wander', wanderForce(0.5))
-      .velocityDecay(0.14)
-      .alphaDecay(0.02)
+      .force('charge', d3.forceManyBody().strength(chargeStrength))
+      .force('collision', d3.forceCollide().radius(crowdCollisionBuffer).iterations(3))
+      .force('anchorX', anchorX(anchorStrength))
+      .force('anchorY', anchorY(anchorStrength))
+      .force('wander', wanderForce(wanderStrength))
+      .force('center', d3.forceCenter(w / 2, h / 2))
+      .velocityDecay(0.18)
+      .alphaDecay(0.016)
       .on('tick', ticked);
 
     simRef.current = simulation;
