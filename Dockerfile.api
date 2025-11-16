@@ -9,5 +9,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NODE_ENV=production
+EXPOSE 8080
 CMD ["node", "server/api/index.mjs"]
 

@@ -37,7 +37,8 @@ const boolOr = (value, fallback) => {
 
 export const config = {
   env: process.env.NODE_ENV || 'development',
-  port: numberOr(process.env.API_PORT, 8080),
+  // Honour Railway/Heroku style PORT, fallback to API_PORT, then 8080
+  port: numberOr(process.env.PORT ?? process.env.API_PORT, 8080),
   logLevel: process.env.LOG_LEVEL || 'info',
   apiKeys: {
     primary: process.env.API_KEY_PRIMARY,
