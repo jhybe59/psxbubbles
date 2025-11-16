@@ -8,7 +8,7 @@
     "build": "vite build",
     "postinstall": "node -e \"try{require('fs').chmodSync('./node_modules/.bin/vite',0o755)}catch(e){}\"",
     "lint": "eslint .",
-    "preview": "vite preview",
+    "preview": "vite preview --host --port 3000",
     "backup": "node ./scripts/backup.js",
     "restore": "node ./scripts/restore.js",
     "start-admin": "node ./server/admin.cjs",
