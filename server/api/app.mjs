@@ -25,12 +25,14 @@ export const buildApp = () => {
     }
   }));
 
-  const limiter = new RateLimiterRedis({
-    storeClient: redisClient,
-    points: config.rateLimit.points,
-    duration: config.rateLimit.duration,
-    keyPrefix: 'rlflx'
-  });
+  const limiter = config.redis.url
+    ? new RateLimiterRedis({
+        storeClient: redisClient,
+        points: config.rateLimit.points,
+        duration: config.rateLimit.duration,
+        keyPrefix: 'rlflx'
+      })
+    : null;
 
   const apiKeyMiddleware = (req, res, next) => {
     const provided = req.headers['x-api-key'];
@@ -45,16 +47,18 @@ export const buildApp = () => {
     res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid API key' } });
   };
 
-  const rateLimitMiddleware = async (req, res, next) => {
-    const key = req.headers['x-api-key'] || req.ip;
-    try {
-      await limiter.consume(key);
-      next();
-    } catch (err) {
-      res.set('Retry-After', String(err.msBeforeNext / 1000));
-      res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
-    }
-  };
+  const rateLimitMiddleware = limiter
+    ? async (req, res, next) => {
+        const key = req.headers['x-api-key'] || req.ip;
+        try {
+          await limiter.consume(key);
+          next();
+        } catch (err) {
+          res.set('Retry-After', String(err.msBeforeNext / 1000));
+          res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
+        }
+      }
+    : (_req, _res, next) => next();
 
   app.use('/api', apiKeyMiddleware, rateLimitMiddleware);
   app.get('/metrics', metricsHandler);

@@ -1,0 +1,23 @@
+[project]
+name = "psxbubbles"
+
+# Monorepo: three services - web (vite static), api (dockerfile), worker (dockerfile)
+
+[[services]]
+name = "web"
+builder = "NIXPACKS"
+# Ensure devDependencies (vite) are available during build on Railway
+[services.env]
+NIXPACKS_PRUNE_DEV_DEPENDENCIES = "false"
+
+[[services]]
+name = "api"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.api"
+
+[[services]]
+name = "worker"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.worker"
+
+

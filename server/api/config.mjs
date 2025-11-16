@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenvSafe from 'dotenv-safe';
+import { buildTimescaleConfigFromEnv } from '../shared/db-config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '../..');
@@ -46,16 +47,10 @@ export const config = {
     points: numberOr(process.env.API_RATE_LIMIT_POINTS, 100),
     duration: numberOr(process.env.API_RATE_LIMIT_DURATION, 60)
   },
-  timescale: {
-    host: process.env.TIMESCALE_HOST || 'localhost',
-    port: numberOr(process.env.TIMESCALE_PORT, 5432),
-    database: process.env.TIMESCALE_DB || 'cryptobubbles',
-    user: process.env.TIMESCALE_USER || 'postgres',
-    password: process.env.TIMESCALE_PASSWORD || 'postgres',
-    ssl: boolOr(process.env.TIMESCALE_SSL, false)
-  },
+  timescale: buildTimescaleConfigFromEnv(process.env),
   redis: {
-    url: process.env.REDIS_URL || 'redis://localhost:6379'
+    // Make Redis optional by default in hosted envs
+    url: process.env.REDIS_URL || ''
   }
 };
 

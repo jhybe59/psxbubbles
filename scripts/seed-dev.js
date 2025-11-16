@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Client } from 'pg';
 import dotenvSafe from 'dotenv-safe';
+import { buildTimescaleConfigFromEnv } from '../server/shared/db-config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
@@ -21,12 +22,14 @@ try {
   console.warn('[seed-dev] dotenv-safe warning:', err.message);
 }
 
+const tsConfig = buildTimescaleConfigFromEnv(process.env);
 const connection = {
-  host: process.env.TIMESCALE_HOST || 'localhost',
-  port: Number(process.env.TIMESCALE_PORT || 5432),
-  database: process.env.TIMESCALE_DB || 'cryptobubbles',
-  user: process.env.TIMESCALE_USER || 'postgres',
-  password: process.env.TIMESCALE_PASSWORD || 'postgres'
+  host: tsConfig.host,
+  port: tsConfig.port,
+  database: tsConfig.database,
+  user: tsConfig.user,
+  password: tsConfig.password || undefined,
+  ssl: tsConfig.ssl ? { rejectUnauthorized: false } : undefined
 };
 
 const samples = [

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { buildTimescaleConfigFromEnv } from '../server/shared/db-config.mjs';
 import dotenvSafe from 'dotenv-safe';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,12 +22,7 @@ try {
   console.warn('[apply-migrations] dotenv-safe warning:', err.message);
 }
 
-const required = ['TIMESCALE_HOST', 'TIMESCALE_PORT', 'TIMESCALE_DB', 'TIMESCALE_USER'];
-const missing = required.filter((key) => !process.env[key]);
-if (missing.length) {
-  console.error(`[apply-migrations] Missing required environment variables: ${missing.join(', ')}`);
-  process.exit(1);
-}
+const tsConfig = buildTimescaleConfigFromEnv(process.env);
 
 const migrationsDir = path.join(projectRoot, 'db', 'migrations');
 if (!fs.existsSync(migrationsDir)) {
@@ -44,19 +40,13 @@ if (!migrationFiles.length) {
   process.exit(0);
 }
 
-const sslEnabled = (() => {
-  const value = process.env.TIMESCALE_SSL;
-  if (!value) return false;
-  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
-})();
-
 const pool = new pg.Pool({
-  host: process.env.TIMESCALE_HOST,
-  port: Number(process.env.TIMESCALE_PORT),
-  database: process.env.TIMESCALE_DB,
-  user: process.env.TIMESCALE_USER,
-  password: process.env.TIMESCALE_PASSWORD || undefined,
-  ssl: sslEnabled ? { rejectUnauthorized: false } : undefined
+  host: tsConfig.host,
+  port: tsConfig.port,
+  database: tsConfig.database,
+  user: tsConfig.user,
+  password: tsConfig.password || undefined,
+  ssl: tsConfig.ssl ? { rejectUnauthorized: false } : undefined
 });
 
 const runMigration = async (file) => {
