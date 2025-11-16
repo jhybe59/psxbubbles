@@ -64,6 +64,6 @@
     "jest": "^29.7.0",
     "msw": "^2.7.3",
     "playwright": "^1.42.0",
-    "supertest": "^7.1.0",
+    "supertest": "^7.1.0"
   }
 }
