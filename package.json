@@ -13,6 +13,7 @@
     "restore": "node ./scripts/restore.js",
     "start-admin": "node ./server/admin.cjs",
     "start:api": "node ./server/api/index.mjs",
+    "start:api:auto-migrate": "node ./scripts/start-api-with-migrations.mjs",
     "worker:ingest": "node ./workers/ingestion/index.mjs",
     "db:migrate": "node ./scripts/apply-migrations.js",
     "db:seed": "node ./scripts/seed-dev.js",
