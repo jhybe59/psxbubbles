@@ -57,15 +57,45 @@ const runMigration = async (file) => {
     return;
   }
   console.log(`[apply-migrations] Running ${file}`);
-  await pool.query(sql);
+  try {
+    await pool.query(sql);
+    console.log(`[apply-migrations] ✓ Successfully ran ${file}`);
+  } catch (err) {
+    console.error(`[apply-migrations] ✗ Error in ${file}:`, err.message);
+    console.error(`[apply-migrations] Full error:`, err);
+    throw err;
+  }
 };
 
 const run = async () => {
   try {
+    // Test connection first
+    console.log('[apply-migrations] Testing database connection...');
+    console.log('[apply-migrations] Connecting to:', {
+      host: tsConfig.host,
+      port: tsConfig.port,
+      database: tsConfig.database,
+      user: tsConfig.user,
+      ssl: tsConfig.ssl ? 'enabled' : 'disabled'
+    });
+    
+    await pool.query('SELECT NOW()');
+    console.log('[apply-migrations] ✓ Database connection successful');
+    
     for (const file of migrationFiles) {
       await runMigration(file);
     }
-    console.log('[apply-migrations] Completed all migrations.');
+    console.log('[apply-migrations] ✓ Completed all migrations.');
+  } catch (err) {
+    console.error('[apply-migrations] ✗ Migration process failed');
+    console.error('[apply-migrations] Error details:', {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      hint: err.hint,
+      stack: err.stack
+    });
+    throw err;
   } finally {
     await pool.end();
   }
