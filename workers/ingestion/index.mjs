@@ -89,14 +89,17 @@ const processJob = async (_job) => {
     return;
   }
 
+  // If symbolsPerMinute is >= total symbols, process all symbols every minute
   const cohorts = chunkSymbols(symbols, symbolsPerMinute);
   if (!cohorts.length) {
     logger.warn('No symbol cohorts available for ingestion');
     return;
   }
 
+  // If only one cohort (all symbols fit in one batch), always use it
+  // Otherwise, rotate through cohorts based on time
   const minutesSinceStart = minuteOfDay - startMinute;
-  const cohortIndex = minutesSinceStart % cohorts.length;
+  const cohortIndex = cohorts.length === 1 ? 0 : (minutesSinceStart % cohorts.length);
   const cohortSymbols = cohorts[cohortIndex];
 
   if (!cohortSymbols || !cohortSymbols.length) {
@@ -115,6 +118,7 @@ const processJob = async (_job) => {
     totalSymbols: symbols.length
   }, 'Processing ingestion cohort');
 
+  // Use ticks endpoint - no timestamp needed
   const fetchEnd = fetchDuration.startTimer();
   const payload = await fetchMinuteBars(cohortSymbols);
   fetchEnd();

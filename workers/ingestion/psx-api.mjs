@@ -263,36 +263,144 @@ const fetchViaMinuteBars = async (symbols = []) => {
   return allRows;
 };
 
-const fetchViaKlines = async (symbols = []) => {
+const fetchViaKlines = async (symbols = [], timestamp = null) => {
   const interval = config.psxApi.interval || '1m';
-  const limit = Math.max(1, config.psxApi.limit || 1);
   const allRows = [];
   const targets = symbols.length ? symbols : [];
 
   for (const symbol of targets) {
     try {
-      const response = await executeRequest('klines', () => client.get(`/klines/${symbol}/${interval}`, {
-        params: { limit }
-      }));
-      const payload = unwrapPayload(response);
-      const rows = payload
-        .map((row) => {
-          if (Array.isArray(row)) {
-            return arrayRowToObject(row, symbol);
-          }
-          if (row && typeof row === 'object') {
-            return {
-              symbol: row.symbol ?? symbol,
-              ...row
-            };
-          }
-          return null;
-        })
-        .filter(Boolean);
-      allRows.push(...rows);
+      // Use /api/klines/{symbol}/{timeframe}/{timestamp} endpoint
+      // Base URL already includes /api, so we use /klines directly
+      let url = `/klines/${symbol}/${interval}`;
+      
+      // If timestamp provided, append it to URL
+      if (timestamp != null) {
+        // Ensure timestamp is in milliseconds (13 digits)
+        const timestampMs = typeof timestamp === 'number' 
+          ? (timestamp < 10 ** 12 ? timestamp * 1000 : timestamp)
+          : new Date(timestamp).getTime();
+        url = `${url}/${timestampMs}`;
+      }
+      
+      const response = await executeRequest('klines', () => client.get(url));
+      
+      // Handle response structure: { success: true, data: {...}, timestamp: ... }
+      const responseData = response?.data;
+      
+      if (!responseData) {
+        logger.warn({ symbol, interval, timestamp }, 'Empty klines response');
+        continue;
+      }
+      
+      // Check if response has nested data structure
+      let candleData = null;
+      if (responseData.success && responseData.data) {
+        // New format: { success: true, data: { symbol, timeframe, timestamp, open, high, low, close, volume } }
+        candleData = responseData.data;
+      } else if (responseData.symbol || responseData.open) {
+        // Direct object format
+        candleData = responseData;
+      } else if (Array.isArray(responseData)) {
+        // Array format - take first element
+        candleData = responseData[0];
+      } else if (Array.isArray(responseData.data)) {
+        // Array in data field
+        candleData = responseData.data[0];
+      }
+      
+      if (!candleData) {
+        logger.warn({ symbol, interval, timestamp, responseData }, 'Invalid klines response structure');
+        continue;
+      }
+      
+      // Normalize to our format
+      const row = {
+        symbol: candleData.symbol ?? symbol,
+        ts: candleData.timestamp ?? timestamp ?? Date.now(),
+        open: Number(candleData.open ?? 0),
+        high: Number(candleData.high ?? 0),
+        low: Number(candleData.low ?? 0),
+        close: Number(candleData.close ?? 0),
+        volume: Number(candleData.volume ?? 0),
+        turnover: candleData.turnover != null ? Number(candleData.turnover) : null,
+        intervalPct: candleData.intervalPct != null ? Number(candleData.intervalPct) : null,
+        dailyPct: candleData.dailyPct != null ? Number(candleData.dailyPct) : null,
+        raw: responseData
+      };
+      
+      // Calculate intervalPct if not provided
+      if (row.intervalPct == null && row.open && row.close && row.open !== 0) {
+        row.intervalPct = ((row.close - row.open) / row.open) * 100;
+      }
+      
+      allRows.push(row);
     } catch (err) {
-      logger.error({ err, symbol, interval }, 'Failed to fetch klines');
-      throw err;
+      // Don't throw for individual symbol failures - log and continue
+      if (err?.response?.status === 404) {
+        logger.warn({ symbol, interval, timestamp }, 'Kline not found (404), skipping symbol');
+        continue;
+      }
+      logger.error({ err, symbol, interval, timestamp }, 'Failed to fetch klines');
+      // Continue with other symbols instead of throwing
+      continue;
+    }
+  }
+
+  return allRows;
+};
+
+const fetchViaExactTimestampKlines = async (symbols = [], timestamp) => {
+  const interval = config.psxApi.interval || '1m';
+  const allRows = [];
+  const targets = symbols.length ? symbols : [];
+
+  if (!targets.length) return [];
+
+  // Ensure timestamp is 13-digit milliseconds
+  const exactTimestamp = timestamp || Date.now();
+  const timestampMs = exactTimestamp < 10 ** 12 ? exactTimestamp * 1000 : exactTimestamp;
+
+  for (const symbol of targets) {
+    try {
+      const response = await executeRequest('klines_exact', () =>
+        client.get(`/klines/${symbol}/${interval}/${timestampMs}`)
+      );
+
+      const payload = response?.data?.data ?? response?.data;
+      if (!payload) {
+        logger.warn({ symbol, timestamp: timestampMs }, 'No kline data returned for exact timestamp');
+        continue;
+      }
+
+      // Normalize the response to match our expected format
+      const row = {
+        symbol: (payload.symbol ?? symbol ?? '').toString().trim().toUpperCase(),
+        ts: payload.timestamp ?? timestampMs,
+        open: Number(payload.open ?? 0),
+        high: Number(payload.high ?? 0),
+        low: Number(payload.low ?? 0),
+        close: Number(payload.close ?? 0),
+        volume: Number(payload.volume ?? 0),
+        turnover: null, // API doesn't provide turnover in kline response
+        intervalPct: null,
+        dailyPct: null,
+        raw: payload
+      };
+
+      // Calculate percentage change if we have open and close
+      if (row.open && row.close && row.open !== 0) {
+        row.intervalPct = ((row.close - row.open) / row.open) * 100;
+      }
+
+      allRows.push(row);
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        logger.warn({ symbol, timestamp: timestampMs }, 'Kline not found for exact timestamp (404), skipping');
+        continue;
+      }
+      logger.error({ err, symbol, timestamp: timestampMs }, 'Failed to fetch exact timestamp kline');
+      // Don't throw - continue with other symbols
     }
   }
 
@@ -355,23 +463,32 @@ const fetchViaTicks = async (symbols = []) => {
   return rows;
 };
 
-export const fetchMinuteBars = async (symbols = []) => {
+export const fetchMinuteBars = async (symbols = [], timestamp = null) => {
   if (!config.psxApi.baseUrl) {
     throw new Error('PSX_API_BASE_URL environment variable is required');
   }
 
   const strategy = (config.psxApi.strategy || 'klines').toLowerCase();
 
-  if (strategy === 'minute-bars' || strategy === 'bars') {
-    return fetchViaMinuteBars(symbols);
+  // Use klines endpoint for 1-minute candle ingestion
+  if (strategy === 'klines') {
+    return fetchViaKlines(symbols, timestamp);
   }
 
+  // Fallback to ticks if explicitly requested
   if (strategy === 'ticks') {
     return fetchViaTicks(symbols);
   }
 
-  return fetchViaKlines(symbols);
+  if (strategy === 'minute-bars' || strategy === 'bars') {
+    return fetchViaMinuteBars(symbols);
+  }
+
+  // Default to klines for 1-minute candles
+  return fetchViaKlines(symbols, timestamp);
 };
+
+export { fetchViaKlines, fetchViaTicks, fetchViaMinuteBars };
 
 export default {
   fetchMinuteBars

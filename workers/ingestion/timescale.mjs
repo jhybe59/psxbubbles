@@ -17,6 +17,17 @@ const pool = new Pool({
 
 export const insertMinuteBars = async (rows) => {
   if (!rows || rows.length === 0) return 0;
+  
+  // Deduplicate rows within the batch (keep last occurrence of same symbol+ts)
+  const uniqueRows = new Map();
+  rows.forEach((row) => {
+    const key = `${row.symbol}|${row.ts}`;
+    uniqueRows.set(key, row);
+  });
+  const deduplicatedRows = Array.from(uniqueRows.values());
+  
+  if (deduplicatedRows.length === 0) return 0;
+  
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -24,7 +35,7 @@ export const insertMinuteBars = async (rows) => {
       INSERT INTO minute_bars
         (symbol, ts, open, high, low, close, volume, value, daily_pct, raw)
       VALUES
-        ${rows.map((_, idx) => `($${idx * 10 + 1}, $${idx * 10 + 2}, $${idx * 10 + 3}, $${idx * 10 + 4}, $${idx * 10 + 5}, $${idx * 10 + 6}, $${idx * 10 + 7}, $${idx * 10 + 8}, $${idx * 10 + 9}, $${idx * 10 + 10})`).join(', ')}
+        ${deduplicatedRows.map((_, idx) => `($${idx * 10 + 1}, $${idx * 10 + 2}, $${idx * 10 + 3}, $${idx * 10 + 4}, $${idx * 10 + 5}, $${idx * 10 + 6}, $${idx * 10 + 7}, $${idx * 10 + 8}, $${idx * 10 + 9}, $${idx * 10 + 10})`).join(', ')}
       ON CONFLICT (symbol, ts)
       DO UPDATE SET
         open = EXCLUDED.open,
@@ -37,7 +48,7 @@ export const insertMinuteBars = async (rows) => {
         raw = EXCLUDED.raw
       RETURNING ts;
     `;
-    const values = rows.flatMap((row) => [
+    const values = deduplicatedRows.flatMap((row) => [
       row.symbol,
       new Date(row.ts),
       row.open,
@@ -72,9 +83,12 @@ export const withClient = async (fn) => {
 
 export const closePool = () => pool.end();
 
+export { pool };
+
 export default {
   insertMinuteBars,
   withClient,
-  closePool
+  closePool,
+  pool
 };
 

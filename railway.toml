@@ -6,11 +6,10 @@ name = "psxbubbles"
 [[services]]
 name = "web"
 builder = "NIXPACKS"
+startCommand = "npm run preview"
 # Ensure devDependencies (vite) are available during build on Railway
 [services.env]
 NIXPACKS_PRUNE_DEV_DEPENDENCIES = "false"
-# Start command for web service (serves built static files)
-startCommand = "npm run preview"
 
 [[services]]
 name = "api"

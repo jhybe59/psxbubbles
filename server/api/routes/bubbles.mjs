@@ -4,6 +4,15 @@ import { withClient } from '../db.mjs';
 import { getCache, setCache } from '../cache.mjs';
 import logger from '../logger.mjs';
 
+// Get symbols list from environment variable (optional)
+const getSymbolsList = () => {
+  const symbolsEnv = process.env.PSX_API_SYMBOLS_LIST;
+  if (symbolsEnv) {
+    return symbolsEnv.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  }
+  return null;
+};
+
 const router = Router();
 
 const intervalMap = {
@@ -54,6 +63,15 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
   let paramIndex = 1;
 
   const whereClauses = [];
+  
+  // Filter by configured symbols if available (from env var)
+  const configuredSymbols = getSymbolsList();
+  if (configuredSymbols && configuredSymbols.length > 0) {
+    params.push(configuredSymbols);
+    whereClauses.push(`symbol = ANY($${paramIndex})`);
+    paramIndex += 1;
+  }
+  
   if (indices?.length) {
     params.push(indices.map((code) => code.toUpperCase()));
     whereClauses.push(`symbol IN (SELECT symbol FROM index_members WHERE index_code = ANY($${paramIndex}))`);
@@ -83,16 +101,19 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
         LAG(close) OVER (PARTITION BY symbol ORDER BY ts) AS prev_close,
         ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY ts DESC) AS rk
       FROM minute_bars
+      ${where}
     ), latest AS (
-      SELECT symbol, ts, price, volume, value, daily_pct,
-        CASE WHEN prev_close IS NULL OR prev_close = 0 THEN NULL
+      SELECT symbol, ts, price, volume, value, daily_pct, prev_close,
+        CASE WHEN prev_close IS NULL OR prev_close = 0 THEN daily_pct
              ELSE (price - prev_close) / prev_close * 100 END AS interval_pct
       FROM ranked
       WHERE rk = 1
     )
-    SELECT symbol, ts, price, COALESCE(interval_pct, 0) AS interval_pct, daily_pct, volume, value
+    SELECT symbol, ts, price, 
+           COALESCE(interval_pct, daily_pct, 0) AS interval_pct, 
+           COALESCE(daily_pct, interval_pct) AS daily_pct, 
+           volume, value
     FROM latest
-    ${where}
     ORDER BY ${buildOrderClause('pct', favoritesParam)}
     LIMIT ${limitParam};
   `;
@@ -106,6 +127,15 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
   let paramIndex = 1;
 
   const whereClauses = ['bucket = (SELECT max(bucket) FROM ' + viewName + ')'];
+  
+  // Filter by configured symbols if available (from env var)
+  const configuredSymbols = getSymbolsList();
+  if (configuredSymbols && configuredSymbols.length > 0) {
+    params.push(configuredSymbols);
+    whereClauses.push(`symbol = ANY($${paramIndex})`);
+    paramIndex += 1;
+  }
+  
   if (indices?.length) {
     params.push(indices.map((code) => code.toUpperCase()));
     whereClauses.push(`symbol IN (SELECT symbol FROM index_members WHERE index_code = ANY($${paramIndex}))`);

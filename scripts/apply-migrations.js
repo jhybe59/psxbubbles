@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+const { Client } = pg;
 import { buildTimescaleConfigFromEnv } from '../server/shared/db-config.mjs';
 import dotenvSafe from 'dotenv-safe';
 
@@ -58,9 +59,95 @@ const runMigration = async (file) => {
   }
   console.log(`[apply-migrations] Running ${file}`);
   try {
-    await pool.query(sql);
+    // For materialized views, we need to use a direct client connection
+    // with autocommit enabled (no transaction)
+    const client = new Client({
+      host: tsConfig.host,
+      port: tsConfig.port,
+      database: tsConfig.database,
+      user: tsConfig.user,
+      password: tsConfig.password || undefined,
+      ssl: tsConfig.ssl ? { rejectUnauthorized: false } : undefined
+    });
+    
+    try {
+      await client.connect();
+      
+      // For continuous aggregates migration, check if views exist first
+      if (file.includes('continuous_aggregates') || file.includes('additional_aggregates')) {
+        const viewNames = file.includes('additional_aggregates') 
+          ? ['minute_bars_4h', 'minute_bars_1w', 'minute_bars_1mo', 'minute_bars_1y']
+          : ['minute_bars_5m'];
+        
+        const checkResult = await client.query(`
+          SELECT COUNT(*) as count FROM timescaledb_information.continuous_aggregates 
+          WHERE view_name = ANY($1);
+        `, [viewNames]);
+        
+        if (Number(checkResult.rows[0]?.count) >= viewNames.length) {
+          console.log(`[apply-migrations] ⚠ ${file} - continuous aggregates already exist, skipping`);
+          await client.end();
+          return;
+        }
+      }
+      
+      // Materialized views with TimescaleDB continuous aggregates cannot run in transactions
+      // Split SQL into individual statements and run them separately
+      const statements = sql.split(';').map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith('--'));
+      
+      for (const statement of statements) {
+        if (statement.trim()) {
+          await client.query(statement);
+        }
+      }
+    } finally {
+      await client.end();
+    }
     console.log(`[apply-migrations] ✓ Successfully ran ${file}`);
   } catch (err) {
+    // If it's a "relation already exists" error, that's okay - skip it
+    if (err.code === '42P07' || err.message.includes('already exists')) {
+      console.log(`[apply-migrations] ⚠ ${file} - objects already exist, skipping`);
+      return;
+    }
+    // If it's a view column rename error, that's okay - skip it
+    if (err.code === '42P16' || err.message.includes('cannot change name of view column')) {
+      console.log(`[apply-migrations] ⚠ ${file} - view column conflict, skipping`);
+      return;
+    }
+    // If it's the transaction block error and views might exist, try to continue
+    if (err.code === '25001' && (file.includes('continuous_aggregates') || file.includes('additional_aggregates'))) {
+      console.log(`[apply-migrations] ⚠ ${file} - continuous aggregates may already exist, checking...`);
+      // Try to verify if views exist
+      try {
+        const checkClient = new Client({
+          host: tsConfig.host,
+          port: tsConfig.port,
+          database: tsConfig.database,
+          user: tsConfig.user,
+          password: tsConfig.password || undefined,
+          ssl: tsConfig.ssl ? { rejectUnauthorized: false } : undefined
+        });
+        await checkClient.connect();
+        
+        const viewNames = file.includes('additional_aggregates')
+          ? ['minute_bars_4h', 'minute_bars_1w', 'minute_bars_1mo', 'minute_bars_1y']
+          : ['minute_bars_5m', 'minute_bars_15m', 'minute_bars_1h', 'minute_bars_1d'];
+        
+        const checkResult = await checkClient.query(`
+          SELECT view_name FROM timescaledb_information.continuous_aggregates 
+          WHERE view_name = ANY($1);
+        `, [viewNames]);
+        await checkClient.end();
+        
+        if (checkResult.rows.length >= viewNames.length) {
+          console.log(`[apply-migrations] ⚠ ${file} - continuous aggregates already exist, skipping`);
+          return;
+        }
+      } catch (checkErr) {
+        // Ignore check errors
+      }
+    }
     console.error(`[apply-migrations] ✗ Error in ${file}:`, err.message);
     console.error(`[apply-migrations] Full error:`, err);
     throw err;
