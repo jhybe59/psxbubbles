@@ -80,22 +80,22 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     svg.selectAll('*').remove();
     if (!data || data.length === 0) return;
 
-  const margin = { top: 20, right: 20, bottom: 20, left: 20 };
-  const w = Math.max(100, size.width - margin.left - margin.right);
-  const h = Math.max(100, size.height - margin.top - margin.bottom);
+    const margin = { top: 20, right: 20, bottom: 20, left: 20 };
+    const w = Math.max(100, size.width - margin.left - margin.right);
+    const h = Math.max(100, size.height - margin.top - margin.bottom);
 
-  // Compute a dynamic global size multiplier based on how many bubbles we will render.
-  // When there are few bubbles we want them to scale up to fill empty space; when many
-  // bubbles are present we keep sizes more conservative to avoid heavy overlap.
-  function computeGlobalMultiplier(count) {
-    // Scale bubbles based on density: modest boost for sparse views, mild shrink for very dense ones.
-    if (count >= 200) return 0.9;
-    if (count >= 140) return 0.95;
-    if (count >= 100) return 1.0;
-    if (count >= 60) return 1.07;
-    if (count >= 30) return 1.14;
-    return 1.24;
-  }
+    // Compute a dynamic global size multiplier based on how many bubbles we will render.
+    // When there are few bubbles we want them to scale up to fill empty space; when many
+    // bubbles are present we keep sizes more conservative to avoid heavy overlap.
+    function computeGlobalMultiplier(count) {
+      // Scale bubbles based on density: modest boost for sparse views, mild shrink for very dense ones.
+      if (count >= 200) return 0.9;
+      if (count >= 140) return 0.95;
+      if (count >= 100) return 1.0;
+      if (count >= 60) return 1.07;
+      if (count >= 30) return 1.14;
+      return 1.24;
+    }
 
     // defs: blur filter for glow and radial gradient for bubble shading
     const defs = svg.append('defs');
@@ -112,79 +112,79 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     grad.append('stop').attr('offset', '60%').attr('stop-color', 'rgba(255,255,255,0.03)');
     grad.append('stop').attr('offset', '100%').attr('stop-color', '#0b1114');
 
-  // simple app-level green/red gradients for quick fills
-  const gGreen = defs.append('radialGradient').attr('id', 'grad-green').attr('cx', '30%').attr('cy', '30%');
-  gGreen.append('stop').attr('offset', '0%').attr('stop-color', '#0bff6a').attr('stop-opacity', 0.95);
-  gGreen.append('stop').attr('offset', '60%').attr('stop-color', '#0aa34a').attr('stop-opacity', 0.95);
-  gGreen.append('stop').attr('offset', '100%').attr('stop-color', '#03150a').attr('stop-opacity', 0.95);
+    // simple app-level green/red gradients for quick fills
+    const gGreen = defs.append('radialGradient').attr('id', 'grad-green').attr('cx', '30%').attr('cy', '30%');
+    gGreen.append('stop').attr('offset', '0%').attr('stop-color', '#0bff6a').attr('stop-opacity', 0.95);
+    gGreen.append('stop').attr('offset', '60%').attr('stop-color', '#0aa34a').attr('stop-opacity', 0.95);
+    gGreen.append('stop').attr('offset', '100%').attr('stop-color', '#03150a').attr('stop-opacity', 0.95);
 
-  const gRed = defs.append('radialGradient').attr('id', 'grad-red').attr('cx', '30%').attr('cy', '30%');
-  gRed.append('stop').attr('offset', '0%').attr('stop-color', '#ff7b7b').attr('stop-opacity', 0.95);
-  gRed.append('stop').attr('offset', '60%').attr('stop-color', '#c93b3b').attr('stop-opacity', 0.95);
-  gRed.append('stop').attr('offset', '100%').attr('stop-color', '#160606').attr('stop-opacity', 0.95);
+    const gRed = defs.append('radialGradient').attr('id', 'grad-red').attr('cx', '30%').attr('cy', '30%');
+    gRed.append('stop').attr('offset', '0%').attr('stop-color', '#ff7b7b').attr('stop-opacity', 0.95);
+    gRed.append('stop').attr('offset', '60%').attr('stop-color', '#c93b3b').attr('stop-opacity', 0.95);
+    gRed.append('stop').attr('offset', '100%').attr('stop-color', '#160606').attr('stop-opacity', 0.95);
 
-  // subtle inner shadow filter for depth
-  // slightly stronger inner shadow to make the bubble feel deeper
-  defs.append('filter').attr('id', 'inner-shadow').append('feDropShadow').attr('dx', 0).attr('dy', 8).attr('stdDeviation', 14).attr('flood-color', '#000').attr('flood-opacity', 0.45);
+    // subtle inner shadow filter for depth
+    // slightly stronger inner shadow to make the bubble feel deeper
+    defs.append('filter').attr('id', 'inner-shadow').append('feDropShadow').attr('dx', 0).attr('dy', 8).attr('stdDeviation', 14).attr('flood-color', '#000').attr('flood-opacity', 0.45);
 
-  // subtle drop shadow filter for depth
-  defs.append('filter').attr('id', 'drop').append('feDropShadow').attr('dx', 0).attr('dy', 3).attr('stdDeviation', 4).attr('flood-color', '#000').attr('flood-opacity', 0.45);
-  // small text shadow filter to improve contrast without heavy stroke
-  // reduced blur and offset to avoid fuzzy glyphs at small sizes
-  const textFilter = defs.append('filter').attr('id', 'textShadow');
-  textFilter.append('feOffset').attr('dx', 0).attr('dy', 1).attr('result', 'off');
-  textFilter.append('feGaussianBlur').attr('in', 'off').attr('stdDeviation', 0.6).attr('result', 'blur');
-  const feMerge = textFilter.append('feMerge');
-  feMerge.append('feMergeNode').attr('in', 'blur');
-  feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+    // subtle drop shadow filter for depth
+    defs.append('filter').attr('id', 'drop').append('feDropShadow').attr('dx', 0).attr('dy', 3).attr('stdDeviation', 4).attr('flood-color', '#000').attr('flood-opacity', 0.45);
+    // small text shadow filter to improve contrast without heavy stroke
+    // reduced blur and offset to avoid fuzzy glyphs at small sizes
+    const textFilter = defs.append('filter').attr('id', 'textShadow');
+    textFilter.append('feOffset').attr('dx', 0).attr('dy', 1).attr('result', 'off');
+    textFilter.append('feGaussianBlur').attr('in', 'off').attr('stdDeviation', 0.6).attr('result', 'blur');
+    const feMerge = textFilter.append('feMerge');
+    feMerge.append('feMergeNode').attr('in', 'blur');
+    feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-  // helper: bucketed fill opacity based on absolute percent change (0..%)
-  // Buckets: 0-0.99% -> 0.09, 1-1.99% -> 0.12, 2-2.99% -> 0.16, 3-3.99% -> 0.20, 4-4.99% -> 0.24,
-  // 5-6.99% -> 0.28, 7-9.99% -> 0.32, >=10% -> 0.36
-  function bucketFillOpacity(absPct) {
-    if (absPct < 1) return 0.09;
-    if (absPct < 2) return 0.12;
-    if (absPct < 3) return 0.16;
-    if (absPct < 4) return 0.20;
-    if (absPct < 5) return 0.24;
-    if (absPct < 7) return 0.28;
-    if (absPct < 10) return 0.32;
-    return 0.36;
-  }
+    // helper: bucketed fill opacity based on absolute percent change (0..%)
+    // Buckets: 0-0.99% -> 0.09, 1-1.99% -> 0.12, 2-2.99% -> 0.16, 3-3.99% -> 0.20, 4-4.99% -> 0.24,
+    // 5-6.99% -> 0.28, 7-9.99% -> 0.32, >=10% -> 0.36
+    function bucketFillOpacity(absPct) {
+      if (absPct < 1) return 0.09;
+      if (absPct < 2) return 0.12;
+      if (absPct < 3) return 0.16;
+      if (absPct < 4) return 0.20;
+      if (absPct < 5) return 0.24;
+      if (absPct < 7) return 0.28;
+      if (absPct < 10) return 0.32;
+      return 0.36;
+    }
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-  // Determine inferred maxima used for sizing based on the active size selection.
-  // If a custom radiusScale prop is provided prefer it; otherwise we'll build
-  // a d3.scaleSqrt for the chosen metric (Performance -> percent, Volume -> volume, Market Cap -> market_cap).
-  const inferredMaxPct = d3.max(data, (d) => Math.abs(d.price_change_percentage_24h || 0)) || 1;
-  const inferredMaxVol = d3.max(data, (d) => {
-    if (!d) return 0;
-    if (d.volume != null) return Number(String(d.volume).replace(/,/g, '')) || 0;
-    if (d.total_volume != null) return Number(String(d.total_volume).replace(/,/g, '')) || 0;
-    if (d['24h_volume'] != null) return Number(String(d['24h_volume']).replace(/,/g, '')) || 0;
-    if (d.v != null) return Number(String(d.v).replace(/,/g, '')) || 0;
-    if (d.data) {
-      if (d.data.volume != null) return Number(String(d.data.volume).replace(/,/g, '')) || 0;
-      if (d.data.total_volume != null) return Number(String(d.data.total_volume).replace(/,/g, '')) || 0;
-      if (d.data['24h_volume'] != null) return Number(String(d.data['24h_volume']).replace(/,/g, '')) || 0;
-    }
-    return 0;
-  }) || 1;
-  const inferredMaxMc = d3.max(data, (d) => {
-    if (!d) return 0;
-    if (d.market_cap != null) return Number(d.market_cap) || 0;
-    if (d.data && d.data.market_cap != null) return Number(d.data.market_cap) || 0;
-    if (d.marketCap != null) return Number(d.marketCap) || 0;
-    return 0;
-  }) || 1;
+    // Determine inferred maxima used for sizing based on the active size selection.
+    // If a custom radiusScale prop is provided prefer it; otherwise we'll build
+    // a d3.scaleSqrt for the chosen metric (Performance -> percent, Volume -> volume, Market Cap -> market_cap).
+    const inferredMaxPct = d3.max(data, (d) => Math.abs(d.price_change_percentage_24h || 0)) || 1;
+    const inferredMaxVol = d3.max(data, (d) => {
+      if (!d) return 0;
+      if (d.volume != null) return Number(String(d.volume).replace(/,/g, '')) || 0;
+      if (d.total_volume != null) return Number(String(d.total_volume).replace(/,/g, '')) || 0;
+      if (d['24h_volume'] != null) return Number(String(d['24h_volume']).replace(/,/g, '')) || 0;
+      if (d.v != null) return Number(String(d.v).replace(/,/g, '')) || 0;
+      if (d.data) {
+        if (d.data.volume != null) return Number(String(d.data.volume).replace(/,/g, '')) || 0;
+        if (d.data.total_volume != null) return Number(String(d.data.total_volume).replace(/,/g, '')) || 0;
+        if (d.data['24h_volume'] != null) return Number(String(d.data['24h_volume']).replace(/,/g, '')) || 0;
+      }
+      return 0;
+    }) || 1;
+    const inferredMaxMc = d3.max(data, (d) => {
+      if (!d) return 0;
+      if (d.market_cap != null) return Number(d.market_cap) || 0;
+      if (d.data && d.data.market_cap != null) return Number(d.data.market_cap) || 0;
+      if (d.marketCap != null) return Number(d.marketCap) || 0;
+      return 0;
+    }) || 1;
 
     // reduce number of rendered nodes in dense views to improve legibility and perf
     // If a specific index is selected we want to render all its members so user can see progress.
     const maxNodes = (selectedIndex != null) ? data.length : 140; // when index selected, render full list
     const used = data.slice(0, maxNodes);
 
-  // Demo overrides removed: sizing will now be driven only by real data / provided aggregations.
+    // Demo overrides removed: sizing will now be driven only by real data / provided aggregations.
 
     // Build a sizing scale according to current selections.size. This scale converts
     // the chosen metric into a visual radius. Range tuned to previous defaults.
@@ -273,31 +273,31 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         return Math.abs(b.price_change_percentage_24h || 0) > Math.abs(a.price_change_percentage_24h || 0) ? b : a;
       }, used[0] || null);
       if (!largest) return;
-    // compute baseR using the active size metric (allow external radiusScale override)
-    if (radiusScale) {
-      // delegate to provided radiusScale (assumed to accept the chosen metric)
-      const largestMetricVal = (selections && selections.size === 'Performance') ? Math.abs(largest.price_change_percentage_24h || 0) : (selections && selections.size === 'Volume' ? extractVolumeItem(largest) : extractMarketCapItem(largest));
-      // radiusScale expected to map raw metric -> radius
-      var baseR = Math.max(12, Math.round(radiusScale(largestMetricVal)));
-    } else {
-      // use our computed localRadiusScale
-      if (selections && selections.size === 'Volume') {
-        const lv = extractVolumeItem(largest) || 1;
-        var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lv || sizeMax)]).range([12, 160])(lv)));
-      } else if (selections && selections.size === 'Market Cap') {
-        const lm = extractMarketCapItem(largest) || 1;
-        var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lm || sizeMax)]).range([12, 160])(lm)));
+      // compute baseR using the active size metric (allow external radiusScale override)
+      if (radiusScale) {
+        // delegate to provided radiusScale (assumed to accept the chosen metric)
+        const largestMetricVal = (selections && selections.size === 'Performance') ? Math.abs(largest.price_change_percentage_24h || 0) : (selections && selections.size === 'Volume' ? extractVolumeItem(largest) : extractMarketCapItem(largest));
+        // radiusScale expected to map raw metric -> radius
+        var baseR = Math.max(12, Math.round(radiusScale(largestMetricVal)));
       } else {
-        var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMaxPct]).range([12, 160])(Math.abs(largest.price_change_percentage_24h || 0))));
+        // use our computed localRadiusScale
+        if (selections && selections.size === 'Volume') {
+          const lv = extractVolumeItem(largest) || 1;
+          var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lv || sizeMax)]).range([12, 160])(lv)));
+        } else if (selections && selections.size === 'Market Cap') {
+          const lm = extractMarketCapItem(largest) || 1;
+          var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lm || sizeMax)]).range([12, 160])(lm)));
+        } else {
+          var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMaxPct]).range([12, 160])(Math.abs(largest.price_change_percentage_24h || 0))));
+        }
       }
-    }
-    // ensure the single bubble is visually prominent by scaling up relative to viewport
-    let displayR = Math.min(Math.max(baseR, Math.min(w, h) * 0.18), Math.min(w, h) / 2 - 16);
-    // compute multiplier based on number of used nodes so single-mode scales sensibly
-    const singleMult = computeGlobalMultiplier(used.length);
-    // apply multiplier so single-mode bubble grows with others
-    displayR = Math.round(displayR * singleMult);
-    const singleNode = { id: largest.id, r: Math.round(baseR * singleMult), x: w / 2, y: h / 2, data: largest, displayR };
+      // ensure the single bubble is visually prominent by scaling up relative to viewport
+      let displayR = Math.min(Math.max(baseR, Math.min(w, h) * 0.18), Math.min(w, h) / 2 - 16);
+      // compute multiplier based on number of used nodes so single-mode scales sensibly
+      const singleMult = computeGlobalMultiplier(used.length);
+      // apply multiplier so single-mode bubble grows with others
+      displayR = Math.round(displayR * singleMult);
+      const singleNode = { id: largest.id, r: Math.round(baseR * singleMult), x: w / 2, y: h / 2, data: largest, displayR };
 
       // create a radial gradient for this node (richer, glass-like)
       const pctForGrad = singleNode.data.price_change_percentage_24h ?? 0;
@@ -305,15 +305,15 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       const mid = pctForGrad >= 0 ? '#6fe987' : '#ff9a9a';
       const dark = pctForGrad >= 0 ? '#0f4f2b' : '#6b2a2a';
       const rg = defs.append('radialGradient').attr('id', `grad-${singleNode.id}`).attr('cx', '30%').attr('cy', '25%');
-  rg.append('stop').attr('offset', '0%').attr('stop-color', '#ffffff').attr('stop-opacity', 0.38);
-  rg.append('stop').attr('offset', '28%').attr('stop-color', mid).attr('stop-opacity', 0.42);
-  rg.append('stop').attr('offset', '70%').attr('stop-color', base).attr('stop-opacity', 0.36);
-  rg.append('stop').attr('offset', '100%').attr('stop-color', dark).attr('stop-opacity', 0.72);
+      rg.append('stop').attr('offset', '0%').attr('stop-color', '#ffffff').attr('stop-opacity', 0.38);
+      rg.append('stop').attr('offset', '28%').attr('stop-color', mid).attr('stop-opacity', 0.42);
+      rg.append('stop').attr('offset', '70%').attr('stop-color', base).attr('stop-opacity', 0.36);
+      rg.append('stop').attr('offset', '100%').attr('stop-color', dark).attr('stop-opacity', 0.72);
 
       // inner shadow gradient to give depth (overlay multiply)
       const inner = defs.append('radialGradient').attr('id', `inner-${singleNode.id}`).attr('cx', '50%').attr('cy', '60%');
-  inner.append('stop').attr('offset', '45%').attr('stop-color', 'rgba(0,0,0,0)').attr('stop-opacity', 0);
-  inner.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(0,0,0,0.26)').attr('stop-opacity', 0.9);
+      inner.append('stop').attr('offset', '45%').attr('stop-color', 'rgba(0,0,0,0)').attr('stop-opacity', 0);
+      inner.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(0,0,0,0.26)').attr('stop-opacity', 0.9);
 
       // clip for the logo so it sits nicely inside the circle
       defs
@@ -361,7 +361,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     // build nodes for multi-node rendering (radius + initial positions)
     // reuse previous node positions/velocities when available to smooth transitions
     const prevMap = new Map((nodesRef.current || []).map((n) => [n.id, n]));
-  const nodes = used.map((d) => {
+    const nodes = used.map((d) => {
       // respect demo override (for visualization) if present
       const overridePct = d.__overrideDemo;
       // base sample percent (from data)
@@ -478,8 +478,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }
       // Apply a density-aware global size multiplier so bubbles fill space better when there
       // are few of them, and remain compact when the view is dense.
-  const GLOBAL_MULT = computeGlobalMultiplier(nodes.length);
-  if (Math.abs(GLOBAL_MULT - 1) > 1e-6) {
+      const GLOBAL_MULT = computeGlobalMultiplier(nodes.length);
+      if (Math.abs(GLOBAL_MULT - 1) > 1e-6) {
         nodes.forEach((n) => {
           n.r = Math.max(4, Math.round(n.r * GLOBAL_MULT));
         });
@@ -498,7 +498,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       return node.data && (node.data.price_change_percentage_24h ?? 0);
     }
 
-  // create per-node clipPaths and radial gradients for nicer bubble shading
+    // create per-node clipPaths and radial gradients for nicer bubble shading
     nodes.forEach((nd) => {
       defs
         .append('clipPath')
@@ -508,38 +508,38 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         .attr('cx', 0)
         .attr('cy', 0);
 
-  // helper to derive percent for a node (considers overrides and aggregations)
-  function pctFor(node) {
-    if (node.overridePct != null) return node.overridePct;
-    if (aggregations && selections && selections.size === 'Performance') {
-      const v = aggregations.get(node.data && (node.data.symbol || node.data.id) || node.id);
-      if (v != null) return v;
-    }
-    return node.data && (node.data.price_change_percentage_24h ?? 0);
-  }
+      // helper to derive percent for a node (considers overrides and aggregations)
+      function pctFor(node) {
+        if (node.overridePct != null) return node.overridePct;
+        if (aggregations && selections && selections.size === 'Performance') {
+          const v = aggregations.get(node.data && (node.data.symbol || node.data.id) || node.id);
+          if (v != null) return v;
+        }
+        return node.data && (node.data.price_change_percentage_24h ?? 0);
+      }
 
-  // per-node radial gradient: AIA-style (green for up, red for down)
-  const pct = pctForNode(nd);
-  const rg = defs.append('radialGradient').attr('id', `grad-${nd.id}`).attr('cx', '45%').attr('cy', '35%').attr('r', '70%');
-  if (pct >= 0) {
-    // neon-forward greens for up bubbles
-    rg.append('stop').attr('offset', '0%').attr('stop-color', '#dfffee').attr('stop-opacity', 0.9);
-    rg.append('stop').attr('offset', '45%').attr('stop-color', '#13d36b').attr('stop-opacity', 0.86);
-    rg.append('stop').attr('offset', '100%').attr('stop-color', '#01220a').attr('stop-opacity', 0.95);
-  } else {
-    // warm reds for down bubbles
-    rg.append('stop').attr('offset', '0%').attr('stop-color', '#ffecec').attr('stop-opacity', 0.9);
-    rg.append('stop').attr('offset', '45%').attr('stop-color', '#ff6060').attr('stop-opacity', 0.86);
-    rg.append('stop').attr('offset', '100%').attr('stop-color', '#200707').attr('stop-opacity', 0.95);
-  }
+      // per-node radial gradient: AIA-style (green for up, red for down)
+      const pct = pctForNode(nd);
+      const rg = defs.append('radialGradient').attr('id', `grad-${nd.id}`).attr('cx', '45%').attr('cy', '35%').attr('r', '70%');
+      if (pct >= 0) {
+        // neon-forward greens for up bubbles
+        rg.append('stop').attr('offset', '0%').attr('stop-color', '#dfffee').attr('stop-opacity', 0.9);
+        rg.append('stop').attr('offset', '45%').attr('stop-color', '#13d36b').attr('stop-opacity', 0.86);
+        rg.append('stop').attr('offset', '100%').attr('stop-color', '#01220a').attr('stop-opacity', 0.95);
+      } else {
+        // warm reds for down bubbles
+        rg.append('stop').attr('offset', '0%').attr('stop-color', '#ffecec').attr('stop-opacity', 0.9);
+        rg.append('stop').attr('offset', '45%').attr('stop-color', '#ff6060').attr('stop-opacity', 0.86);
+        rg.append('stop').attr('offset', '100%').attr('stop-color', '#200707').attr('stop-opacity', 0.95);
+      }
 
-  // shine gradient for small highlight near top-left
-  const shine = defs.append('radialGradient').attr('id', `shine-${nd.id}`).attr('cx', '35%').attr('cy', '22%');
-  // small "mag" factor to subtly vary the shine based on percent magnitude
-  const mag = Math.min(1, Math.abs(pct) / 10);
-  shine.append('stop').attr('offset', '0%').attr('stop-color', '#ffffff').attr('stop-opacity', 0.6 * (0.45 + mag * 0.6));
-  shine.append('stop').attr('offset', '35%').attr('stop-color', '#ffffff').attr('stop-opacity', 0.12);
-  shine.append('stop').attr('offset', '100%').attr('stop-color', '#ffffff').attr('stop-opacity', 0);
+      // shine gradient for small highlight near top-left
+      const shine = defs.append('radialGradient').attr('id', `shine-${nd.id}`).attr('cx', '35%').attr('cy', '22%');
+      // small "mag" factor to subtly vary the shine based on percent magnitude
+      const mag = Math.min(1, Math.abs(pct) / 10);
+      shine.append('stop').attr('offset', '0%').attr('stop-color', '#ffffff').attr('stop-opacity', 0.6 * (0.45 + mag * 0.6));
+      shine.append('stop').attr('offset', '35%').attr('stop-color', '#ffffff').attr('stop-opacity', 0.12);
+      shine.append('stop').attr('offset', '100%').attr('stop-color', '#ffffff').attr('stop-opacity', 0);
     });
 
     // Build a grid of anchor points to spread bubbles evenly across the viewport.
@@ -639,7 +639,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     };
     const anchorStrength = nodeCount <= 40 ? 0.12 : (nodeCount <= 120 ? 0.085 : 0.06);
     const wanderStrength = nodeCount <= 40 ? 0.42 : (nodeCount <= 120 ? 0.32 : 0.24);
-    const chargeStrength = nodeCount <= 60 ? -6 : (nodeCount <= 140 ? -4.5 : -3.5);
+    const chargeStrength = nodeCount <= 60 ? -30 : (nodeCount <= 140 ? -20 : -10); // Moderate repulsion
+    const gravityStrength = 0.08; // Strong enough to center, weak enough to allow spread
 
     const simulation = d3.forceSimulation(nodes)
       .force('charge', d3.forceManyBody().strength(chargeStrength))
@@ -647,7 +648,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       .force('anchorX', anchorX(anchorStrength))
       .force('anchorY', anchorY(anchorStrength))
       .force('wander', wanderForce(wanderStrength))
-      .force('center', d3.forceCenter(w / 2, h / 2))
+      .force('x', d3.forceX(w / 2).strength(gravityStrength))
+      .force('y', d3.forceY(h / 2).strength(gravityStrength))
       .velocityDecay(0.18)
       .alphaDecay(0.016)
       .on('tick', ticked);
@@ -666,41 +668,41 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       // ignore
     }
 
-  // Create two layers: circlesGroup (scales with zoom) and labelsGroup (keeps constant size)
-  const circlesGroup = g.append('g').attr('class', 'circles-group');
-  // disable pointer events on labelsGroup so clicks fall through to circles underneath
-  const labelsGroup = g.append('g').attr('class', 'labels-group').attr('pointer-events', 'none').attr('shape-rendering', 'geometricPrecision');
+    // Create two layers: circlesGroup (scales with zoom) and labelsGroup (keeps constant size)
+    const circlesGroup = g.append('g').attr('class', 'circles-group');
+    // disable pointer events on labelsGroup so clicks fall through to circles underneath
+    const labelsGroup = g.append('g').attr('class', 'labels-group').attr('pointer-events', 'none').attr('shape-rendering', 'geometricPrecision');
 
-  const circleNodes = circlesGroup.selectAll('g').data(nodes, (d) => d.id).enter().append('g').attr('class', 'node').attr('transform', (d) => `translate(${d.x},${d.y})`);
-  const labelNodes = labelsGroup.selectAll('g').data(nodes, (d) => d.id).enter().append('g').attr('class', 'label-node').attr('transform', (d) => `translate(${d.x},${d.y})`);
-  circleSelRef.current = circleNodes;
-  labelSelRef.current = labelNodes;
+    const circleNodes = circlesGroup.selectAll('g').data(nodes, (d) => d.id).enter().append('g').attr('class', 'node').attr('transform', (d) => `translate(${d.x},${d.y})`);
+    const labelNodes = labelsGroup.selectAll('g').data(nodes, (d) => d.id).enter().append('g').attr('class', 'label-node').attr('transform', (d) => `translate(${d.x},${d.y})`);
+    circleSelRef.current = circleNodes;
+    labelSelRef.current = labelNodes;
 
-  // If we created a simulation above, (re)start it now that DOM nodes exist.
-  // Use a small alpha to gently nudge nodes rather than snapping them.
-  if (simRef.current) {
-    // small push then decay to near zero
-    try {
-      simRef.current.alpha(0.06).restart();
-      window.setTimeout(() => {
-        if (simRef.current) simRef.current.alphaTarget(0.001);
-      }, 500);
-    } catch (e) {
-      // ignore
+    // If we created a simulation above, (re)start it now that DOM nodes exist.
+    // Use a small alpha to gently nudge nodes rather than snapping them.
+    if (simRef.current) {
+      // small push then decay to near zero
+      try {
+        simRef.current.alpha(0.06).restart();
+        window.setTimeout(() => {
+          if (simRef.current) simRef.current.alphaTarget(0.001);
+        }, 500);
+      } catch (e) {
+        // ignore
+      }
     }
-  }
 
-  // For each node create layered visuals in circlesGroup
-      circleNodes.each(function (d) {
+    // For each node create layered visuals in circlesGroup
+    circleNodes.each(function (d) {
       const n = d3.select(this);
-        const pct = (function getPctLocal(di) {
-          if (di.overridePct != null) return di.overridePct;
-          if (aggregations && selections && selections.size === 'Performance') {
-            const v = aggregations.get(di.data && (di.data.symbol || di.data.id) || di.id);
-            if (v != null) return v;
-          }
-          return di.data && (di.data.price_change_percentage_24h ?? 0);
-        })(d);
+      const pct = (function getPctLocal(di) {
+        if (di.overridePct != null) return di.overridePct;
+        if (aggregations && selections && selections.size === 'Performance') {
+          const v = aggregations.get(di.data && (di.data.symbol || di.data.id) || di.id);
+          if (v != null) return v;
+        }
+        return di.data && (di.data.price_change_percentage_24h ?? 0);
+      })(d);
 
       // invisible hit area so clicks anywhere inside the ring open the panel
       n.append('circle')
@@ -718,219 +720,219 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         });
 
 
-        // multi-node: render only a stroked ring representing the coin
-        // make ring edge color intensity depend on magnitude
-    const mag = Math.min(Math.abs(pct), localMaxPct);
-    const t = localMaxPct > 0 ? Math.min(1, mag / localMaxPct) : 0;
-        // interpolate darker->brighter based on sign
-        const posDark = '#053017'; const posBright = '#23c55e';
-        const negDark = '#2a0b0b'; const negBright = '#ff6b6b';
-        const edgeColor = pct >= 0 ? d3.interpolateRgb(posDark, posBright)(t) : d3.interpolateRgb(negDark, negBright)(t);
-        const ringW = Math.max(2, Math.min(12, d.r * (0.06 + Math.min(0.18, Math.abs(pct) * 0.0025))));
-        // subtle inner fill using the same edge color (opacity bucketed by magnitude)
-        const fillOpacity = bucketFillOpacity(Math.abs(pct));
-        n.append('circle')
-          .attr('class', 'ring-fill')
-          .attr('r', Math.max(0, d.r - Math.max(1, Math.round(ringW * 0.5))))
-          .attr('fill', edgeColor)
-          .style('opacity', fillOpacity)
-          .style('pointer-events', 'none');
+      // multi-node: render only a stroked ring representing the coin
+      // make ring edge color intensity depend on magnitude
+      const mag = Math.min(Math.abs(pct), localMaxPct);
+      const t = localMaxPct > 0 ? Math.min(1, mag / localMaxPct) : 0;
+      // interpolate darker->brighter based on sign
+      const posDark = '#053017'; const posBright = '#23c55e';
+      const negDark = '#2a0b0b'; const negBright = '#ff6b6b';
+      const edgeColor = pct >= 0 ? d3.interpolateRgb(posDark, posBright)(t) : d3.interpolateRgb(negDark, negBright)(t);
+      const ringW = Math.max(2, Math.min(12, d.r * (0.06 + Math.min(0.18, Math.abs(pct) * 0.0025))));
+      // subtle inner fill using the same edge color (opacity bucketed by magnitude)
+      const fillOpacity = bucketFillOpacity(Math.abs(pct));
+      n.append('circle')
+        .attr('class', 'ring-fill')
+        .attr('r', Math.max(0, d.r - Math.max(1, Math.round(ringW * 0.5))))
+        .attr('fill', edgeColor)
+        .style('opacity', fillOpacity)
+        .style('pointer-events', 'none');
 
-        n.append('circle')
-          .attr('class', 'ring-only')
-          .attr('r', d.r)
-          .attr('fill', 'none')
-          .attr('stroke', edgeColor)
-          .attr('stroke-width', ringW)
-          .style('opacity', 0.95);
+      n.append('circle')
+        .attr('class', 'ring-only')
+        .attr('r', d.r)
+        .attr('fill', 'none')
+        .attr('stroke', edgeColor)
+        .attr('stroke-width', ringW)
+        .style('opacity', 0.95);
 
       // (logos and labels are placed in labelsGroup so they remain constant size)
     });
 
-      // render centered symbol and percent inside each ring (scaled to radius)
-      labelNodes.each(function (d) {
-        const ln = d3.select(this);
-        const pct = (function getPctLocal(di) {
-          if (di.overridePct != null) return di.overridePct;
-          if (aggregations && selections && selections.size === 'Performance') {
-            const v = aggregations.get(di.data && (di.data.symbol || di.data.id) || di.id);
-            if (v != null) return v;
-          }
-          return di.data && (di.data.price_change_percentage_24h ?? 0);
-        })(d);
-
-        // sizes scale proportionally with the computed radius so text/logo feel uniform
-        // across different bubble sizes. Use sensible minimums to keep tiny bubbles readable.
-        const symSize = Math.max(8, Math.round(d.r * 0.36));
-        const pctSize = Math.max(8, Math.round(d.r * 0.24));
-
-  // small downward nudge so stack doesn't sit flush to the top edge of the bubble
-  const nudge = Math.round(d.r * 0.08); // ~8% of radius
-  const spacing = Math.max(3, Math.round(d.r * 0.06));
-  // nudge the badge/logo slightly upwards relative to the stacked text and increase
-  // the spacing between badge and symbol so there's visible breathing room
-  const logoUp = Math.round(d.r * 0.06); // ~6% of radius upward for badge
-  const badgeSpacing = spacing + Math.round(d.r * 0.04); // slightly larger gap above symbol
-
-        // Determine whether text will fit inside the bubble. If not, prefer showing a logo
-        const symbolText = d.data && (d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || '')) || '';
-        const approxCharWidthFactor = 0.62; // approximation: avg char width relative to font-size
-        const approxTextWidth = symbolText.length * symSize * approxCharWidthFactor;
-        const availableInnerWidth = Math.max(6, (d.r * 2) * 0.82);
-
-        // thresholds
-        const LOGO_ONLY_THRESHOLD = 16; // very small bubbles prefer logo
-
-        // If the calculated text width won't fit inside the bubble and we have an image, render logo-only
-        if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
-          // slightly reduce small inline/logo size so it doesn't hug the top edge
-          const smallLogoSize = Math.max(6, Math.min(Math.round(d.r * 0.85), Math.round(availableInnerWidth)));
-          const topY = -Math.round(smallLogoSize / 2) + nudge;
-          try {
-            defs
-              .append('clipPath')
-              .attr('id', `clip-logo-small-${d.id}`)
-              .append('circle')
-              .attr('r', Math.max(2, Math.round(smallLogoSize / 2)))
-              .attr('cx', 0)
-              .attr('cy', 0);
-          } catch (e) {
-            // ignore (defs might be removed on re-render)
-          }
-          ln.append('image')
-            .attr('class', 'logo-small')
-            .attr('href', d.data.image)
-            .attr('width', smallLogoSize)
-            .attr('height', smallLogoSize)
-            .attr('x', -smallLogoSize / 2)
-            .attr('y', topY)
-            .attr('clip-path', `url(#clip-logo-small-${d.id})`)
-            .style('pointer-events', 'none');
-          return;
+    // render centered symbol and percent inside each ring (scaled to radius)
+    labelNodes.each(function (d) {
+      const ln = d3.select(this);
+      const pct = (function getPctLocal(di) {
+        if (di.overridePct != null) return di.overridePct;
+        if (aggregations && selections && selections.size === 'Performance') {
+          const v = aggregations.get(di.data && (di.data.symbol || di.data.id) || di.id);
+          if (v != null) return v;
         }
+        return di.data && (di.data.price_change_percentage_24h ?? 0);
+      })(d);
 
-        // skip labels for extremely tiny rings with no image
-        if (d.r < 6) return;
+      // sizes scale proportionally with the computed radius so text/logo feel uniform
+      // across different bubble sizes. Use sensible minimums to keep tiny bubbles readable.
+      const symSize = Math.max(8, Math.round(d.r * 0.36));
+      const pctSize = Math.max(8, Math.round(d.r * 0.24));
 
-        // Build a stacked layout (optional badge image on top, symbol, then percent)
-        const hasBadge = d.data && d.data.image && d.r >= LOGO_ONLY_THRESHOLD;
-        // compute badge size slightly smaller than before for better spacing
-        const badgeImgSize = hasBadge ? Math.max(10, Math.min(Math.round(d.r * 0.6), Math.round((d.r * 2) * 0.6))) : 0;
+      // small downward nudge so stack doesn't sit flush to the top edge of the bubble
+      const nudge = Math.round(d.r * 0.08); // ~8% of radius
+      const spacing = Math.max(3, Math.round(d.r * 0.06));
+      // nudge the badge/logo slightly upwards relative to the stacked text and increase
+      // the spacing between badge and symbol so there's visible breathing room
+      const logoUp = Math.round(d.r * 0.06); // ~6% of radius upward for badge
+      const badgeSpacing = spacing + Math.round(d.r * 0.04); // slightly larger gap above symbol
 
-  // total stack height (sum of center-aligned elements), using badgeSpacing between badge and symbol
-  const totalHeight = (hasBadge ? badgeImgSize : 0) + (hasBadge ? badgeSpacing : 0) + symSize + spacing + pctSize;
-  const topY = -Math.round(totalHeight / 2) + nudge;
+      // Determine whether text will fit inside the bubble. If not, prefer showing a logo
+      const symbolText = d.data && (d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || '')) || '';
+      const approxCharWidthFactor = 0.62; // approximation: avg char width relative to font-size
+      const approxTextWidth = symbolText.length * symSize * approxCharWidthFactor;
+      const availableInnerWidth = Math.max(6, (d.r * 2) * 0.82);
 
-        // if badge exists, place it at the top of the stack
-        if (hasBadge) {
-          // move badge slightly upward so it doesn't hug the top edge and adds visual balance
-          const badgeCenterY = topY + Math.round(badgeImgSize / 2) - logoUp;
-          try {
-            defs
-              .append('clipPath')
-              .attr('id', `clip-logo-badge-${d.id}`)
-              .append('circle')
-              .attr('r', Math.max(4, Math.round(badgeImgSize / 2)))
-              .attr('cx', 0)
-              .attr('cy', 0);
-          } catch (e) {
-            // ignore
-          }
-          const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${badgeCenterY})`);
-          badge.append('image')
-            .attr('href', d.data.image)
-            .attr('width', badgeImgSize)
-            .attr('height', badgeImgSize)
-            .attr('x', -badgeImgSize / 2)
-            .attr('y', -badgeImgSize / 2)
-            .attr('clip-path', `url(#clip-logo-badge-${d.id})`)
-            .style('pointer-events', 'none');
+      // thresholds
+      const LOGO_ONLY_THRESHOLD = 16; // very small bubbles prefer logo
+
+      // If the calculated text width won't fit inside the bubble and we have an image, render logo-only
+      if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
+        // slightly reduce small inline/logo size so it doesn't hug the top edge
+        const smallLogoSize = Math.max(6, Math.min(Math.round(d.r * 0.85), Math.round(availableInnerWidth)));
+        const topY = -Math.round(smallLogoSize / 2) + nudge;
+        try {
+          defs
+            .append('clipPath')
+            .attr('id', `clip-logo-small-${d.id}`)
+            .append('circle')
+            .attr('r', Math.max(2, Math.round(smallLogoSize / 2)))
+            .attr('cx', 0)
+            .attr('cy', 0);
+        } catch (e) {
+          // ignore (defs might be removed on re-render)
         }
+        ln.append('image')
+          .attr('class', 'logo-small')
+          .attr('href', d.data.image)
+          .attr('width', smallLogoSize)
+          .attr('height', smallLogoSize)
+          .attr('x', -smallLogoSize / 2)
+          .attr('y', topY)
+          .attr('clip-path', `url(#clip-logo-small-${d.id})`)
+          .style('pointer-events', 'none');
+        return;
+      }
 
-        // symbol: centered in stack
-          const symbolCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + Math.round(symSize / 2);
-          const symEl = ln.append('text')
-          .attr('class', 'symbol')
-          .text(symbolText)
-          .attr('text-anchor', 'middle')
-          .attr('y', symbolCenterY)
-          .attr('dominant-baseline', 'middle')
-          .style('pointer-events', 'none')
-          .style('fill', '#ffffff')
-          .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
-          .style('font-weight', 700)
-          .style('font-size', `${symSize}px`);
-        // apply subtle text shadow only for larger labels to avoid fuzziness on very small text
-        if (symSize >= 14) symEl.attr('filter', 'url(#textShadow)');
+      // skip labels for extremely tiny rings with no image
+      if (d.r < 6) return;
 
-        // percent below the symbol
-  const pctCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + symSize + spacing + Math.round(pctSize / 2);
-        // helper to format large integer-like numbers into K/M/B (for volume)
-        function formatLargeNumber(n) {
-          const num = Number(n) || 0;
-          const abs = Math.abs(num);
-          if (abs >= 1e9) return (num / 1e9).toFixed(2).replace(/\.00$/, '') + 'B';
-          if (abs >= 1e6) return (num / 1e6).toFixed(2).replace(/\.00$/, '') + 'M';
-          if (abs >= 1e3) return (num / 1e3).toFixed(2).replace(/\.00$/, '') + 'K';
-          // small numbers: show up to 2 decimals if not integer
-          return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.00$/, '');
+      // Build a stacked layout (optional badge image on top, symbol, then percent)
+      const hasBadge = d.data && d.data.image && d.r >= LOGO_ONLY_THRESHOLD;
+      // compute badge size slightly smaller than before for better spacing
+      const badgeImgSize = hasBadge ? Math.max(10, Math.min(Math.round(d.r * 0.6), Math.round((d.r * 2) * 0.6))) : 0;
+
+      // total stack height (sum of center-aligned elements), using badgeSpacing between badge and symbol
+      const totalHeight = (hasBadge ? badgeImgSize : 0) + (hasBadge ? badgeSpacing : 0) + symSize + spacing + pctSize;
+      const topY = -Math.round(totalHeight / 2) + nudge;
+
+      // if badge exists, place it at the top of the stack
+      if (hasBadge) {
+        // move badge slightly upward so it doesn't hug the top edge and adds visual balance
+        const badgeCenterY = topY + Math.round(badgeImgSize / 2) - logoUp;
+        try {
+          defs
+            .append('clipPath')
+            .attr('id', `clip-logo-badge-${d.id}`)
+            .append('circle')
+            .attr('r', Math.max(4, Math.round(badgeImgSize / 2)))
+            .attr('cx', 0)
+            .attr('cy', 0);
+        } catch (e) {
+          // ignore
         }
+        const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${badgeCenterY})`);
+        badge.append('image')
+          .attr('href', d.data.image)
+          .attr('width', badgeImgSize)
+          .attr('height', badgeImgSize)
+          .attr('x', -badgeImgSize / 2)
+          .attr('y', -badgeImgSize / 2)
+          .attr('clip-path', `url(#clip-logo-badge-${d.id})`)
+          .style('pointer-events', 'none');
+      }
 
-        // Determine what to render in the lower stack: percent, price, or absolute price change or volume
-        let contentText = '';
-        let contentColor = '#baf3c9';
-        if (selections && selections.content === 'Price') {
-          // prefer common price fields - fallback to 0
-          const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
-          const priceNum = Number(priceRaw) || 0;
-          // formatting: 2 decimals for >=1, more precision for small prices
-          let fmt;
-          if (priceNum === 0) fmt = '0';
-          else if (Math.abs(priceNum) >= 1) fmt = priceNum.toFixed(2);
-          else if (Math.abs(priceNum) >= 0.01) fmt = priceNum.toPrecision(3);
-          else fmt = priceNum.toPrecision(4);
-          // show price without a leading currency symbol (use PKR context)
-          contentText = fmt;
-          contentColor = '#ffffff';
-  } else if (selections && selections.content === 'Price Change') {
-          // show the absolute price change amount (in PKR) computed from percent and price
-          const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
-          const priceNum = Number(priceRaw) || 0;
-          const pctVal = Number(pct) || 0; // pct is percent (e.g., 2.5)
-          const delta = (pctVal / 100) * priceNum;
-          const absDelta = Math.abs(delta);
-          let fmt;
-          if (absDelta === 0) fmt = '0';
-          else if (absDelta >= 1) fmt = delta.toFixed(2);
-          else if (absDelta >= 0.01) fmt = delta.toPrecision(3);
-          else fmt = delta.toPrecision(4);
-          // include explicit + sign for positive moves
-          contentText = `${delta >= 0 ? '+' : ''}${fmt}`;
-          contentColor = delta >= 0 ? '#baf3c9' : '#ffb6b6';
-        } else if (selections && selections.content === 'Volume') {
-          // show formatted 24h volume or known volume fields
-          const volRaw = d.data && (d.data.volume ?? d.data.total_volume ?? d.data['24h_volume'] ?? d.data.market_cap ?? 0);
-          const volNum = Number(volRaw) || 0;
-          contentText = formatLargeNumber(volNum);
-          contentColor = '#ffffff';
-        } else {
-          contentText = `${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`;
-          contentColor = pct >= 0 ? '#baf3c9' : '#ffb6b6';
-        }
+      // symbol: centered in stack
+      const symbolCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + Math.round(symSize / 2);
+      const symEl = ln.append('text')
+        .attr('class', 'symbol')
+        .text(symbolText)
+        .attr('text-anchor', 'middle')
+        .attr('y', symbolCenterY)
+        .attr('dominant-baseline', 'middle')
+        .style('pointer-events', 'none')
+        .style('fill', '#ffffff')
+        .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
+        .style('font-weight', 700)
+        .style('font-size', `${symSize}px`);
+      // apply subtle text shadow only for larger labels to avoid fuzziness on very small text
+      if (symSize >= 14) symEl.attr('filter', 'url(#textShadow)');
 
-        const pctEl = ln.append('text')
-          .attr('class', selections && selections.content === 'Price' ? 'price' : (selections && selections.content === 'Price Change' ? 'price-change' : 'pct'))
-          .text(contentText)
-          .attr('text-anchor', 'middle')
-          .attr('y', pctCenterY)
-          .attr('dominant-baseline', 'middle')
-          .style('pointer-events', 'none')
-          .style('fill', contentColor)
-          .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
-          .style('font-size', `${pctSize}px`)
-          .style('font-weight', 600);
-        if (pctSize >= 14) pctEl.attr('filter', 'url(#textShadow)');
-      });
+      // percent below the symbol
+      const pctCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + symSize + spacing + Math.round(pctSize / 2);
+      // helper to format large integer-like numbers into K/M/B (for volume)
+      function formatLargeNumber(n) {
+        const num = Number(n) || 0;
+        const abs = Math.abs(num);
+        if (abs >= 1e9) return (num / 1e9).toFixed(2).replace(/\.00$/, '') + 'B';
+        if (abs >= 1e6) return (num / 1e6).toFixed(2).replace(/\.00$/, '') + 'M';
+        if (abs >= 1e3) return (num / 1e3).toFixed(2).replace(/\.00$/, '') + 'K';
+        // small numbers: show up to 2 decimals if not integer
+        return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.00$/, '');
+      }
+
+      // Determine what to render in the lower stack: percent, price, or absolute price change or volume
+      let contentText = '';
+      let contentColor = '#baf3c9';
+      if (selections && selections.content === 'Price') {
+        // prefer common price fields - fallback to 0
+        const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
+        const priceNum = Number(priceRaw) || 0;
+        // formatting: 2 decimals for >=1, more precision for small prices
+        let fmt;
+        if (priceNum === 0) fmt = '0';
+        else if (Math.abs(priceNum) >= 1) fmt = priceNum.toFixed(2);
+        else if (Math.abs(priceNum) >= 0.01) fmt = priceNum.toPrecision(3);
+        else fmt = priceNum.toPrecision(4);
+        // show price without a leading currency symbol (use PKR context)
+        contentText = fmt;
+        contentColor = '#ffffff';
+      } else if (selections && selections.content === 'Price Change') {
+        // show the absolute price change amount (in PKR) computed from percent and price
+        const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
+        const priceNum = Number(priceRaw) || 0;
+        const pctVal = Number(pct) || 0; // pct is percent (e.g., 2.5)
+        const delta = (pctVal / 100) * priceNum;
+        const absDelta = Math.abs(delta);
+        let fmt;
+        if (absDelta === 0) fmt = '0';
+        else if (absDelta >= 1) fmt = delta.toFixed(2);
+        else if (absDelta >= 0.01) fmt = delta.toPrecision(3);
+        else fmt = delta.toPrecision(4);
+        // include explicit + sign for positive moves
+        contentText = `${delta >= 0 ? '+' : ''}${fmt}`;
+        contentColor = delta >= 0 ? '#baf3c9' : '#ffb6b6';
+      } else if (selections && selections.content === 'Volume') {
+        // show formatted 24h volume or known volume fields
+        const volRaw = d.data && (d.data.volume ?? d.data.total_volume ?? d.data['24h_volume'] ?? d.data.market_cap ?? 0);
+        const volNum = Number(volRaw) || 0;
+        contentText = formatLargeNumber(volNum);
+        contentColor = '#ffffff';
+      } else {
+        contentText = `${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`;
+        contentColor = pct >= 0 ? '#baf3c9' : '#ffb6b6';
+      }
+
+      const pctEl = ln.append('text')
+        .attr('class', selections && selections.content === 'Price' ? 'price' : (selections && selections.content === 'Price Change' ? 'price-change' : 'pct'))
+        .text(contentText)
+        .attr('text-anchor', 'middle')
+        .attr('y', pctCenterY)
+        .attr('dominant-baseline', 'middle')
+        .style('pointer-events', 'none')
+        .style('fill', contentColor)
+        .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
+        .style('font-size', `${pctSize}px`)
+        .style('font-weight', 600);
+      if (pctSize >= 14) pctEl.attr('filter', 'url(#textShadow)');
+    });
 
     // entry animation: grow circles/labels from small to their computed sizes for a smooth transition
     try {
@@ -949,8 +951,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         .attr('stroke-width', (d) => Math.max(2, Math.min(12, d.r * 0.08)));
 
       // labels: fade/scale in by transitioning font-size (note: exact font sizes are computed when labels are rendered)
-  labelNodes.selectAll('.symbol').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.36))}px`);
-  labelNodes.selectAll('.pct').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.24))}px`);
+      labelNodes.selectAll('.symbol').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.36))}px`);
+      labelNodes.selectAll('.pct').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.24))}px`);
     } catch (e) {
       // ignore animation errors
     }
@@ -974,7 +976,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       .on('mouseover', function (event, d) {
         // support older class names and the newer rim class
         d3.select(this).select('.rim, .ring, .ring-only').attr('stroke-width', Math.max(3, d.r * 0.12));
-        const ttPct = (function(di) {
+        const ttPct = (function (di) {
           if (di.overridePct != null) return di.overridePct;
           if (aggregations && selections && selections.size === 'Performance') {
             const v = aggregations.get(di.data && (di.data.symbol || di.data.id) || di.id);

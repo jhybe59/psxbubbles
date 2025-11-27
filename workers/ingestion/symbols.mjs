@@ -1,5 +1,4 @@
 import { withClient } from './timescale.mjs';
-import { fetchSymbols as fetchRemoteSymbols } from './psx-api.mjs';
 import { config } from './config.mjs';
 import logger from './logger.mjs';
 
@@ -26,32 +25,9 @@ export const loadSymbols = async (force = false) => {
 
   let symbols = rows.map((row) => row.symbol);
 
+  // If no symbols in DB, fallback to default list in config if available, or empty
   if (!symbols.length) {
-    try {
-      const remote = await fetchRemoteSymbols();
-      if (remote.length) {
-        await withClient(async (client) => {
-          await client.query('BEGIN');
-          try {
-            for (const symbol of remote) {
-              await client.query(
-                `INSERT INTO instruments (symbol, name)
-                 VALUES ($1, $2)
-                 ON CONFLICT (symbol) DO NOTHING`,
-                [symbol, symbol]
-              );
-            }
-            await client.query('COMMIT');
-          } catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-          }
-        });
-        symbols = remote;
-      }
-    } catch (err) {
-      logger.warn({ err }, 'Failed to hydrate instruments table from PSX Terminal symbols endpoint');
-    }
+    logger.warn('No symbols found in DB. Please ensure instruments table is populated or config.psxApi.symbolsList is set.');
   }
 
   cache = {

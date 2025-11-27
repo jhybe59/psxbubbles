@@ -93,10 +93,52 @@ const runMigration = async (file) => {
       
       // Materialized views with TimescaleDB continuous aggregates cannot run in transactions
       // Split SQL into individual statements and run them separately
-      const statements = sql.split(';').map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith('--'));
+      const splitSql = (input) => {
+        const out = [];
+        let buf = '';
+        let inDollar = false;
+        let dollarTag = null;
+        for (let i = 0; i < input.length; i++) {
+          const ch = input[i];
+          if (ch === '$') {
+            const match = input.slice(i).match(/^\$[A-Za-z0-9_]*\$/);
+            if (match) {
+              const token = match[0];
+              buf += token;
+              i += token.length - 1;
+              if (!inDollar) {
+                inDollar = true;
+                dollarTag = token;
+              } else if (inDollar && token === dollarTag) {
+                inDollar = false;
+                dollarTag = null;
+              }
+              continue;
+            }
+          }
+          if (ch === ';' && !inDollar) {
+            out.push(buf);
+            buf = '';
+          } else {
+            buf += ch;
+          }
+        }
+        if (buf.trim()) out.push(buf);
+        return out
+          .map(stmt => stmt
+            .split(/\r?\n/)
+            .filter(line => !line.trim().startsWith('--'))
+            .join('\n')
+            .trim())
+          .filter(stmt => stmt.length > 0);
+      };
+
+      const statements = splitSql(sql);
       
       for (const statement of statements) {
         if (statement.trim()) {
+          const preview = statement.replace(/\s+/g, ' ').slice(0, 120);
+          console.log(`[apply-migrations] -> executing: ${preview}${statement.length > 120 ? '…' : ''}`);
           await client.query(statement);
         }
       }

@@ -60,7 +60,7 @@ BEGIN
   END IF;
   
   -- Additional aggregates retention policies
-  IF NOT EXISTS (
+  IF to_regclass('minute_bars_4h') IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM timescaledb_information.jobs 
     WHERE proc_name = 'policy_retention' 
     AND hypertable_name = 'minute_bars_4h'
@@ -68,7 +68,7 @@ BEGIN
     PERFORM add_retention_policy('minute_bars_4h', INTERVAL '730 days');
   END IF;
   
-  IF NOT EXISTS (
+  IF to_regclass('minute_bars_1w') IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM timescaledb_information.jobs 
     WHERE proc_name = 'policy_retention' 
     AND hypertable_name = 'minute_bars_1w'
@@ -76,7 +76,7 @@ BEGIN
     PERFORM add_retention_policy('minute_bars_1w', INTERVAL '1460 days');
   END IF;
   
-  IF NOT EXISTS (
+  IF to_regclass('minute_bars_1mo') IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM timescaledb_information.jobs 
     WHERE proc_name = 'policy_retention' 
     AND hypertable_name = 'minute_bars_1mo'
@@ -84,7 +84,7 @@ BEGIN
     PERFORM add_retention_policy('minute_bars_1mo', INTERVAL '2920 days');
   END IF;
   
-  IF NOT EXISTS (
+  IF to_regclass('minute_bars_1y') IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM timescaledb_information.jobs 
     WHERE proc_name = 'policy_retention' 
     AND hypertable_name = 'minute_bars_1y'

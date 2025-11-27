@@ -63,7 +63,7 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
   let paramIndex = 1;
 
   const whereClauses = [];
-  
+
   // Filter by configured symbols if available (from env var)
   const configuredSymbols = getSymbolsList();
   if (configuredSymbols && configuredSymbols.length > 0) {
@@ -71,7 +71,7 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
     whereClauses.push(`symbol = ANY($${paramIndex})`);
     paramIndex += 1;
   }
-  
+
   if (indices?.length) {
     params.push(indices.map((code) => code.toUpperCase()));
     whereClauses.push(`symbol IN (SELECT symbol FROM index_members WHERE index_code = ANY($${paramIndex}))`);
@@ -126,8 +126,11 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
   const params = [];
   let paramIndex = 1;
 
-  const whereClauses = ['bucket = (SELECT max(bucket) FROM ' + viewName + ')'];
-  
+  // Look back 2 periods to ensure we get latest available data even if slightly delayed
+  // For Day interval, look back 3 days to cover weekends/holidays
+  const lookback = interval === 'Day' ? "INTERVAL '3 days'" : "INTERVAL '2 hours'";
+  const whereClauses = [`bucket > NOW() - ${lookback}`];
+
   // Filter by configured symbols if available (from env var)
   const configuredSymbols = getSymbolsList();
   if (configuredSymbols && configuredSymbols.length > 0) {
@@ -135,7 +138,7 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
     whereClauses.push(`symbol = ANY($${paramIndex})`);
     paramIndex += 1;
   }
-  
+
   if (indices?.length) {
     params.push(indices.map((code) => code.toUpperCase()));
     whereClauses.push(`symbol IN (SELECT symbol FROM index_members WHERE index_code = ANY($${paramIndex}))`);
@@ -152,7 +155,7 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
   const limitParam = `$${paramIndex}`;
 
   const sql = `
-    SELECT
+    SELECT DISTINCT ON (symbol)
       symbol,
       bucket,
       close AS price,
@@ -162,11 +165,20 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
       turnover_sum AS value
     FROM ${viewName}
     WHERE ${whereClauses.join(' AND ')}
+    ORDER BY symbol, bucket DESC
+  `;
+
+  // Wrap in subquery to apply sorting and limit
+  const wrappedSql = `
+    WITH latest_data AS (
+      ${sql}
+    )
+    SELECT * FROM latest_data
     ORDER BY ${buildOrderClause('pct', favoritesParam)}
     LIMIT ${limitParam};
   `;
 
-  return { sql, params };
+  return { sql: wrappedSql, params };
 };
 
 const hydrateResponse = (rows, interval) => ({

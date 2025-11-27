@@ -62,29 +62,33 @@ export const config = {
     url: process.env.REDIS_URL || ''
   },
   psxApi: {
-    baseUrl: process.env.PSX_API_BASE_URL,
-    token: process.env.PSX_API_TOKEN,
-    timeoutMs: numberOr(process.env.PSX_API_TIMEOUT_MS, 10000),
-    batchSize: numberOr(process.env.PSX_API_BATCH_SIZE, 50),
-    strategy: process.env.PSX_API_STRATEGY || 'klines',
-    interval: process.env.PSX_API_INTERVAL || '1m',
-    limit: numberOr(process.env.PSX_API_LIMIT, 1),
-    market: process.env.PSX_API_MARKET || 'REG',
-    maxRequestsPerMinute: numberOr(process.env.PSX_API_MAX_REQUESTS_PER_MINUTE, 100),
+    // baseUrl: process.env.PSX_API_BASE_URL, // Removed REST URL
+    // token: process.env.PSX_API_TOKEN,
+    // timeoutMs: numberOr(process.env.PSX_API_TIMEOUT_MS, 10000),
+    // batchSize: numberOr(process.env.PSX_API_BATCH_SIZE, 50),
+    // strategy: process.env.PSX_API_STRATEGY || 'klines',
+    // interval: process.env.PSX_API_INTERVAL || '1m',
+    // limit: numberOr(process.env.PSX_API_LIMIT, 1),
+    // market: process.env.PSX_API_MARKET || 'REG',
+    // maxRequestsPerMinute: numberOr(process.env.PSX_API_MAX_REQUESTS_PER_MINUTE, 100),
+
+    // WebSocket URL
+    wsUrl: process.env.PSX_WS_URL || 'wss://psxterminal.com/',
+
     // Support for specific symbols list (comma-separated)
     // If not provided via env, use the default 75 symbols list
     symbolsList: process.env.PSX_API_SYMBOLS_LIST
       ? process.env.PSX_API_SYMBOLS_LIST.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
       : [
-          'PIBTL', 'BECO', 'MLCF', 'LOTCHEM', 'KEL', 'TELE', 'PRL', 'CNERGY', 'GCIL', 'PAEL',
-          'BNL', 'TREET', 'PIOC', 'TPLP', 'BFAGRO', 'TOMCL', 'FCCL', 'OBOY', 'WASL', 'EPCL',
-          'GATM', 'QUICE', 'SSGC', 'DGKC', 'FFC', 'PPL', 'POWER', 'SEARL', 'ATRL', 'FFL',
-          'SLGL', 'CEPB', 'SNGP', 'DCL', 'UNITY', 'ASL', 'MUGHAL', 'FCL', 'TGL', 'MACFL',
-          'CRTM', 'GWLC', 'HUBC', 'MEBL', 'OGDC', 'EMCO', 'FATIMA', 'IMAGE', 'SYS', 'CPHL',
-          'BGL', 'CTM', 'BIPL', 'AVN', 'JVDC', 'TRSM', 'MARI', 'NETSOL', 'YOUW', 'SYM',
-          'BFMOD', 'GHGL', 'OCTOPUS', 'BBFL', 'GAL', 'BIFO', 'GHNI', 'SAZEW', 'FLYNG', 'ISL',
-          'GGL', 'GGGL', 'PSO', 'GCWL', 'IBLHL'
-        ]
+        'PIBTL', 'BECO', 'MLCF', 'LOTCHEM', 'KEL', 'TELE', 'PRL', 'CNERGY', 'GCIL', 'PAEL',
+        'BNL', 'TREET', 'PIOC', 'TPLP', 'BFAGRO', 'TOMCL', 'FCCL', 'OBOY', 'WASL', 'EPCL',
+        'GATM', 'QUICE', 'SSGC', 'DGKC', 'FFC', 'PPL', 'POWER', 'SEARL', 'ATRL', 'FFL',
+        'SLGL', 'CEPB', 'SNGP', 'DCL', 'UNITY', 'ASL', 'MUGHAL', 'FCL', 'TGL', 'MACFL',
+        'CRTM', 'GWLC', 'HUBC', 'MEBL', 'OGDC', 'EMCO', 'FATIMA', 'IMAGE', 'SYS', 'CPHL',
+        'BGL', 'CTM', 'BIPL', 'AVN', 'JVDC', 'TRSM', 'MARI', 'NETSOL', 'YOUW', 'SYM',
+        'BFMOD', 'GHGL', 'OCTOPUS', 'BBFL', 'GAL', 'BIFO', 'GHNI', 'SAZEW', 'FLYNG', 'ISL',
+        'GGL', 'GGGL', 'PSO', 'GCWL', 'IBLHL', 'LUCK'
+      ]
   },
   worker: {
     cron: process.env.WORKER_POLL_CRON || '* * * * *',

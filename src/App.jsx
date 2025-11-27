@@ -21,10 +21,8 @@ import { sanitizeIndexMap } from './utils/indexMap'
 function App() {
   const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp } = useOHLCV();
   const [query, setQuery] = useState('')
-  const [autoRefresh, setAutoRefresh] = useState(() => ENABLE_LIVE_API && AUTO_REFRESH_MS > 0)
   const [showControls, setShowControls] = useState(false)
   const chartRef = useRef(null)
-  const [singleView, setSingleView] = useState(false)
   const [currentInterval, setCurrentInterval] = useState('Day')
   const [pillMenuOpen, setPillMenuOpen] = useState(false)
   const aggregations = null; // demo-only: no live aggregations
@@ -140,7 +138,7 @@ function App() {
   // Price range filtering state: start as full discrete marks (1..Infinity)
   const [priceRange, setPriceRange] = useState([1, Number.POSITIVE_INFINITY])
   const [symbolsPanelOpen, setSymbolsPanelOpen] = useState(false)
-  
+
   // load favorites from localStorage; store array of coin ids
   const [favorites] = useState(() => {
     try {
@@ -291,19 +289,6 @@ function App() {
     }
   }, [currentInterval, refreshForInterval]);
 
-  // read snapshot count for header status periodically (legacy mode only)
-  useEffect(() => {
-    if (!ENABLE_LIVE_API || !autoRefresh || !AUTO_REFRESH_MS || AUTO_REFRESH_MS <= 0) return undefined
-    const intervalMs = Number.isFinite(AUTO_REFRESH_MS) ? AUTO_REFRESH_MS : 60000
-    const handle = setInterval(() => {
-      try {
-        refreshForInterval && refreshForInterval(currentInterval)
-      } catch (e) {
-        // ignore
-      }
-    }, intervalMs)
-    return () => clearInterval(handle)
-  }, [autoRefresh, currentInterval, refreshForInterval])
 
   // compute max absolute percent change for percent-based sizing
   const maxAbsChange = coins && coins.length ? Math.max(...coins.map(c => Math.abs(c.price_change_percentage_24h || 0))) : 1;
@@ -320,7 +305,7 @@ function App() {
     indexCode: selectedIndex || undefined,
     pollMs: ENABLE_LIVE_API ? 45000 : 0
   });
-  
+
 
   // persist page/index selection so UI returns to last state across refreshes
   useEffect(() => {
@@ -351,14 +336,6 @@ function App() {
 
         <div className="header-actions">
           <button
-            className="view-toggle"
-            title="Toggle single/multi view"
-            onClick={() => setSingleView((s) => !s)}
-            aria-pressed={singleView}
-          >
-            {singleView ? 'Show All' : 'Single'}
-          </button>
-          <button
             className="search-icon"
             title="Search"
             aria-label="Open search"
@@ -375,15 +352,7 @@ function App() {
           >
             ⟳
           </button>
-          <button
-            className="search-icon"
-            title="Symbols"
-            aria-label="Symbols panel"
-            onClick={() => setSymbolsPanelOpen(true)}
-          >
-            ☰
-          </button>
-          <div style={{marginLeft:12, color:'#9fb8b0', fontSize:12}}>
+          <div style={{ marginLeft: 12, color: '#9fb8b0', fontSize: 12 }}>
             {ENABLE_LIVE_API
               ? (loading
                 ? 'Refreshing…'
@@ -394,8 +363,8 @@ function App() {
             {error ? ` — ${error}` : ''}
             {!ENABLE_LIVE_API && (
               <>
-                <button style={{marginLeft:8}} onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)}>Re-import</button>
-                <button style={{marginLeft:8}} onClick={() => setSnapshotPanelOpen(true)}>Snapshots ▾</button>
+                <button style={{ marginLeft: 8 }} onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)}>Re-import</button>
+                <button style={{ marginLeft: 8 }} onClick={() => setSnapshotPanelOpen(true)}>Snapshots ▾</button>
               </>
             )}
             {ENABLE_LIVE_API && (
@@ -403,13 +372,6 @@ function App() {
                 <span style={{ marginLeft: 8 }}>
                   {snapCount != null ? `${snapCount} symbols` : ''}
                 </span>
-                <button
-                  style={{marginLeft:8}}
-                  onClick={() => setAutoRefresh((v) => !v)}
-                  aria-pressed={autoRefresh}
-                >
-                  Auto {autoRefresh ? 'On' : 'Off'}
-                </button>
               </>
             )}
           </div>
@@ -419,8 +381,8 @@ function App() {
 
       {/* pill row below header (centered) */}
       <div className="pill-row">
-          <div className="pills">
-          {['Hour','Day','Week','Month','Year','5 Min','1 Min','15 Min'].map((p) => {
+        <div className="pills">
+          {['Hour', 'Day', 'Week', 'Month', 'Year', '5 Min', '1 Min', '15 Min'].map((p) => {
             const pct = avgFavPctForInterval(p);
             const bg = pctToColor(pct);
             return (
@@ -531,20 +493,20 @@ function App() {
       <main className="main">
         <section className="viz">
           {(!coins || coins.length === 0) ? (
-            <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',color:'#9fb8b0'}}>
-              <div style={{fontSize:18,fontWeight:700,marginBottom:8}}>No chart data available</div>
-              <div style={{marginBottom:8}}>Symbols available: {snapCount != null ? snapCount : 'unknown'}</div>
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#9fb8b0' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>No chart data available</div>
+              <div style={{ marginBottom: 8 }}>Symbols available: {snapCount != null ? snapCount : 'unknown'}</div>
               {!ENABLE_LIVE_API && (
                 <>
-                  <div style={{marginBottom:12}}>If this stays blank: open DevTools → Application → IndexedDB → `psx-snapshots-db` and check `snapshots` store.</div>
+                  <div style={{ marginBottom: 12 }}>If this stays blank: open DevTools → Application → IndexedDB → `psx-snapshots-db` and check `snapshots` store.</div>
                   <div>
-                    <button onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)} style={{marginRight:8}}>Re-import snapshots</button>
+                    <button onClick={() => importSnapshotsIfNeeded && importSnapshotsIfNeeded(true)} style={{ marginRight: 8 }}>Re-import snapshots</button>
                     <button onClick={() => refreshForInterval && refreshForInterval(currentInterval)}>Refresh interval</button>
                   </div>
                 </>
               )}
               {ENABLE_LIVE_API && (
-                <div style={{marginBottom:12}}>Live feed connected. Try refreshing the interval or toggling auto-refresh.</div>
+                <div style={{ marginBottom: 12 }}>Live feed connected. Try refreshing the interval or toggling auto-refresh.</div>
               )}
             </div>
           ) : (
@@ -567,7 +529,7 @@ function App() {
               })()}
               selectedIndex={selectedIndex}
               className="bubble-chart"
-              single={singleView}
+              single={false}
               radiusScale={radiusScale}
               currentInterval={currentInterval}
               selections={pillSelections}
@@ -579,18 +541,29 @@ function App() {
       </main>
 
       <footer className="footer">
-        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,width:'100%'}}>
-          <PriceRange
-            marks={[
-              { value: 1, label: '1' },
-              { value: 10, label: '10' },
-              { value: 100, label: '100' },
-              { value: 500, label: '500' },
-              { value: 1000, label: '1000+', open: true }
-            ]}
-            value={priceRange}
-            onChange={(v) => setPriceRange(v)}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%' }}>
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+            <PriceRange
+              marks={[
+                { value: 1, label: '1' },
+                { value: 10, label: '10' },
+                { value: 100, label: '100' },
+                { value: 500, label: '500' },
+                { value: 1000, label: '1000+', open: true }
+              ]}
+              value={priceRange}
+              onChange={(v) => setPriceRange(v)}
+            />
+          </div>
+          <button
+            className="search-icon"
+            title="Symbols"
+            aria-label="Symbols panel"
+            onClick={() => setSymbolsPanelOpen(true)}
+            style={{ opacity: 0.6, fontSize: '14px' }}
+          >
+            ☰
+          </button>
         </div>
       </footer>
 
@@ -608,7 +581,7 @@ function App() {
             return `${start} - ${end}`;
           })();
           return (
-            <div className="floating-card" onClick={() => setFavoritesOpen((s) => !s)} style={{cursor:'pointer'}}>
+            <div className="floating-card" onClick={() => setFavoritesOpen((s) => !s)} style={{ cursor: 'pointer' }}>
               ★ {floatingLabel} ▾
             </div>
           );
@@ -620,7 +593,7 @@ function App() {
               <div className="menu-title">Pages <span className="interval">{currentInterval}</span></div>
               <div className="menu-list">
                 {/* All row */}
-                <button className={`menu-row ${(pageIndex === null && !selectedIndex) ? 'active' : ''}`} onClick={() => { setSelectedIndex(null); setPageIndex(null); }} style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'transparent',border:'none',textAlign:'left',width:'100%',padding:'6px 8px'}}>
+                <button className={`menu-row ${(pageIndex === null && !selectedIndex) ? 'active' : ''}`} onClick={() => { setSelectedIndex(null); setPageIndex(null); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', textAlign: 'left', width: '100%', padding: '6px 8px' }}>
                   <input type="radio" readOnly checked={(pageIndex === null && !selectedIndex)} />
                   <span className="menu-label">All</span>
                   <span className={`menu-pct`}>{''}</span>
@@ -637,7 +610,7 @@ function App() {
                     const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
                     const sign = avg >= 0 ? '+' : '';
                     return (
-                      <button key={i} className={`menu-row ${(pageIndex === i && !selectedIndex) ? 'active' : ''}`} onClick={() => { setSelectedIndex(null); setPageIndex(i); }} style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'transparent',border:'none',textAlign:'left',flex: '1 1 auto',padding:'6px 8px'}}>
+                      <button key={i} className={`menu-row ${(pageIndex === i && !selectedIndex) ? 'active' : ''}`} onClick={() => { setSelectedIndex(null); setPageIndex(i); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', textAlign: 'left', flex: '1 1 auto', padding: '6px 8px' }}>
                         <input type="radio" readOnly checked={(pageIndex === i && !selectedIndex)} />
                         <span className="menu-label">{`${start} - ${end}`}</span>
                         <span className={`menu-pct ${avg >= 0 ? 'pos' : 'neg'}`}>{`${sign}${avg.toFixed(2)}%`}</span>
@@ -664,7 +637,7 @@ function App() {
                     const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
                     const sign = avg >= 0 ? '+' : '';
                     return (
-                      <div key={ld.id} className={`menu-row`} style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                      <div key={ld.id} className={`menu-row`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <input type="radio" readOnly checked={false} />
                         <span className="menu-label">{ld.label}</span>
                         <span className={`menu-pct ${avg > 0 ? 'pos' : 'neg'}`}>{avg == null ? '-' : `${sign}${avg.toFixed(2)}%`}</span>
@@ -679,18 +652,18 @@ function App() {
               <div className="menu-list">
                 {(() => {
                   // index list for PSX/stocks
-                  const indices = ['KSE 100','KSE 30','ALLSHR','KMI 30','KMIALLSHR'];
+                  const indices = ['KSE 100', 'KSE 30', 'ALLSHR', 'KMI 30', 'KMIALLSHR'];
                   return indices.map((ix) => {
                     const membersIds = indexMap && indexMap[ix] ? (indexMap[ix] || []) : [];
                     // try to match by symbol or id (case-insensitive)
-                    const membersSet = new Set(membersIds.map(s => (''+s).toLowerCase()));
+                    const membersSet = new Set(membersIds.map(s => ('' + s).toLowerCase()));
                     const members = membersIds.length ? coins.filter((c) => membersSet.has((c.symbol || c.id || '').toLowerCase())) : [];
                     const vals = members.map((c) => approxPctForInterval(currentInterval, c.price_change_percentage_24h || 0));
                     const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
                     const sign = avg >= 0 ? '+' : '';
                     return (
-                      <div key={ix} className={`menu-row ${selectedIndex === ix ? 'active' : ''}`} style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                        <button onClick={() => { setSelectedIndex(selectedIndex === ix ? null : ix); setPageIndex(null); }} style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'transparent',border:'none',textAlign:'left',flex: '1 1 auto',padding:'6px 8px'}}>
+                      <div key={ix} className={`menu-row ${selectedIndex === ix ? 'active' : ''}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <button onClick={() => { setSelectedIndex(selectedIndex === ix ? null : ix); setPageIndex(null); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', textAlign: 'left', flex: '1 1 auto', padding: '6px 8px' }}>
                           <input type="radio" readOnly checked={selectedIndex === ix} />
                           <span className="menu-label">{ix}</span>
                           <span className={`menu-pct ${avg > 0 ? 'pos' : 'neg'}`}>{avg == null ? '-' : `${sign}${avg.toFixed(2)}%`}</span>

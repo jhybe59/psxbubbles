@@ -192,7 +192,7 @@ export default function useOHLCV() {
           ts: later.ts
         });
       }
-      setCoins(out.sort((a, b) => (b.daily_change_1d || 0) - (a.daily_change_1d || 0)));
+      setCoins(out.sort((a, b) => Math.abs(b.price_change_percentage_24h || 0) - Math.abs(a.price_change_percentage_24h || 0)));
       setLoading(false);
       return out;
     } catch (err) {
