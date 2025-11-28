@@ -43,6 +43,12 @@ services:
     depends_on:
       - timescale
       - redis
+    # Expose Prometheus metrics from worker (METRICS_PORT=9100)
+    ports:
+      - "9100:9100"
+    volumes:
+      - .:/app
+      - /app/node_modules
 
 volumes:
   timescale-data:

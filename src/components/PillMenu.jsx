@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-export default function PillMenu({ anchorRect, onClose, currentInterval, setCurrentInterval, selections, setSelections, avgFavPctForInterval, pctToColor }) {
+export default function PillMenu({ anchorRect, onClose, currentInterval, setCurrentInterval, selections, setSelections, avgFavPctForInterval, pctToColor, onOpenSymbols }) {
   // anchorRect: {left, top, width, height} in page coordinates - we position menu near it
   useEffect(() => {
     function onKey(e) {
@@ -28,20 +28,18 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
   const style = { position: 'absolute', zIndex: 2000 };
   if (anchorRect) {
     // place menu slightly below and centered on the pill
-    style.left = Math.max(8, anchorRect.left + anchorRect.width / 2 - 200) + 'px';
+    style.left = Math.max(8, anchorRect.left + anchorRect.width / 2 - 160) + 'px';
     style.top = (anchorRect.top + anchorRect.height + 8) + 'px';
-    style.width = '380px';
+    style.width = '320px';
   } else {
     style.right = '12px';
     style.top = '64px';
-    style.width = '380px';
+    style.width = '320px';
   }
 
-  // Trimmed/streamlined option lists to remove extra/rarely-used items
-  const periods = ['1 Min','5 Min','15 Min','Hour','4 Hours','Day','Week','Month','3 Months','Year'];
+  // Trimmed/streamlined option lists
   const sizes = ['Performance','Market Cap','Volume'];
   const contents = ['Performance','Price','Price Change','Volume'];
-  const colors = ['Performance','Neutral'];
 
   // Keyboard navigation: handle arrow navigation between pills and Enter/Space to activate
   useEffect(() => {
@@ -76,29 +74,8 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
   return (
   <div ref={rootRef} className="pill-menu" style={style} role="dialog" aria-modal="false">
       <div className="pill-menu-header">
-        <div className="pill-menu-title">Period</div>
+        <div className="pill-menu-title">Bubble Settings</div>
         <button className="pill-menu-close" onClick={onClose} aria-label="Close">✕</button>
-      </div>
-
-      <div className="pill-menu-section">
-        {periods.map((p) => {
-          // compute color for this period independently so selecting one doesn't override others
-          const pct = (typeof avgFavPctForInterval === 'function') ? avgFavPctForInterval(p) : 0;
-          const bg = (typeof pctToColor === 'function') ? pctToColor(pct) : undefined;
-          return (
-            <button
-              key={p}
-              className={`pill-menu-pill ${p === currentInterval ? 'active' : ''}`}
-              onClick={() => setCurrentInterval(p)}
-              aria-pressed={p === currentInterval}
-              tabIndex={0}
-              style={bg ? { background: bg } : undefined}
-              title={`${pct.toFixed(2)}% avg`}
-            >
-              {p}
-            </button>
-          );
-        })}
       </div>
 
       <div className="pill-menu-subtitle">Bubble size</div>
@@ -137,23 +114,28 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
         })}
       </div>
 
-      <div className="pill-menu-subtitle">Bubble color</div>
+      {/* App Settings Section */}
+      <div className="pill-menu-subtitle" style={{ marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: '20px' }}>App Settings</div>
       <div className="pill-menu-section">
-        {colors.map((c) => (
-          <button
-            key={c}
-            className={`pill-menu-pill ${selections.color === c ? 'active' : ''}`}
-            onClick={() => setSelections({ ...selections, color: c })}
-            aria-pressed={selections.color === c}
-            tabIndex={0}
-          >
-            {c}
-          </button>
-        ))}
-      </div>
-
-      <div className="pill-menu-actions">
-        <button className="pill-menu-apply" onClick={onClose}>Done</button>
+        <button
+          className="pill-menu-pill pill-menu-action-btn"
+          onClick={() => {
+            if (onOpenSymbols) {
+              onOpenSymbols();
+            }
+            onClose();
+          }}
+          tabIndex={0}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            justifyContent: 'center'
+          }}
+        >
+          <span>☰</span>
+          <span>Symbols Panel</span>
+        </button>
       </div>
     </div>
   );

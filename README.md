@@ -58,6 +58,32 @@ npm run dev:stack:down
 
 Update `config/env.example` (copy to `.env`) if you need to tweak ports or credentials before starting the containers. If `psql` is available locally you can also apply all SQL migrations to the running Timescale instance with `npm run db:migrate` and seed sample instruments via `npm run db:seed`.
 
+## Full stack quick start (live dev)
+
+Use the bootstrap for a single command setup (Timescale, Redis, API, worker, frontend, migrations, seed):
+
+```powershell
+npm run bootstrap:dev
+```
+
+When it finishes, open the Vite URL (e.g. http://localhost:5173).
+
+Run diagnostics anytime to verify health:
+
+```powershell
+npm run dev:check
+```
+
+Sample output shows Timescale row counts, Redis ping, API health status and worker ingestion lag. If Timescale or Redis are still starting, rerun after a few seconds.
+
+Shut everything down:
+
+```powershell
+npm run dev:stack:down
+```
+
+If you need to override ports or credentials, edit `config/dev.env` before bootstrap; the compose stack uses that file, while host scripts (`db:migrate`, `db:seed`, `dev:check`) read `.env` (auto-created from `config/env.example` if missing).
+
 ## Live mode setup
 
 Live mode connects the UI to the ingestion pipeline that writes validated minute bars into TimescaleDB and exposes curated JSON payloads through the admin service. The repo ships in demo mode (`liveMode` flag hardcoded to `false` in `src/App.jsx`); follow the checklist below to promote an environment to live data.

@@ -89,12 +89,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     // bubbles are present we keep sizes more conservative to avoid heavy overlap.
     function computeGlobalMultiplier(count) {
       // Scale bubbles based on density: modest boost for sparse views, mild shrink for very dense ones.
-      if (count >= 200) return 0.9;
-      if (count >= 140) return 0.95;
-      if (count >= 100) return 1.0;
-      if (count >= 60) return 1.07;
-      if (count >= 30) return 1.14;
-      return 1.24;
+      if (count >= 200) return 1.0;
+      if (count >= 140) return 1.05;
+      if (count >= 100) return 1.12;
+      if (count >= 60) return 1.20;
+      if (count >= 30) return 1.30;
+      return 1.45;
     }
 
     // defs: blur filter for glow and radial gradient for bubble shading
@@ -227,7 +227,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }) || inferredMaxMc || 1;
     }
 
-    const localRadiusScale = d3.scaleSqrt().domain([0, Math.max(1, sizeMax)]).range([8, 92]);
+    const localRadiusScale = d3.scaleSqrt().domain([0, Math.max(1, sizeMax)]).range([16, 140]);
 
     // localMaxPct: used for color interpolation and magnitude-based visuals (based on percent change)
     const localMaxPct = d3.max(used, (d) => {
@@ -359,8 +359,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
 
     // build nodes for multi-node rendering (radius + initial positions)
-    // reuse previous node positions/velocities when available to smooth transitions
-    const prevMap = new Map((nodesRef.current || []).map((n) => [n.id, n]));
+    // Don't reuse previous positions to prevent clustering - force fresh distribution
+    // const prevMap = new Map((nodesRef.current || []).map((n) => [n.id, n]));
     const nodes = used.map((d) => {
       // respect demo override (for visualization) if present
       const overridePct = d.__overrideDemo;
@@ -378,12 +378,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       let baseR;
       if (selections && selections.size === 'Volume') {
         const volVal = extractVolumeItem(d) || 0;
-        baseR = Math.max(4, Math.round(localRadiusScale(volVal)));
+        baseR = Math.max(8, Math.round(localRadiusScale(volVal)));
       } else if (selections && selections.size === 'Market Cap') {
         const mcVal = extractMarketCapItem(d) || 0;
-        baseR = Math.max(4, Math.round(localRadiusScale(mcVal)));
+        baseR = Math.max(8, Math.round(localRadiusScale(mcVal)));
       } else {
-        baseR = Math.max(4, Math.round(localRadiusScale(pctAbs)));
+        baseR = Math.max(8, Math.round(localRadiusScale(pctAbs)));
       }
 
       // PSX-aware sizing: compute how much of the allowed daily move this symbol used
@@ -402,88 +402,42 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           const MAX_INCREASE = 2.2; // fully-performing bubble scales up to ~2.2x
           const ALPHA = 0.6; // curve exponent (sqrt-like emphasis)
           const factor = 1 + (MAX_INCREASE - 1) * Math.pow(magnitude, ALPHA);
-          baseR = Math.max(4, Math.round(baseR * factor));
+          baseR = Math.max(8, Math.round(baseR * factor));
         }
       } catch (e) {
         // if any error, fall back to baseR computed earlier
       }
 
       const r = baseR;
-      const prev = prevMap.get(d.id);
-      if (prev) {
-        return { id: d.id, r, x: prev.x, y: prev.y, vx: prev.vx, vy: prev.vy, data: d, overridePct: overridePct };
-      }
-      return { id: d.id, r, x: Math.random() * w, y: Math.random() * h, data: d, overridePct: overridePct };
+      // Force fresh random positioning - will be overridden by anchor grid anyway
+      return { id: d.id, r, x: null, y: null, vx: 0, vy: 0, data: d, overridePct: overridePct };
     });
 
     // viewport-aware global radius scaling: compute an optimal scale so bubbles fit
-    // in a grid derived from node count and viewport. This keeps all visuals the same
-    // but ensures bubbles don't overlap or clip out of the view when there are many nodes.
-    // Strategy:
-    // 1. estimate a grid (cols/rows) to distribute nodes evenly (same logic used later)
-    // 2. compute the cell size and the maximum allowed radius that fits comfortably
-    // 3. compute a global scale to bring raw radii into that allowed maximum (only downscales significantly)
+    // in the available area. This keeps all visuals the same but ensures bubbles
+    // don't overlap or clip out of the view when there are many nodes.
     const minDim = Math.min(w, h);
     const rawMaxR = d3.max(nodes, (n) => n.r) || 1;
-    // estimate grid dimensions similar to anchor grid below
+
     try {
-      const nn = Math.max(1, nodes.length);
-      const aspect = w / Math.max(1, h);
-      let estCols = Math.ceil(Math.sqrt(nn * aspect));
-      let estRows = Math.ceil(nn / Math.max(1, estCols));
-      if (estCols <= 0) estCols = 1;
-      if (estRows <= 0) estRows = 1;
-      const cellW = w / estCols;
-      const cellH = h / estRows;
+      // Calculate total available area
+      const totalArea = w * h;
+      // Target fill ratio: ~60% of the screen filled with bubbles
+      const TARGET_FILL_RATIO = 0.60;
+      const targetArea = totalArea * TARGET_FILL_RATIO;
 
-      // pick tuning based on node count: when there are few nodes, allow much larger fill and upscale
-      let PACK_FACTOR = 0.86;
-      let VIEWPORT_FRACTION = 0.34;
-      let AREA_FILL_FACTOR = 0.64;
-      let MAX_SCALE_UP = 2.0;
-      if (nn <= 10) {
-        PACK_FACTOR = 0.94; VIEWPORT_FRACTION = 0.66; AREA_FILL_FACTOR = 0.92; MAX_SCALE_UP = 6.0;
-      } else if (nn <= 20) {
-        PACK_FACTOR = 0.92; VIEWPORT_FRACTION = 0.52; AREA_FILL_FACTOR = 0.86; MAX_SCALE_UP = 4.0;
-      } else if (nn <= 40) {
-        PACK_FACTOR = 0.90; VIEWPORT_FRACTION = 0.44; AREA_FILL_FACTOR = 0.78; MAX_SCALE_UP = 3.2;
-      } else if (nn <= 80) {
-        PACK_FACTOR = 0.88; VIEWPORT_FRACTION = 0.38; AREA_FILL_FACTOR = 0.70; MAX_SCALE_UP = 2.7;
-      }
+      // Calculate current total area of all bubbles (sum of pi*r^2)
+      const currentArea = nodes.reduce((acc, n) => acc + Math.PI * Math.pow(n.r, 2), 0);
 
-      const maxAllowedRByCell = Math.max(6, Math.floor(Math.min(cellW, cellH) * 0.5 * PACK_FACTOR));
-      const maxAllowedRByViewport = Math.max(8, Math.floor(minDim * VIEWPORT_FRACTION));
-      const allowedMaxR = Math.max(6, Math.min(maxAllowedRByCell, maxAllowedRByViewport));
+      // Calculate scaling factor to match target area
+      // scale = sqrt(targetArea / currentArea)
+      const scaleFactor = Math.sqrt(targetArea / currentArea);
 
-      const totalAvailableArea = Math.max(1, w * h * AREA_FILL_FACTOR);
-      // Preserve relative sizes: compute scale s such that sum(pi*(r_i*s)^2) = totalAvailableArea
-      // => s = sqrt(totalAvailableArea / (pi * sum(r_i^2)))
-      const rawRadii = nodes.map((n) => Math.max(1, n.r || 1));
-      const sumSquares = rawRadii.reduce((acc, r) => acc + r * r, 0) || 1;
-      const desiredScaleByArea = Math.sqrt(totalAvailableArea / (Math.PI * sumSquares));
+      // Apply scale to all nodes
+      nodes.forEach(n => {
+        n.r = n.r * scaleFactor;
+      });
 
-      const rawMaxRLocal = d3.max(rawRadii) || 1;
-      const scaleMax = rawMaxRLocal > 0 ? allowedMaxR / rawMaxRLocal : 1;
-
-      // clamps to keep sizes readable
-      const MIN_SCALE = 0.28;
-
-      let finalScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE_UP, desiredScaleByArea));
-      finalScale = Math.min(finalScale, Math.max(scaleMax, MIN_SCALE));
-
-      if (Math.abs(finalScale - 1) > 1e-4) {
-        nodes.forEach((n) => {
-          n.r = Math.max(4, Math.round(n.r * finalScale));
-        });
-      }
-      // Apply a density-aware global size multiplier so bubbles fill space better when there
-      // are few of them, and remain compact when the view is dense.
-      const GLOBAL_MULT = computeGlobalMultiplier(nodes.length);
-      if (Math.abs(GLOBAL_MULT - 1) > 1e-6) {
-        nodes.forEach((n) => {
-          n.r = Math.max(4, Math.round(n.r * GLOBAL_MULT));
-        });
-      }
     } catch (e) {
       // keep original radii on error
     }
@@ -542,116 +496,77 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       shine.append('stop').attr('offset', '100%').attr('stop-color', '#ffffff').attr('stop-opacity', 0);
     });
 
-    // Build a grid of anchor points to spread bubbles evenly across the viewport.
-    // We'll attach a gentle force toward each node's assigned anchor so bubbles
-    // are distributed across the full area but still allowed to drift/collide.
-    const n = nodes.length;
-    const aspect = w / h;
-    // pick rows/cols to approximate viewport aspect and node count
-    let cols = Math.ceil(Math.sqrt(n * aspect));
-    let rows = Math.ceil(n / cols);
-    if (cols <= 0) cols = 1;
-    if (rows <= 0) rows = 1;
-    const cellW = w / cols;
-    const cellH = h / rows;
-
-    // create anchor positions in a grid, but pick a random point inside each cell
-    // (jittered grid) to avoid visually regular lines while still covering the area
-    const anchors = [];
-    for (let rr = 0; rr < rows; rr++) {
-      for (let cc = 0; cc < cols; cc++) {
-        // padding inside cell so anchors aren't placed exactly on cell edges
-        const padX = Math.max(6, cellW * 0.08);
-        const padY = Math.max(6, cellH * 0.08);
-        const x = cc * cellW + padX + Math.random() * (cellW - padX * 2);
-        const y = rr * cellH + padY + Math.random() * (cellH - padY * 2);
-        anchors.push({ x, y });
-      }
-    }
-    // shuffle anchors for slightly less regular mapping
-    for (let i = anchors.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [anchors[i], anchors[j]] = [anchors[j], anchors[i]];
-    }
-
+    // Initial positioning: Random distribution across entire viewport
+    // Responsive to viewport size - bubbles spread randomly everywhere, not grid-based
+    const padding = 20; // Padding from edges to account for bubble radius
     nodes.forEach((nd, i) => {
-      const a = anchors[i % anchors.length];
-      // initialize near anchor for faster convergence
-      nd.x = nd.x == null ? a.x + (Math.random() - 0.5) * cellW * 0.25 : nd.x;
-      nd.y = nd.y == null ? a.y + (Math.random() - 0.5) * cellH * 0.25 : nd.y;
-      nd.__anchor = a;
+      // Calculate safe bounds for random positioning (accounting for bubble radius)
+      const maxX = Math.max(nd.r + padding, w - nd.r - padding);
+      const minX = nd.r + padding;
+      const maxY = Math.max(nd.r + padding, h - nd.r - padding);
+      const minY = nd.r + padding;
+      
+      // Random position across full viewport (responsive to w and h)
+      nd.x = minX + Math.random() * Math.max(1, maxX - minX);
+      nd.y = minY + Math.random() * Math.max(1, maxY - minY);
+      nd.vx = 0;
+      nd.vy = 0;
+      // Store base position for floating effect
+      nd.__baseX = nd.x;
+      nd.__baseY = nd.y;
     });
 
-    // custom gentle wander/noise so bubbles slowly drift
-    const nodeCount = nodes.length;
-
-    function wanderForce(strength = 0.22) {
+    // Very subtle floating force - like bubbles floating gently in air
+    // Bubbles float around their base position, staying in their space
+    function wanderForce(strength = 0.06) {
       let nodesInternal;
       function force(alpha) {
         if (!nodesInternal) return;
-        const t = Date.now() / 1000;
+        const t = Date.now() / 2500; // Slower time for calmer, more subtle movement
         for (const n of nodesInternal) {
-          if (n.__phase == null) n.__phase = (Math.random() * 2 - 1) * Math.PI;
+          if (n.__phase == null) {
+            n.__phase = Math.random() * Math.PI * 2;
+            // Ensure base position is stored
+            if (n.__baseX == null) n.__baseX = n.x;
+            if (n.__baseY == null) n.__baseY = n.y;
+          }
           const phase = n.__phase;
-          const freq = 0.6 + Math.max(0, 0.5 - n.r / 120);
-          const crowdScale = nodeCount <= 40 ? 1 : (nodeCount <= 120 ? 0.65 : 0.45);
-          const tunedStrength = strength * crowdScale;
-          const ax = Math.sin(t * freq + phase) * 0.12 * (0.4 + n.r / 120);
-          const ay = Math.cos(t * (freq * 0.85) + phase * 0.7) * 0.08 * (0.4 + n.r / 120);
-          n.vx = (n.vx || 0) + ax * tunedStrength * alpha;
-          n.vy = (n.vy || 0) + ay * tunedStrength * alpha;
+          const freq = 0.04; // Very slow frequency for gentle drift (hawa mein float jaisa)
+          
+          // Subtle circular motion around base position
+          const offsetX = Math.sin(t * freq + phase) * strength * 12;
+          const offsetY = Math.cos(t * (freq * 0.75) + phase + 1) * strength * 12;
+          
+          // Elastic pull back towards base position (keeps bubbles in their space)
+          const pullX = (n.__baseX - n.x) * 0.015;
+          const pullY = (n.__baseY - n.y) * 0.015;
+          
+          n.vx += (offsetX + pullX) * alpha;
+          n.vy += (offsetY + pullY) * alpha;
         }
       }
-      force.initialize = (ns) => (nodesInternal = ns);
+      force.initialize = (ns) => {
+        nodesInternal = ns;
+        // Store base positions when initialized
+        ns.forEach(n => {
+          if (n.__baseX == null) n.__baseX = n.x;
+          if (n.__baseY == null) n.__baseY = n.y;
+        });
+      };
       return force;
     }
-
-    // gentle attraction to anchor points (keeps nodes evenly distributed)
-    function anchorX(strength = 0.18) {
-      let nodesInternal;
-      function force(alpha) {
-        if (!nodesInternal) return;
-        for (const n of nodesInternal) {
-          const ax = (n.__anchor.x - n.x) * strength * alpha;
-          n.vx = (n.vx || 0) + ax;
-        }
-      }
-      force.initialize = (ns) => (nodesInternal = ns);
-      return force;
-    }
-
-    function anchorY(strength = 0.18) {
-      let nodesInternal;
-      function force(alpha) {
-        if (!nodesInternal) return;
-        for (const n of nodesInternal) {
-          const ay = (n.__anchor.y - n.y) * strength * alpha;
-          n.vy = (n.vy || 0) + ay;
-        }
-      }
-      force.initialize = (ns) => (nodesInternal = ns);
-      return force;
-    }
-
-    const crowdCollisionBuffer = (d) => {
-      const margin = Math.max(4, Math.min(18, d.r * 0.18));
-      return d.r + margin;
-    };
-    const anchorStrength = nodeCount <= 40 ? 0.12 : (nodeCount <= 120 ? 0.085 : 0.06);
-    const wanderStrength = nodeCount <= 40 ? 0.42 : (nodeCount <= 120 ? 0.32 : 0.24);
-    const chargeStrength = nodeCount <= 60 ? -30 : (nodeCount <= 140 ? -20 : -10); // Moderate repulsion
-    const gravityStrength = 0.08; // Strong enough to center, weak enough to allow spread
 
     const simulation = d3.forceSimulation(nodes)
-      .force('charge', d3.forceManyBody().strength(chargeStrength))
-      .force('collision', d3.forceCollide().radius(crowdCollisionBuffer).iterations(3))
-      .force('anchorX', anchorX(anchorStrength))
-      .force('anchorY', anchorY(anchorStrength))
-      .force('wander', wanderForce(wanderStrength))
-      .force('x', d3.forceX(w / 2).strength(gravityStrength))
-      .force('y', d3.forceY(h / 2).strength(gravityStrength))
-      .velocityDecay(0.18)
-      .alphaDecay(0.016)
+      // Charge: Moderate repulsion to prevent clustering
+      .force('charge', d3.forceManyBody().strength(d => -Math.pow(d.r, 1.8) * 0.18))
+      // Collision: Strong collision to prevent overlap - bubbles stay in their space
+      .force('collision', d3.forceCollide().radius(d => d.r + 8).iterations(5).strength(0.85))
+      // NO center force - let bubbles stay randomly distributed across viewport
+      // Very subtle wander for floating effect (hawa mein float jaisa)
+      .force('wander', wanderForce(0.06))
+      .velocityDecay(0.55) // Higher friction - bubbles settle but still float gently
+      .alphaDecay(0.018) // Let simulation settle naturally
+      .alphaTarget(0.001) // Low energy target for calm floating
       .on('tick', ticked);
 
     simRef.current = simulation;
@@ -679,14 +594,21 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     labelSelRef.current = labelNodes;
 
     // If we created a simulation above, (re)start it now that DOM nodes exist.
-    // Use a small alpha to gently nudge nodes rather than snapping them.
+    // Start with moderate energy to settle bubbles smoothly into floating state
     if (simRef.current) {
-      // small push then decay to near zero
       try {
-        simRef.current.alpha(0.06).restart();
+        simRef.current.alpha(0.5).restart();
         window.setTimeout(() => {
-          if (simRef.current) simRef.current.alphaTarget(0.001);
-        }, 500);
+          if (simRef.current) {
+            simRef.current.alphaTarget(0.001);
+            // Let it settle to calm floating state
+            setTimeout(() => {
+              if (simRef.current) {
+                simRef.current.alpha(0.001);
+              }
+            }, 2500);
+          }
+        }, 2000);
       } catch (e) {
         // ignore
       }
@@ -812,7 +734,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }
 
       // skip labels for extremely tiny rings with no image
-      if (d.r < 6) return;
+      if (d.r < 10) return;
 
       // Build a stacked layout (optional badge image on top, symbol, then percent)
       const hasBadge = d.data && d.data.image && d.r >= LOGO_ONLY_THRESHOLD;
@@ -929,7 +851,6 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         .style('pointer-events', 'none')
         .style('fill', contentColor)
         .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
-        .style('font-size', `${pctSize}px`)
         .style('font-weight', 600);
       if (pctSize >= 14) pctEl.attr('filter', 'url(#textShadow)');
     });
@@ -1019,26 +940,49 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
     // tick handler to update DOM positions and dynamic visuals
     function ticked() {
-      // keep nodes inside the drawing area (bounce at edges)
+      // Soft boundaries: Keep bubbles within viewport with gentle damping
+      // No harsh bouncing - bubbles smoothly stay within bounds
+      const padding = 10;
       nodes.forEach((d) => {
-        // apply simple boundary constraints
-        const minX = d.r;
-        const maxX = w - d.r;
-        const minY = d.r;
-        const maxY = h - d.r;
-        if (d.x < minX) {
-          d.x = minX;
-          if (d.vx) d.vx = Math.abs(d.vx) * 0.6;
-        } else if (d.x > maxX) {
-          d.x = maxX;
-          if (d.vx) d.vx = -Math.abs(d.vx) * 0.6;
+        const r = d.r;
+        
+        // X bounds - soft boundary with gentle push back
+        if (d.x < r + padding) {
+          const overshoot = (r + padding) - d.x;
+          d.x = r + padding;
+          d.vx *= 0.35; // Dampen velocity instead of reversing
+          d.vx += overshoot * 0.12; // Gentle push inward
+          // Update base position if too far out
+          if (d.__baseX != null && d.__baseX < r + padding) {
+            d.__baseX = r + padding + (d.r * 0.3);
+          }
+        } else if (d.x > w - r - padding) {
+          const overshoot = d.x - (w - r - padding);
+          d.x = w - r - padding;
+          d.vx *= 0.35;
+          d.vx -= overshoot * 0.12;
+          if (d.__baseX != null && d.__baseX > w - r - padding) {
+            d.__baseX = w - r - padding - (d.r * 0.3);
+          }
         }
-        if (d.y < minY) {
-          d.y = minY;
-          if (d.vy) d.vy = Math.abs(d.vy) * 0.6;
-        } else if (d.y > maxY) {
-          d.y = maxY;
-          if (d.vy) d.vy = -Math.abs(d.vy) * 0.6;
+
+        // Y bounds - soft boundary with gentle push back
+        if (d.y < r + padding) {
+          const overshoot = (r + padding) - d.y;
+          d.y = r + padding;
+          d.vy *= 0.35;
+          d.vy += overshoot * 0.12;
+          if (d.__baseY != null && d.__baseY < r + padding) {
+            d.__baseY = r + padding + (d.r * 0.3);
+          }
+        } else if (d.y > h - r - padding) {
+          const overshoot = d.y - (h - r - padding);
+          d.y = h - r - padding;
+          d.vy *= 0.35;
+          d.vy -= overshoot * 0.12;
+          if (d.__baseY != null && d.__baseY > h - r - padding) {
+            d.__baseY = h - r - padding - (d.r * 0.3);
+          }
         }
       });
 
@@ -1104,7 +1048,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         style={{
           position: 'absolute',
           top: 12,
-          right: 12,
+          left: 12,
           background: 'rgba(0,0,0,0.6)',
           color: '#fff',
           padding: '8px 12px',
