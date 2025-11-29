@@ -695,14 +695,20 @@ body {
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 1999;
   display: flex;
-  justify-content: flex-end;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 6vh;
+  overflow-y: auto;
+  pointer-events: auto;
 }
 .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.3);
+  z-index: 1;
+  pointer-events: auto;
 }
 .slide-over {
   position: relative;
@@ -718,10 +724,9 @@ body {
 /* Coin modal (centered) */
 .coin-modal {
   position: relative;
-  margin: auto;
-  margin-top: 6vh;
-  margin-bottom: 6vh;
-  background: linear-gradient(180deg, #071014, #0b1114);
+  margin: 0 auto;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255,255,255,0.15);
   border-radius: 12px;
   padding: 16px;
   width: calc(100% - 40px);
@@ -729,9 +734,11 @@ body {
   max-height: calc(100vh - 12vh);
   overflow-y: auto;
   overflow-x: hidden;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.7);
-  border: 1px solid rgba(255,255,255,0.04);
-  z-index: 80;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  z-index: 2;
+  pointer-events: auto;
 }
 
 .coin-modal::-webkit-scrollbar {
@@ -808,12 +815,16 @@ body {
 /* inline OHLC moved/removed from header — styles removed */
 
 /* top-box wraps the header + small stat rows so they appear as a single boxed card */
+/* Background color will be set dynamically via inline styles based on coin's performance */
 .top-box {
-  background: linear-gradient(180deg, rgba(8,12,14,0.85), rgba(6,9,11,0.8));
-  border: 1px solid rgba(255,255,255,0.03);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.15);
   border-radius: 12px;
   padding: 14px;
   margin-bottom: 14px;
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 
 /* make sure the boxed header looks tight on small screens */
@@ -977,7 +988,17 @@ body {
 .coin-stats-row .stat strong { color:#fff }
 
 /* Share calculator styles */
-.share-calc { padding: 12px; border-radius: 10px; background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00)); margin: 10px 12px; display:flex; flex-direction:column; align-items: center }
+.share-calc { 
+  padding: 16px; 
+  border-radius: 12px; 
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); 
+  border: 1px solid rgba(255,255,255,0.1);
+  margin: 14px 12px; 
+  display:flex; 
+  flex-direction:column; 
+  align-items: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+}
 .share-label { color:#bfc9c8; font-size:13px; margin-bottom:8px; font-weight:700; text-align:center }
 .share-input-row { display:flex; align-items:center; gap:12px; justify-content:center }
 .share-input-wrap { display:flex; align-items:center; background: rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.03); padding:6px 8px; border-radius:10px; justify-content:center }

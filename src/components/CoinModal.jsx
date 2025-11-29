@@ -22,8 +22,26 @@ export default function CoinModal({ coin, onClose }) {
   const [ohlcSummary, setOhlcSummary] = useState(null);
   const [pillPctMap, setPillPctMap] = useState({});
   const [latestSnapshot, setLatestSnapshot] = useState(null);
+  const [daily24hStats, setDaily24hStats] = useState(null);
+  const [currentCoin, setCurrentCoin] = useState(coin);
   // only area chart is used now
   const INTERVAL_LOOKUP = { Hour: 1, Day: 1, Week: 5, Month: 22, Year: 252 };
+
+  // Format large numbers with K/M abbreviations
+  function formatLargeNumber(value) {
+    if (value == null || value === '-' || !Number.isFinite(Number(value))) return value || '-';
+    const num = Number(value);
+    if (Math.abs(num) >= 1_000_000_000) {
+      return `${(num / 1_000_000_000).toFixed(2)}B`;
+    }
+    if (Math.abs(num) >= 1_000_000) {
+      return `${(num / 1_000_000).toFixed(2)}M`;
+    }
+    if (Math.abs(num) >= 1_000) {
+      return `${(num / 1_000).toFixed(2)}K`;
+    }
+    return num.toFixed(0);
+  }
 
   function toNum(v) {
     if (v == null || v === '') return null;
@@ -115,13 +133,6 @@ export default function CoinModal({ coin, onClose }) {
         // buildCandlesFromSnapshots returns time in seconds; convert to ms for our UI
         const s = candles.map((c) => ({ ts: Number(c.time) * 1000, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })).filter((x) => x.close != null);
         if (mounted) {
-          // debug: log series length and first few points to help diagnose empty chart issues
-          try {
-            // eslint-disable-next-line no-console
-            console.debug('CoinModal loadSeries', { symbol: coin?.symbol, seriesLength: s.length, sample: s.slice(0, 5) });
-            // also log the candles returned (post-bucketing)
-            console.debug('CoinModal mapped series (first 8)', s.slice(0, 8));
-          } catch (e) {}
           setSeries(s);
           if (s && s.length) {
             const open = s[0].open != null ? s[0].open : s[0].close;
@@ -146,8 +157,6 @@ export default function CoinModal({ coin, onClose }) {
                 pctMap[tf] = '-';
               }
             }));
-            // debug: log which snapshot was chosen as latest for this symbol
-            try { console.debug('CoinModal latestSnapshot for', coin?.symbol, latestSnap); } catch (e) {}
             setPillPctMap(pctMap);
           } else setOhlcSummary(null);
         }
@@ -163,27 +172,292 @@ export default function CoinModal({ coin, onClose }) {
     return () => { mounted = false; };
   }, [coin, timeframe]);
 
-  const pct = coin.price_change_percentage_24h || 0;
+  // Update currentCoin when coin prop changes (real-time updates)
+  useEffect(() => {
+    setCurrentCoin(coin);
+  }, [coin]);
+
+  // Define displayCoin BEFORE it's used in useEffect
+  const displayCoin = currentCoin || coin;
+
+  // Calculate 24h stats - prefer raw data fields which already have correct values
+  useEffect(() => {
+    let mounted = true;
+    async function load24hStats() {
+      if (!coin || !coin.symbol) return;
+      
+      try {
+        const raw = displayCoin?.raw || coin?.raw || {};
+        
+        // Get values from raw data first (most accurate)
+        // These fields come directly from CSV/API and are already calculated correctly
+        const rawHigh = raw['High 1 day'] != null ? Number(raw['High 1 day']) : 
+                       raw['High'] != null ? Number(raw['High']) : 
+                       raw['high'] != null ? Number(raw['high']) : null;
+        const rawLow = raw['Low 1 day'] != null ? Number(raw['Low 1 day']) : 
+                      raw['Low'] != null ? Number(raw['Low']) : 
+                      raw['low'] != null ? Number(raw['low']) : null;
+        const rawVolume = raw['Volume 1 day'] != null ? Number(raw['Volume 1 day']) : 
+                         raw['Volume'] != null ? Number(raw['Volume']) : 
+                         raw['volume'] != null ? Number(raw['volume']) : null;
+        const rawValue = raw['Turnover 1 day'] != null ? Number(raw['Turnover 1 day']) : 
+                        raw['Turnover'] != null ? Number(raw['Turnover']) : 
+                        raw['turnover'] != null ? Number(raw['turnover']) : 
+                        raw['Value'] != null ? Number(raw['Value']) : null;
+        const rawDailyPct = raw['Price Change % 1 day'] != null ? Number(raw['Price Change % 1 day']) :
+                           raw['Price Change % 1 Day'] != null ? Number(raw['Price Change % 1 Day']) :
+                           raw['Price Change %'] != null ? Number(raw['Price Change %']) :
+                           raw['daily_pct'] != null ? Number(raw['daily_pct']) : null;
+        
+        // Get current price
+        const latestPrice = displayCoin?.price || coin?.price || null;
+        
+        // Calculate price delta from percentage if we have it
+        let priceDelta = null;
+        if (rawDailyPct != null && latestPrice != null) {
+          // priceDelta = (latestPrice * rawDailyPct) / (100 + rawDailyPct) // approximate
+          // Better: find opening price from percentage
+          // If pct = ((current - open) / open) * 100, then open = current / (1 + pct/100)
+          const openPrice = latestPrice / (1 + rawDailyPct / 100);
+          priceDelta = latestPrice - openPrice;
+        }
+        
+        // If we have raw data, use it; otherwise calculate from snapshots as fallback
+        let stats = {
+          high: rawHigh,
+          low: rawLow,
+          volume: rawVolume,
+          value: rawValue,
+          pctChange: rawDailyPct != null ? rawDailyPct : (displayCoin?.daily_change_1d != null ? displayCoin.daily_change_1d : displayCoin?.price_change_percentage_24h || null),
+          priceDelta: priceDelta,
+          close: latestPrice
+        };
+        
+        // Fallback: if raw data is missing, calculate from ALL 24h snapshots (not just latest)
+        if ((stats.high == null || stats.low == null || stats.volume == null) || !stats.value) {
+          const tsList = await storage.getAllTimestamps();
+          if (tsList && tsList.length > 0) {
+            const latestTs = tsList[tsList.length - 1];
+            // Calculate 24 hours ago (24 * 60 * 60 * 1000 milliseconds)
+            const twentyFourHoursAgo = latestTs - (24 * 60 * 60 * 1000);
+            
+            // Get ALL snapshots from the last 24 hours
+            const snapshots24h = await storage.getRange(coin.symbol, twentyFourHoursAgo, latestTs);
+            
+            if (snapshots24h && snapshots24h.length > 0) {
+              // Calculate high from all 24h snapshots
+              if (stats.high == null) {
+                const prices = snapshots24h
+                  .map(s => s.price || s.high || s.close)
+                  .filter(p => p != null && Number.isFinite(Number(p)));
+                if (prices.length > 0) {
+                  stats.high = Math.max(...prices);
+                }
+              }
+              
+              // Calculate low from all 24h snapshots
+              if (stats.low == null) {
+                const prices = snapshots24h
+                  .map(s => s.price || s.low || s.close)
+                  .filter(p => p != null && Number.isFinite(Number(p)));
+                if (prices.length > 0) {
+                  stats.low = Math.min(...prices);
+                }
+              }
+              
+              // Calculate total volume from all 24h snapshots
+              if (stats.volume == null) {
+                const volumes = snapshots24h
+                  .map(s => s.volume)
+                  .filter(v => v != null && Number.isFinite(Number(v)));
+                if (volumes.length > 0) {
+                  stats.volume = volumes.reduce((sum, v) => sum + Number(v), 0);
+                }
+              }
+              
+              // Calculate total value (turnover) from all 24h snapshots
+              // Value = sum of (price * volume) for each snapshot
+              if (!stats.value) {
+                let totalValue = 0;
+                snapshots24h.forEach(s => {
+                  const price = s.price || s.close;
+                  const volume = s.volume;
+                  if (price != null && volume != null && Number.isFinite(Number(price)) && Number.isFinite(Number(volume))) {
+                    totalValue += Number(price) * Number(volume);
+                  }
+                });
+                if (totalValue > 0) {
+                  stats.value = totalValue;
+                } else if (stats.volume && latestPrice) {
+                  // Fallback: use latest price * total volume
+                  stats.value = stats.volume * latestPrice;
+                }
+              }
+            } else {
+              // If no 24h snapshots found, fallback to latest snapshot only
+              const latestSnap = await storage.getSnapshotAtOrBefore(coin.symbol, latestTs);
+              if (latestSnap) {
+                if (stats.high == null) stats.high = latestSnap.high || latestSnap.price;
+                if (stats.low == null) stats.low = latestSnap.low || latestSnap.price;
+                if (stats.volume == null) stats.volume = latestSnap.volume || coin.volume;
+                if (!stats.value && stats.volume && latestPrice) {
+                  stats.value = stats.volume * latestPrice;
+                }
+              }
+            }
+          }
+        }
+        
+        if (mounted) {
+          setDaily24hStats(stats);
+        }
+      } catch (err) {
+        console.error('CoinModal: load24hStats error', err);
+        if (mounted) setDaily24hStats(null);
+      }
+    }
+    
+    load24hStats();
+    
+    // Refresh 24h stats periodically when modal is open (every 30 seconds)
+    const interval = setInterval(load24hStats, 30000);
+    
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [coin?.symbol, coin?.raw, displayCoin?.price, displayCoin?.raw, displayCoin?.volume, displayCoin?.daily_change_1d, displayCoin?.price_change_percentage_24h]);
+
+  // Refresh latest coin data periodically when modal is open
+  useEffect(() => {
+    let mounted = true;
+    async function refreshCoinData() {
+      if (!coin || !coin.symbol) return;
+      
+      try {
+        const tsList = await storage.getAllTimestamps();
+        if (!tsList || tsList.length === 0) return;
+        
+        const latestTs = tsList[tsList.length - 1];
+        const latestSnap = await storage.getSnapshotAtOrBefore(coin.symbol, latestTs);
+        
+        if (mounted && latestSnap) {
+          // Update current coin with latest data
+          setCurrentCoin({
+            ...coin,
+            price: latestSnap.price || latestSnap.close || coin.price,
+            volume: latestSnap.volume || coin.volume,
+            ts: latestSnap.ts || coin.ts,
+            raw: latestSnap.raw || coin.raw
+          });
+        }
+      } catch (err) {
+        // Ignore errors
+      }
+    }
+    
+    refreshCoinData();
+    
+    // Refresh every 10 seconds when modal is open
+    const interval = setInterval(refreshCoinData, 10000);
+    
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [coin]);
+
+  // Get percentage from raw data first (most accurate), then from daily24hStats, then from coin
+  const raw = displayCoin?.raw || coin?.raw || {};
+  const rawDailyPct = raw['Price Change % 1 day'] != null ? Number(raw['Price Change % 1 day']) :
+                     raw['Price Change % 1 Day'] != null ? Number(raw['Price Change % 1 Day']) :
+                     raw['Price Change %'] != null ? Number(raw['Price Change %']) :
+                     raw['daily_pct'] != null ? Number(raw['daily_pct']) : null;
+  
+  const pct = rawDailyPct != null 
+    ? rawDailyPct 
+    : (daily24hStats?.pctChange != null 
+        ? daily24hStats.pctChange 
+        : (displayCoin.daily_change_1d != null
+            ? displayCoin.daily_change_1d
+            : (displayCoin.price_change_percentage_24h || 0)));
   const pctColor = pct >= 0 ? '#24c55e' : '#ff4d4d';
 
-  // compute a fallback 24h volume from the loaded series if snapshot volume is missing/zero
-  const computed24hVol = (series && series.length) ? series.reduce((sum, r) => sum + (r.volume != null ? Number(r.volume) : 0), 0) : null;
-
-  // compute a price delta (absolute) to show rupee change inside the header box
-  const computedPriceDelta = (() => {
-    // prefer explicit field if present
-    if (coin && coin.price_change != null && !Number.isNaN(Number(coin.price_change))) return Number(coin.price_change);
-    // prefer series delta (last - first)
-    if (series && series.length > 1) {
-      const first = series[0].close;
-      const last = series[series.length - 1].close;
-      if (first != null && last != null) return Number(last) - Number(first);
+  // pctToColor function to match bubble colors (same as in App.jsx)
+  function pctToColorRgb(pct) {
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const v = clamp(pct, -100, 100);
+    if (v === 0) return { r: 255, g: 255, b: 255 };
+    if (v > 0) {
+      const t = clamp(v / 10, 0, 1);
+      return {
+        r: Math.round(46 - 20 * t),
+        g: Math.round(200 + 40 * t),
+        b: Math.round(80 - 30 * t)
+      };
     }
-    // fallback to ohlcSummary open/close
-    if (ohlcSummary && ohlcSummary.open != null && ohlcSummary.close != null) return Number(ohlcSummary.close) - Number(ohlcSummary.open);
-    // else unknown
-    return null;
-  })();
+    const t = clamp(Math.abs(v) / 10, 0, 1);
+    return {
+      r: Math.round(220 + 20 * t),
+      g: Math.round(100 - 50 * t),
+      b: Math.round(100 - 30 * t)
+    };
+  }
+
+  // Get bubble color RGB for this coin
+  const bubbleColorRgb = pctToColorRgb(pct);
+  
+  // Create colorful background with bubble color tint for top-box
+  const topBoxStyle = {
+    background: pct >= 0 
+      ? `linear-gradient(180deg, rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.18), rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.06))`
+      : `linear-gradient(180deg, rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.15), rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.04))`,
+    borderColor: `rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.3)`,
+    boxShadow: `0 8px 24px rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.15), inset 0 1px 0 rgba(255,255,255,0.1)`
+  };
+
+  // Use daily24hStats for all 24h calculations, prefer raw data values
+  const displayPrice = displayCoin?.price || daily24hStats?.close || coin?.price || '-';
+  
+  // Price delta - prefer calculated from daily24hStats, fallback to computed
+  const displayPriceDelta = daily24hStats?.priceDelta != null 
+    ? daily24hStats.priceDelta 
+    : (() => {
+        // Try to calculate from percentage if we have it
+        const pct = daily24hStats?.pctChange != null ? daily24hStats.pctChange : (displayCoin?.daily_change_1d != null ? displayCoin.daily_change_1d : displayCoin?.price_change_percentage_24h);
+        if (pct != null && displayPrice != null && typeof displayPrice === 'number') {
+          const openPrice = displayPrice / (1 + pct / 100);
+          return displayPrice - openPrice;
+        }
+        // Fallback to other calculations
+        if (displayCoin?.price_change != null && !Number.isNaN(Number(displayCoin.price_change))) {
+          return Number(displayCoin.price_change);
+        }
+        if (ohlcSummary && ohlcSummary.open != null && ohlcSummary.close != null) {
+          return Number(ohlcSummary.close) - Number(ohlcSummary.open);
+        }
+        return null;
+      })();
+  
+  // 24h High/Low - ONLY use daily24hStats, NEVER fallback to ohlcSummary (which is timeframe-dependent)
+  const display24hHigh = daily24hStats?.high != null ? daily24hStats.high : '-';
+  const display24hLow = daily24hStats?.low != null ? daily24hStats.low : '-';
+  
+  // 24h Volume - prefer raw data which is already 24h volume, don't sum snapshots
+  const display24hVolume = daily24hStats?.volume != null 
+    ? daily24hStats.volume 
+    : (displayCoin?.volume != null 
+        ? displayCoin.volume 
+        : (latestSnapshot?.volume != null 
+            ? latestSnapshot.volume 
+            : coin?.volume || null));
+  
+  // 24h Value - prefer raw turnover value, fallback to volume * price
+  const display24hValue = daily24hStats?.value != null 
+    ? daily24hStats.value 
+    : (display24hVolume != null && displayPrice != null && typeof displayPrice === 'number'
+        ? display24hVolume * displayPrice
+        : null);
 
   // Share calculator state: two boxes (shares <=> PKR) — animated target display
   const [shareCount, setShareCount] = useState('');
@@ -200,7 +474,9 @@ export default function CoinModal({ coin, onClose }) {
   const rafRefShares = useRef(null);
 
   const priceNum = (() => {
-    const p = coin.price != null ? Number(coin.price) : (ohlcSummary && ohlcSummary.close != null ? Number(ohlcSummary.close) : 0);
+    const p = displayPrice != null && typeof displayPrice === 'number' 
+      ? Number(displayPrice) 
+      : (ohlcSummary && ohlcSummary.close != null ? Number(ohlcSummary.close) : 0);
     return Number.isFinite(p) ? p : 0;
   })();
 
@@ -281,12 +557,12 @@ export default function CoinModal({ coin, onClose }) {
   }, [coin?.symbol, priceNum]);
 
   return (
-    <div className="overlay" style={{ zIndex: 2000 }}>
+    <div className="overlay">
       <div className="backdrop" onClick={onClose} />
       <div className="coin-modal" role="dialog" aria-modal="true">
         {/* improved header: symbol-first layout with price / pct and compact stats row */}
 
-        <div className="top-box">
+        <div className="top-box" style={topBoxStyle}>
         <div className="coin-top header-v2">
           <div className="symbol-row">
             {coin.image && <img src={coin.image} alt="" className="coin-image" />}
@@ -296,20 +572,55 @@ export default function CoinModal({ coin, onClose }) {
                 <div className="symbol-badge">{coin.market || 'REG'}</div>
               </div>
               <div className="price-line">
-                <div className="coin-price">{coin.price != null ? Number(coin.price).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4}) : '-'}</div>
-                <div className="pct-badge" style={{ background: pct >= 0 ? 'rgba(36,197,94,0.14)' : 'rgba(255,77,77,0.08)', color: pct >= 0 ? '#24c55e' : '#ff4d4d' }}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</div>
-                <div className="small-change" style={{ color: (computedPriceDelta != null && computedPriceDelta >= 0) ? '#24c55e' : '#ff4d4d' }}>{computedPriceDelta != null ? (computedPriceDelta >= 0 ? '+' : '') + Number(computedPriceDelta).toFixed(2) : ''}</div>
+                <div className="coin-price">
+                  {typeof displayPrice === 'number' 
+                    ? Number(displayPrice).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4}) 
+                    : displayPrice}
+                </div>
+                <div className="pct-badge" style={{ background: pct >= 0 ? 'rgba(36,197,94,0.14)' : 'rgba(255,77,77,0.08)', color: pct >= 0 ? '#24c55e' : '#ff4d4d' }}>
+                  {pct >= 0 ? '+' : ''}{typeof pct === 'number' ? pct.toFixed(2) : pct}%
+                </div>
+                <div className="small-change" style={{ color: (displayPriceDelta != null && displayPriceDelta >= 0) ? '#24c55e' : '#ff4d4d' }}>
+                  {displayPriceDelta != null ? (displayPriceDelta >= 0 ? '+' : '') + Number(displayPriceDelta).toFixed(2) : ''}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* compact stats row similar to requested layout (24h High / Low / Vol / Value / Bid / Ask) */}
+          {/* 24h stats using daily24hStats for accurate calculations */}
           <div className="top-stats">
-            <div className="stat-col"><div className="stat-label">24h High</div><div className="stat-value">{ohlcSummary && ohlcSummary.high != null ? ohlcSummary.high : '-'}</div></div>
-            <div className="stat-col"><div className="stat-label">24h Low</div><div className="stat-value">{ohlcSummary && ohlcSummary.low != null ? ohlcSummary.low : '-'}</div></div>
-            {/* Prefer snapshot volume stored from CSV for 24h Vol and 24h Value; fall back to computed series or coin.volume */}
-            <div className="stat-col"><div className="stat-label">24h Vol</div><div className="stat-value">{(latestSnapshot && latestSnapshot.volume != null) ? Number(latestSnapshot.volume).toLocaleString() : (computed24hVol != null && computed24hVol !== 0 ? Number(computed24hVol).toLocaleString() : (coin.volume != null ? Number(coin.volume).toLocaleString() : '-'))}</div></div>
-            <div className="stat-col"><div className="stat-label">24h Value</div><div className="stat-value">{(latestSnapshot && latestSnapshot.volume != null && coin.price != null) ? (Number(latestSnapshot.volume) * Number(coin.price)).toLocaleString() : ((coin.volume != null && coin.price != null) ? (Number(coin.volume) * Number(coin.price)).toLocaleString() : '-')}</div></div>
+            <div className="stat-col">
+              <div className="stat-label">24h High</div>
+              <div className="stat-value">
+                {typeof display24hHigh === 'number' 
+                  ? Number(display24hHigh).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4})
+                  : display24hHigh}
+              </div>
+            </div>
+            <div className="stat-col">
+              <div className="stat-label">24h Low</div>
+              <div className="stat-value">
+                {typeof display24hLow === 'number' 
+                  ? Number(display24hLow).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4})
+                  : display24hLow}
+              </div>
+            </div>
+            <div className="stat-col">
+              <div className="stat-label">24h Vol</div>
+              <div className="stat-value">
+                {display24hVolume != null && typeof display24hVolume === 'number'
+                  ? formatLargeNumber(display24hVolume)
+                  : (display24hVolume || '-')}
+              </div>
+            </div>
+            <div className="stat-col">
+              <div className="stat-label">24h Value</div>
+              <div className="stat-value">
+                {display24hValue != null && typeof display24hValue === 'number'
+                  ? formatLargeNumber(display24hValue)
+                  : (display24hValue || '-')}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -397,15 +708,6 @@ export default function CoinModal({ coin, onClose }) {
           <div className="sparkline">
           
             <InteractiveChart series={series} pct={pct} height={320} />
-            <div style={{marginTop:10, color:'#9fb8b0', fontSize:12}}>
-              <div>Series points: {Array.isArray(series) ? series.length : 0}</div>
-              {Array.isArray(series) && series.length > 0 && (
-                    <div style={{marginTop:6, fontSize:11, color:'#cddfe0'}}>
-                      <strong>Sample:</strong>
-                      <pre style={{margin:6, padding:8, background:'rgba(0,0,0,0.35)', borderRadius:6, overflowX:'auto'}}>{JSON.stringify(series.slice(0,5).map(s=>({t:(function(ts){const n=Number(ts); return Number.isFinite(n)? new Date(n).toISOString() : null})(s.ts), o:s.open, h:s.high, l:s.low, c:s.close, v:s.volume})),null,2)}</pre>
-                    </div>
-                  )}
-            </div>
           </div>
 
           <div className="timeframe-row">

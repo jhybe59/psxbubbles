@@ -68,8 +68,9 @@ export default function InteractiveChart({ series = [], height = 140, pct = 0 })
           layout: { background: { type: 'solid', color: '#071014' }, textColor: '#dfe7e7' },
           grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
           crosshair: { mode: 1 },
-          rightPriceScale: { visible: true, borderColor: 'rgba(255,255,255,0.04)' },
-          timeScale: { borderColor: 'rgba(255,255,255,0.04)' }
+          rightPriceScale: { visible: false },
+          timeScale: { visible: false, borderColor: 'rgba(255,255,255,0.04)' },
+          leftPriceScale: { visible: false }
         });
         chartRef.current = chart;
 
@@ -275,7 +276,6 @@ export default function InteractiveChart({ series = [], height = 140, pct = 0 })
   return (
     <div style={{ position: 'relative', width: '100%', height }}>
       <div style={{ width: '100%', height }} ref={containerRef} />
-      <div ref={debugRef} style={{ position: 'absolute', left: 8, top: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.5)', color: '#cfe9e3', fontSize: 11, borderRadius: 6, pointerEvents: 'none' }} />
       {!hasData && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7780', pointerEvents: 'none' }}>
           <small>No chart data</small>

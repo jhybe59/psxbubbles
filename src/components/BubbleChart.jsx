@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import * as d3 from 'd3';
-export default forwardRef(function BubbleChart({ data, width = 900, height = 600, single = false, radiusScale = null, selections = {}, aggregations = null, onSelectCoin = null, selectedIndex = null }, ref) {
+export default forwardRef(function BubbleChart({ data, width = 900, height = 600, single = false, radiusScale = null, selections = {}, aggregations = null, onSelectCoin = null, selectedIndex = null, currentInterval = null }, ref) {
   const wrapperRef = useRef(null);
   const svgRef = useRef(null);
   const [visibleCount, setVisibleCount] = useState(0);
@@ -10,6 +10,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   const nodesRef = useRef(null);
   const circleSelRef = useRef(null);
   const labelSelRef = useRef(null);
+  const prevIntervalRef = useRef(null);
+  const prevDataRef = useRef(null);
   const margin = { top: 20, right: 20, bottom: 20, left: 20 };
 
   // expose fitToView to parent via ref (must be top-level Hook)
@@ -77,8 +79,26 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
   useEffect(() => {
     const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
-    if (!data || data.length === 0) return;
+    const intervalChanged = prevIntervalRef.current !== currentInterval && prevIntervalRef.current !== null;
+    prevIntervalRef.current = currentInterval;
+    
+    // If interval changed, do hard refresh
+    if (intervalChanged) {
+      svg.selectAll('*').remove();
+      nodesRef.current = null;
+      circleSelRef.current = null;
+      labelSelRef.current = null;
+      if (simRef.current) {
+        simRef.current.stop();
+        simRef.current = null;
+      }
+    }
+    
+    if (!data || data.length === 0) {
+      if (intervalChanged) return;
+      // If no data but interval didn't change, keep existing visualization
+      return;
+    }
 
     const margin = { top: 20, right: 20, bottom: 20, left: 20 };
     const w = Math.max(100, size.width - margin.left - margin.right);
@@ -98,45 +118,57 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
 
     // defs: blur filter for glow and radial gradient for bubble shading
-    const defs = svg.append('defs');
-    defs
-      .append('filter')
-      .attr('id', 'glow')
-      .append('feGaussianBlur')
-      // stronger blur for a more pronounced neon halo
-      .attr('stdDeviation', 22)
-      .attr('result', 'coloredBlur');
+    // Check if defs already exists (for smooth updates), otherwise create
+    let defs = svg.select('defs');
+    if (defs.empty()) {
+      defs = svg.append('defs');
+      // Only create base filters/gradients if they don't exist
+      defs
+        .append('filter')
+        .attr('id', 'glow')
+        .append('feGaussianBlur')
+        .attr('stdDeviation', 22)
+        .attr('result', 'coloredBlur');
 
-    const grad = defs.append('radialGradient').attr('id', 'bubbleGrad').attr('cx', '35%').attr('cy', '30%');
-    grad.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(255,255,255,0.10)');
-    grad.append('stop').attr('offset', '60%').attr('stop-color', 'rgba(255,255,255,0.03)');
-    grad.append('stop').attr('offset', '100%').attr('stop-color', '#0b1114');
+      const grad = defs.append('radialGradient').attr('id', 'bubbleGrad').attr('cx', '35%').attr('cy', '30%');
+      grad.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(255,255,255,0.10)');
+      grad.append('stop').attr('offset', '60%').attr('stop-color', 'rgba(255,255,255,0.03)');
+      grad.append('stop').attr('offset', '100%').attr('stop-color', '#0b1114');
 
-    // simple app-level green/red gradients for quick fills
-    const gGreen = defs.append('radialGradient').attr('id', 'grad-green').attr('cx', '30%').attr('cy', '30%');
-    gGreen.append('stop').attr('offset', '0%').attr('stop-color', '#0bff6a').attr('stop-opacity', 0.95);
-    gGreen.append('stop').attr('offset', '60%').attr('stop-color', '#0aa34a').attr('stop-opacity', 0.95);
-    gGreen.append('stop').attr('offset', '100%').attr('stop-color', '#03150a').attr('stop-opacity', 0.95);
+      const gGreen = defs.append('radialGradient').attr('id', 'grad-green').attr('cx', '30%').attr('cy', '30%');
+      gGreen.append('stop').attr('offset', '0%').attr('stop-color', '#0bff6a').attr('stop-opacity', 0.95);
+      gGreen.append('stop').attr('offset', '60%').attr('stop-color', '#0aa34a').attr('stop-opacity', 0.95);
+      gGreen.append('stop').attr('offset', '100%').attr('stop-color', '#03150a').attr('stop-opacity', 0.95);
 
-    const gRed = defs.append('radialGradient').attr('id', 'grad-red').attr('cx', '30%').attr('cy', '30%');
-    gRed.append('stop').attr('offset', '0%').attr('stop-color', '#ff7b7b').attr('stop-opacity', 0.95);
-    gRed.append('stop').attr('offset', '60%').attr('stop-color', '#c93b3b').attr('stop-opacity', 0.95);
-    gRed.append('stop').attr('offset', '100%').attr('stop-color', '#160606').attr('stop-opacity', 0.95);
+      const gRed = defs.append('radialGradient').attr('id', 'grad-red').attr('cx', '30%').attr('cy', '30%');
+      gRed.append('stop').attr('offset', '0%').attr('stop-color', '#ff7b7b').attr('stop-opacity', 0.95);
+      gRed.append('stop').attr('offset', '60%').attr('stop-color', '#c93b3b').attr('stop-opacity', 0.95);
+      gRed.append('stop').attr('offset', '100%').attr('stop-color', '#160606').attr('stop-opacity', 0.95);
 
-    // subtle inner shadow filter for depth
-    // slightly stronger inner shadow to make the bubble feel deeper
-    defs.append('filter').attr('id', 'inner-shadow').append('feDropShadow').attr('dx', 0).attr('dy', 8).attr('stdDeviation', 14).attr('flood-color', '#000').attr('flood-opacity', 0.45);
+      // blue gradient for neutral/no change (0.0%) - softer tone to match green/red theme
+      const gBlue = defs.append('radialGradient').attr('id', 'grad-blue').attr('cx', '30%').attr('cy', '30%');
+      gBlue.append('stop').attr('offset', '0%').attr('stop-color', '#e0f2ff').attr('stop-opacity', 0.95);
+      gBlue.append('stop').attr('offset', '60%').attr('stop-color', '#3b82f6').attr('stop-opacity', 0.95);
+      gBlue.append('stop').attr('offset', '100%').attr('stop-color', '#041321').attr('stop-opacity', 0.95);
 
-    // subtle drop shadow filter for depth
-    defs.append('filter').attr('id', 'drop').append('feDropShadow').attr('dx', 0).attr('dy', 3).attr('stdDeviation', 4).attr('flood-color', '#000').attr('flood-opacity', 0.45);
-    // small text shadow filter to improve contrast without heavy stroke
-    // reduced blur and offset to avoid fuzzy glyphs at small sizes
-    const textFilter = defs.append('filter').attr('id', 'textShadow');
-    textFilter.append('feOffset').attr('dx', 0).attr('dy', 1).attr('result', 'off');
-    textFilter.append('feGaussianBlur').attr('in', 'off').attr('stdDeviation', 0.6).attr('result', 'blur');
-    const feMerge = textFilter.append('feMerge');
-    feMerge.append('feMergeNode').attr('in', 'blur');
-    feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+      defs.append('filter').attr('id', 'inner-shadow').append('feDropShadow').attr('dx', 0).attr('dy', 8).attr('stdDeviation', 14).attr('flood-color', '#000').attr('flood-opacity', 0.45);
+      defs.append('filter').attr('id', 'drop').append('feDropShadow').attr('dx', 0).attr('dy', 3).attr('stdDeviation', 4).attr('flood-color', '#000').attr('flood-opacity', 0.45);
+      
+      const textFilter = defs.append('filter').attr('id', 'textShadow');
+      textFilter.append('feOffset').attr('dx', 0).attr('dy', 1).attr('result', 'off');
+      textFilter.append('feGaussianBlur').attr('in', 'off').attr('stdDeviation', 0.6).attr('result', 'blur');
+      const feMerge = textFilter.append('feMerge');
+      feMerge.append('feMergeNode').attr('in', 'blur');
+      feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+    }
+
+    // helper: check if percentage change is neutral/no change (exact 0.0% only)
+    function isNeutralChange(pct) {
+      const v = Number(pct || 0);
+      // UI mein hum 1 decimal dikha rahe hain, is liye 1-decimal rounded value check karein
+      // Sirf exact 0.0% ko blue banana hai, 0.01% ya 0.1% ko nahi
+      return Number(v.toFixed(1)) === 0;
+    }
 
     // helper: bucketed fill opacity based on absolute percent change (0..%)
     // Buckets: 0-0.99% -> 0.09, 1-1.99% -> 0.12, 2-2.99% -> 0.16, 3-3.99% -> 0.20, 4-4.99% -> 0.24,
@@ -152,7 +184,14 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       return 0.36;
     }
 
-    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+    // Main group - check if exists for smooth updates
+    let g = svg.select('g').filter(function() {
+      const transform = d3.select(this).attr('transform');
+      return transform && transform.includes(`translate(${margin.left},${margin.top})`);
+    });
+    if (g.empty()) {
+      g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+    }
 
     // Determine inferred maxima used for sizing based on the active size selection.
     // If a custom radiusScale prop is provided prefer it; otherwise we'll build
@@ -301,9 +340,14 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
       // create a radial gradient for this node (richer, glass-like)
       const pctForGrad = singleNode.data.price_change_percentage_24h ?? 0;
-      const base = pctForGrad >= 0 ? '#24c55e' : '#e24b4b';
-      const mid = pctForGrad >= 0 ? '#6fe987' : '#ff9a9a';
-      const dark = pctForGrad >= 0 ? '#0f4f2b' : '#6b2a2a';
+      let base, mid, dark;
+      if (isNeutralChange(pctForGrad)) {
+        base = '#3b82f6'; mid = '#93c5fd'; dark = '#041321';
+      } else if (pctForGrad >= 0) {
+        base = '#24c55e'; mid = '#6fe987'; dark = '#0f4f2b';
+      } else {
+        base = '#e24b4b'; mid = '#ff9a9a'; dark = '#6b2a2a';
+      }
       const rg = defs.append('radialGradient').attr('id', `grad-${singleNode.id}`).attr('cx', '30%').attr('cy', '25%');
       rg.append('stop').attr('offset', '0%').attr('stop-color', '#ffffff').attr('stop-opacity', 0.38);
       rg.append('stop').attr('offset', '28%').attr('stop-color', mid).attr('stop-opacity', 0.42);
@@ -332,7 +376,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
       // same layered visuals as before but tuned for glass look
       const pct = singleNode.data.price_change_percentage_24h ?? 0;
-      const ringColor = pct >= 0 ? '#23c55e' : '#ff4d4d';
+      const ringColor = isNeutralChange(pct) ? '#3b82f6' : (pct >= 0 ? '#23c55e' : '#ff4d4d');
 
       // single-mode: render only a stroked ring (no fill or labels)
       // subtle fill matching the rim color (very low opacity)
@@ -453,11 +497,19 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
 
     // create per-node clipPaths and radial gradients for nicer bubble shading
+    // Check if they exist before creating (for smooth updates)
     nodes.forEach((nd) => {
-      defs
-        .append('clipPath')
-        .attr('id', `clip-${nd.id}`)
-        .append('circle')
+      let clipPath = defs.select(`#clip-${nd.id}`);
+      if (clipPath.empty()) {
+        clipPath = defs
+          .append('clipPath')
+          .attr('id', `clip-${nd.id}`);
+      }
+      let clipCircle = clipPath.select('circle');
+      if (clipCircle.empty()) {
+        clipCircle = clipPath.append('circle');
+      }
+      clipCircle
         .attr('r', Math.max(2, nd.r - 4))
         .attr('cx', 0)
         .attr('cy', 0);
@@ -472,10 +524,15 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         return node.data && (node.data.price_change_percentage_24h ?? 0);
       }
 
-      // per-node radial gradient: AIA-style (green for up, red for down)
+      // per-node radial gradient: AIA-style (green for up, blue for neutral, red for down)
       const pct = pctForNode(nd);
       const rg = defs.append('radialGradient').attr('id', `grad-${nd.id}`).attr('cx', '45%').attr('cy', '35%').attr('r', '70%');
-      if (pct >= 0) {
+      if (isNeutralChange(pct)) {
+        // blue colors for neutral/no change bubbles - softer tone to match green/red
+        rg.append('stop').attr('offset', '0%').attr('stop-color', '#e0f2ff').attr('stop-opacity', 0.9);
+        rg.append('stop').attr('offset', '45%').attr('stop-color', '#3b82f6').attr('stop-opacity', 0.86);
+        rg.append('stop').attr('offset', '100%').attr('stop-color', '#041321').attr('stop-opacity', 0.95);
+      } else if (pct >= 0) {
         // neon-forward greens for up bubbles
         rg.append('stop').attr('offset', '0%').attr('stop-color', '#dfffee').attr('stop-opacity', 0.9);
         rg.append('stop').attr('offset', '45%').attr('stop-color', '#13d36b').attr('stop-opacity', 0.86);
@@ -498,22 +555,36 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
     // Initial positioning: Random distribution across entire viewport
     // Responsive to viewport size - bubbles spread randomly everywhere, not grid-based
+    // For smooth updates, preserve existing positions
+    const existingNodesMap = intervalChanged ? null : (nodesRef.current ? new Map(nodesRef.current.map(n => [n.id, n])) : null);
     const padding = 20; // Padding from edges to account for bubble radius
     nodes.forEach((nd, i) => {
-      // Calculate safe bounds for random positioning (accounting for bubble radius)
-      const maxX = Math.max(nd.r + padding, w - nd.r - padding);
-      const minX = nd.r + padding;
-      const maxY = Math.max(nd.r + padding, h - nd.r - padding);
-      const minY = nd.r + padding;
-      
-      // Random position across full viewport (responsive to w and h)
-      nd.x = minX + Math.random() * Math.max(1, maxX - minX);
-      nd.y = minY + Math.random() * Math.max(1, maxY - minY);
-      nd.vx = 0;
-      nd.vy = 0;
-      // Store base position for floating effect
-      nd.__baseX = nd.x;
-      nd.__baseY = nd.y;
+      // If smooth update and node exists, preserve position
+      if (existingNodesMap && existingNodesMap.has(nd.id)) {
+        const existing = existingNodesMap.get(nd.id);
+        nd.x = existing.x;
+        nd.y = existing.y;
+        nd.vx = existing.vx || 0;
+        nd.vy = existing.vy || 0;
+        nd.__baseX = existing.__baseX;
+        nd.__baseY = existing.__baseY;
+        nd.__phase = existing.__phase;
+      } else {
+        // Calculate safe bounds for random positioning (accounting for bubble radius)
+        const maxX = Math.max(nd.r + padding, w - nd.r - padding);
+        const minX = nd.r + padding;
+        const maxY = Math.max(nd.r + padding, h - nd.r - padding);
+        const minY = nd.r + padding;
+        
+        // Random position across full viewport (responsive to w and h)
+        nd.x = minX + Math.random() * Math.max(1, maxX - minX);
+        nd.y = minY + Math.random() * Math.max(1, maxY - minY);
+        nd.vx = 0;
+        nd.vy = 0;
+        // Store base position for floating effect
+        nd.__baseX = nd.x;
+        nd.__baseY = nd.y;
+      }
     });
 
     // Very subtle floating force - like bubbles floating gently in air
@@ -584,39 +655,83 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
 
     // Create two layers: circlesGroup (scales with zoom) and labelsGroup (keeps constant size)
-    const circlesGroup = g.append('g').attr('class', 'circles-group');
-    // disable pointer events on labelsGroup so clicks fall through to circles underneath
-    const labelsGroup = g.append('g').attr('class', 'labels-group').attr('pointer-events', 'none').attr('shape-rendering', 'geometricPrecision');
+    // Check if groups already exist (smooth update) or create new (hard refresh)
+    let circlesGroup = g.select('.circles-group');
+    let labelsGroup = g.select('.labels-group');
+    const isSmoothUpdate = !circlesGroup.empty() && !intervalChanged;
+    
+    if (circlesGroup.empty()) {
+      circlesGroup = g.append('g').attr('class', 'circles-group');
+    }
+    if (labelsGroup.empty()) {
+      labelsGroup = g.append('g').attr('class', 'labels-group').attr('pointer-events', 'none').attr('shape-rendering', 'geometricPrecision');
+    }
 
-    const circleNodes = circlesGroup.selectAll('g').data(nodes, (d) => d.id).enter().append('g').attr('class', 'node').attr('transform', (d) => `translate(${d.x},${d.y})`);
-    const labelNodes = labelsGroup.selectAll('g').data(nodes, (d) => d.id).enter().append('g').attr('class', 'label-node').attr('transform', (d) => `translate(${d.x},${d.y})`);
+    // Use D3 update/enter/exit pattern for smooth updates
+    const circleUpdate = circlesGroup.selectAll('g.node').data(nodes, (d) => d.id);
+    const circleExit = circleUpdate.exit();
+    const circleEnter = circleUpdate.enter().append('g').attr('class', 'node');
+    const circleNodes = circleUpdate.merge(circleEnter);
+    
+    const labelUpdate = labelsGroup.selectAll('g.label-node').data(nodes, (d) => d.id);
+    const labelExit = labelUpdate.exit();
+    const labelEnter = labelUpdate.enter().append('g').attr('class', 'label-node');
+    const labelNodes = labelUpdate.merge(labelEnter);
+    
+    // Handle exit: fade out and remove
+    if (!intervalChanged) {
+      circleExit.transition().duration(400).style('opacity', 0).remove();
+      labelExit.transition().duration(400).style('opacity', 0).remove();
+    } else {
+      circleExit.remove();
+      labelExit.remove();
+    }
+    
+    // Handle enter: set initial transform and opacity
+    circleEnter.attr('transform', (d) => `translate(${d.x || 0},${d.y || 0})`).style('opacity', intervalChanged ? 1 : 0);
+    labelEnter.attr('transform', (d) => `translate(${d.x || 0},${d.y || 0})`).style('opacity', intervalChanged ? 1 : 0);
+    
     circleSelRef.current = circleNodes;
     labelSelRef.current = labelNodes;
 
     // If we created a simulation above, (re)start it now that DOM nodes exist.
-    // Start with moderate energy to settle bubbles smoothly into floating state
+    // For smooth updates, use lower energy to avoid disrupting existing positions
     if (simRef.current) {
       try {
-        simRef.current.alpha(0.5).restart();
-        window.setTimeout(() => {
-          if (simRef.current) {
-            simRef.current.alphaTarget(0.001);
-            // Let it settle to calm floating state
-            setTimeout(() => {
-              if (simRef.current) {
-                simRef.current.alpha(0.001);
-              }
-            }, 2500);
-          }
-        }, 2000);
+        if (intervalChanged) {
+          // Hard refresh: start with moderate energy
+          simRef.current.alpha(0.5).restart();
+          window.setTimeout(() => {
+            if (simRef.current) {
+              simRef.current.alphaTarget(0.001);
+              setTimeout(() => {
+                if (simRef.current) {
+                  simRef.current.alpha(0.001);
+                }
+              }, 2500);
+            }
+          }, 2000);
+        } else {
+          // Smooth update: use very low energy to gently adjust positions
+          simRef.current.nodes(nodes);
+          simRef.current.alpha(0.1).restart();
+          window.setTimeout(() => {
+            if (simRef.current) {
+              simRef.current.alphaTarget(0.001);
+            }
+          }, 500);
+        }
       } catch (e) {
         // ignore
       }
     }
 
     // For each node create layered visuals in circlesGroup
+    // Handle both new nodes (enter) and existing nodes (update) with smooth transitions
     circleNodes.each(function (d) {
       const n = d3.select(this);
+      // Check if this is a new node by seeing if hit-area already exists
+      const isNewNode = n.select('.hit-area').empty();
       const pct = (function getPctLocal(di) {
         if (di.overridePct != null) return di.overridePct;
         if (aggregations && selections && selections.size === 'Performance') {
@@ -627,43 +742,75 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       })(d);
 
       // invisible hit area so clicks anywhere inside the ring open the panel
-      n.append('circle')
-        .attr('class', 'hit-area')
-        .attr('r', d.r)
-        .attr('fill', 'transparent')
-        .style('pointer-events', 'all')
-        .style('cursor', onSelectCoin ? 'pointer' : 'default')
-        .on('click', function (event) {
-          try {
-            if (onSelectCoin) onSelectCoin(d.data);
-          } catch (e) {
-            // ignore
-          }
-        });
-
+      let hitArea = n.select('.hit-area');
+      if (hitArea.empty()) {
+        hitArea = n.append('circle')
+          .attr('class', 'hit-area')
+          .attr('r', isNewNode ? 1 : d.r)
+          .attr('fill', 'transparent')
+          .style('pointer-events', 'all')
+          .style('cursor', onSelectCoin ? 'pointer' : 'default')
+          .on('click', function (event) {
+            try {
+              if (onSelectCoin) onSelectCoin(d.data);
+            } catch (e) {
+              // ignore
+            }
+          });
+      }
+      // Smooth transition for hit area radius
+      hitArea.transition().duration(isSmoothUpdate && !isNewNode ? 600 : 0).attr('r', d.r);
 
       // multi-node: render only a stroked ring representing the coin
       // make ring edge color intensity depend on magnitude
       const mag = Math.min(Math.abs(pct), localMaxPct);
       const t = localMaxPct > 0 ? Math.min(1, mag / localMaxPct) : 0;
-      // interpolate darker->brighter based on sign
+      // interpolate darker->brighter based on sign (blue for neutral, green for positive, red for negative)
       const posDark = '#053017'; const posBright = '#23c55e';
       const negDark = '#2a0b0b'; const negBright = '#ff6b6b';
-      const edgeColor = pct >= 0 ? d3.interpolateRgb(posDark, posBright)(t) : d3.interpolateRgb(negDark, negBright)(t);
+      const neutDark = '#041321'; const neutBright = '#3b82f6';
+      
+      let edgeColor;
+      if (isNeutralChange(pct)) {
+        // blue for neutral/no change
+        edgeColor = d3.interpolateRgb(neutDark, neutBright)(0.5);
+      } else {
+        edgeColor = pct >= 0 ? d3.interpolateRgb(posDark, posBright)(t) : d3.interpolateRgb(negDark, negBright)(t);
+      }
       const ringW = Math.max(2, Math.min(12, d.r * (0.06 + Math.min(0.18, Math.abs(pct) * 0.0025))));
       // subtle inner fill using the same edge color (opacity bucketed by magnitude)
       const fillOpacity = bucketFillOpacity(Math.abs(pct));
-      n.append('circle')
-        .attr('class', 'ring-fill')
+      
+      let ringFill = n.select('.ring-fill');
+      if (ringFill.empty()) {
+        ringFill = n.append('circle')
+          .attr('class', 'ring-fill')
+          .attr('r', isNewNode ? 1 : Math.max(0, d.r - Math.max(1, Math.round(ringW * 0.5))))
+          .attr('fill', edgeColor)
+          .style('opacity', isNewNode ? 0 : fillOpacity)
+          .style('pointer-events', 'none');
+      }
+      // Smooth transition for ring fill
+      ringFill.transition()
+        .duration(isSmoothUpdate && !isNewNode ? 600 : 0)
         .attr('r', Math.max(0, d.r - Math.max(1, Math.round(ringW * 0.5))))
         .attr('fill', edgeColor)
-        .style('opacity', fillOpacity)
-        .style('pointer-events', 'none');
+        .style('opacity', fillOpacity);
 
-      n.append('circle')
-        .attr('class', 'ring-only')
+      let ringOnly = n.select('.ring-only');
+      if (ringOnly.empty()) {
+        ringOnly = n.append('circle')
+          .attr('class', 'ring-only')
+          .attr('r', isNewNode ? 1 : d.r)
+          .attr('fill', 'none')
+          .attr('stroke', edgeColor)
+          .attr('stroke-width', isNewNode ? 1 : ringW)
+          .style('opacity', isNewNode ? 0 : 0.95);
+      }
+      // Smooth transition for ring
+      ringOnly.transition()
+        .duration(isSmoothUpdate && !isNewNode ? 600 : 0)
         .attr('r', d.r)
-        .attr('fill', 'none')
         .attr('stroke', edgeColor)
         .attr('stroke-width', ringW)
         .style('opacity', 0.95);
@@ -672,8 +819,11 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     });
 
     // render centered symbol and percent inside each ring (scaled to radius)
+    // Handle both new labels (enter) and existing labels (update) with smooth transitions
     labelNodes.each(function (d) {
       const ln = d3.select(this);
+      // Check if this is a new label by seeing if symbol text already exists
+      const isNewLabel = ln.select('.symbol').empty();
       const pct = (function getPctLocal(di) {
         if (di.overridePct != null) return di.overridePct;
         if (aggregations && selections && selections.size === 'Performance') {
@@ -707,31 +857,57 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
       // If the calculated text width won't fit inside the bubble and we have an image, render logo-only
       if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
-        // slightly reduce small inline/logo size so it doesn't hug the top edge
+        // Remove any existing text/labels first
+        ln.selectAll('.symbol, .pct, .price, .price-change, .logo-badge').remove();
+        
+        // Dynamic logo size based on bubble radius - bigger bubbles get bigger logos
         const smallLogoSize = Math.max(6, Math.min(Math.round(d.r * 0.85), Math.round(availableInnerWidth)));
         const topY = -Math.round(smallLogoSize / 2) + nudge;
-        try {
-          defs
-            .append('clipPath')
-            .attr('id', `clip-logo-small-${d.id}`)
-            .append('circle')
-            .attr('r', Math.max(2, Math.round(smallLogoSize / 2)))
-            .attr('cx', 0)
-            .attr('cy', 0);
-        } catch (e) {
-          // ignore (defs might be removed on re-render)
+        const clipRadius = Math.max(2, Math.round(smallLogoSize / 2));
+        
+        // Check if clipPath exists, create if not, always update radius
+        let clipPath = defs.select(`#clip-logo-small-${d.id}`);
+        if (clipPath.empty()) {
+          try {
+            clipPath = defs
+              .append('clipPath')
+              .attr('id', `clip-logo-small-${d.id}`);
+            clipPath.append('circle')
+              .attr('cx', 0)
+              .attr('cy', 0);
+          } catch (e) {
+            // ignore
+          }
         }
-        ln.append('image')
-          .attr('class', 'logo-small')
+        // Always update clipPath circle radius to match current logo size
+        clipPath.select('circle')
+          .attr('r', clipRadius)
+          .attr('cx', 0)
+          .attr('cy', 0);
+        
+        // Check if logo exists, update or create
+        let logoImg = ln.select('.logo-small');
+        if (logoImg.empty()) {
+          logoImg = ln.append('image').attr('class', 'logo-small');
+        }
+        // Smooth transition for logo size updates
+        // Ensure logo is always circular by using preserveAspectRatio and clip-path
+        logoImg
           .attr('href', d.data.image)
+          .attr('preserveAspectRatio', 'xMidYMid slice')
+          .transition()
+          .duration(isSmoothUpdate && !isNewLabel ? 600 : 0)
           .attr('width', smallLogoSize)
           .attr('height', smallLogoSize)
           .attr('x', -smallLogoSize / 2)
           .attr('y', topY)
-          .attr('clip-path', `url(#clip-logo-small-${d.id})`)
+          .style('clip-path', `url(#clip-logo-small-${d.id})`)
           .style('pointer-events', 'none');
         return;
       }
+      
+      // Remove logo-small if switching to text mode
+      ln.select('.logo-small').remove();
 
       // skip labels for extremely tiny rings with no image
       if (d.r < 10) return;
@@ -749,40 +925,80 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       if (hasBadge) {
         // move badge slightly upward so it doesn't hug the top edge and adds visual balance
         const badgeCenterY = topY + Math.round(badgeImgSize / 2) - logoUp;
-        try {
-          defs
-            .append('clipPath')
-            .attr('id', `clip-logo-badge-${d.id}`)
-            .append('circle')
-            .attr('r', Math.max(4, Math.round(badgeImgSize / 2)))
-            .attr('cx', 0)
-            .attr('cy', 0);
-        } catch (e) {
-          // ignore
+        
+        // Dynamic badge size based on bubble radius - bigger bubbles get bigger badges
+        const badgeClipRadius = Math.max(4, Math.round(badgeImgSize / 2));
+        
+        // Check if clipPath exists, create if not, always update radius
+        let badgeClipPath = defs.select(`#clip-logo-badge-${d.id}`);
+        if (badgeClipPath.empty()) {
+          try {
+            badgeClipPath = defs
+              .append('clipPath')
+              .attr('id', `clip-logo-badge-${d.id}`);
+            badgeClipPath.append('circle')
+              .attr('cx', 0)
+              .attr('cy', 0);
+          } catch (e) {
+            // ignore
+          }
         }
-        const badge = ln.append('g').attr('class', 'logo-badge').attr('transform', `translate(0, ${badgeCenterY})`);
-        badge.append('image')
+        // Always update clipPath circle radius to match current badge size
+        badgeClipPath.select('circle')
+          .attr('r', badgeClipRadius)
+          .attr('cx', 0)
+          .attr('cy', 0);
+        
+        // Check if badge exists, update or create
+        let badge = ln.select('.logo-badge');
+        if (badge.empty()) {
+          badge = ln.append('g').attr('class', 'logo-badge');
+        }
+        badge.attr('transform', `translate(0, ${badgeCenterY})`);
+        
+        // Check if image exists in badge, update or create
+        let badgeImg = badge.select('image');
+        if (badgeImg.empty()) {
+          badgeImg = badge.append('image');
+        }
+        // Smooth transition for badge size updates
+        // Ensure badge is always circular by using preserveAspectRatio and clip-path
+        badgeImg
           .attr('href', d.data.image)
+          .attr('preserveAspectRatio', 'xMidYMid slice')
+          .transition()
+          .duration(isSmoothUpdate && !isNewLabel ? 600 : 0)
           .attr('width', badgeImgSize)
           .attr('height', badgeImgSize)
           .attr('x', -badgeImgSize / 2)
           .attr('y', -badgeImgSize / 2)
-          .attr('clip-path', `url(#clip-logo-badge-${d.id})`)
+          .style('clip-path', `url(#clip-logo-badge-${d.id})`)
           .style('pointer-events', 'none');
+      } else {
+        // Remove badge if it exists but shouldn't
+        ln.select('.logo-badge').remove();
       }
 
       // symbol: centered in stack
       const symbolCenterY = topY + (hasBadge ? badgeImgSize + badgeSpacing : 0) + Math.round(symSize / 2);
-      const symEl = ln.append('text')
-        .attr('class', 'symbol')
+      let symEl = ln.select('.symbol');
+      if (symEl.empty()) {
+        symEl = ln.append('text')
+          .attr('class', 'symbol')
+          .attr('text-anchor', 'middle')
+          .attr('y', symbolCenterY)
+          .attr('dominant-baseline', 'middle')
+          .style('pointer-events', 'none')
+          .style('fill', '#ffffff')
+          .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
+          .style('font-weight', 700)
+          .style('font-size', isNewLabel ? '2px' : `${symSize}px`);
+      }
+      symEl
         .text(symbolText)
-        .attr('text-anchor', 'middle')
         .attr('y', symbolCenterY)
-        .attr('dominant-baseline', 'middle')
-        .style('pointer-events', 'none')
-        .style('fill', '#ffffff')
-        .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
-        .style('font-weight', 700)
+        .transition()
+        .duration(isSmoothUpdate && !isNewLabel ? 600 : (isNewLabel ? 600 : 0))
         .style('font-size', `${symSize}px`);
       // apply subtle text shadow only for larger labels to avoid fuzziness on very small text
       if (symSize >= 14) symEl.attr('filter', 'url(#textShadow)');
@@ -828,9 +1044,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         else if (absDelta >= 1) fmt = delta.toFixed(2);
         else if (absDelta >= 0.01) fmt = delta.toPrecision(3);
         else fmt = delta.toPrecision(4);
-        // include explicit + sign for positive moves
-        contentText = `${delta >= 0 ? '+' : ''}${fmt}`;
-        contentColor = delta >= 0 ? '#baf3c9' : '#ffb6b6';
+        // include explicit + sign for positive moves, blue for neutral
+        const isDeltaNeutral = isNeutralChange(pct);
+        contentText = `${isDeltaNeutral ? '' : (delta >= 0 ? '+' : '')}${fmt}`;
+        contentColor = isDeltaNeutral ? '#93c5fd' : (delta >= 0 ? '#baf3c9' : '#ffb6b6');
       } else if (selections && selections.content === 'Volume') {
         // show formatted 24h volume or known volume fields
         const volRaw = d.data && (d.data.volume ?? d.data.total_volume ?? d.data['24h_volume'] ?? d.data.market_cap ?? 0);
@@ -838,42 +1055,77 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         contentText = formatLargeNumber(volNum);
         contentColor = '#ffffff';
       } else {
-        contentText = `${pct >= 0 ? '+' : ''}${(pct || 0).toFixed(1)}%`;
-        contentColor = pct >= 0 ? '#baf3c9' : '#ffb6b6';
+        contentText = `${isNeutralChange(pct) ? '' : (pct >= 0 ? '+' : '')}${(pct || 0).toFixed(1)}%`;
+        contentColor = isNeutralChange(pct) ? '#93c5fd' : (pct >= 0 ? '#baf3c9' : '#ffb6b6');
       }
 
-      const pctEl = ln.append('text')
-        .attr('class', selections && selections.content === 'Price' ? 'price' : (selections && selections.content === 'Price Change' ? 'price-change' : 'pct'))
+      const pctClass = selections && selections.content === 'Price' ? 'price' : (selections && selections.content === 'Price Change' ? 'price-change' : 'pct');
+      let pctEl = ln.select(`.${pctClass}`);
+      if (pctEl.empty()) {
+        pctEl = ln.append('text')
+          .attr('class', pctClass)
+          .attr('text-anchor', 'middle')
+          .attr('y', pctCenterY)
+          .attr('dominant-baseline', 'middle')
+          .style('pointer-events', 'none')
+          .style('fill', contentColor)
+          .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
+          .style('font-weight', 600)
+          .style('font-size', isNewLabel ? '2px' : `${pctSize}px`);
+      }
+      pctEl
         .text(contentText)
-        .attr('text-anchor', 'middle')
         .attr('y', pctCenterY)
-        .attr('dominant-baseline', 'middle')
-        .style('pointer-events', 'none')
-        .style('fill', contentColor)
-        .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
-        .style('font-weight', 600);
+        .transition()
+        .duration(isSmoothUpdate && !isNewLabel ? 600 : (isNewLabel ? 600 : 0))
+        .style('font-size', `${pctSize}px`)
+        .style('fill', contentColor);
       if (pctSize >= 14) pctEl.attr('filter', 'url(#textShadow)');
     });
 
     // entry animation: grow circles/labels from small to their computed sizes for a smooth transition
+    // Only animate new nodes (enter selection), not updates
     try {
-      // hit area
-      circleNodes.selectAll('.hit-area').attr('r', 1).transition().duration(600).attr('r', (d) => d.r);
+      if (intervalChanged || circleEnter.size() > 0) {
+        // Animate new nodes only
+        circleEnter.selectAll('.hit-area')
+          .transition()
+          .duration(600)
+          .attr('r', (d) => d.r);
 
-      // ring fill and ring-only radii
-      circleNodes.selectAll('.ring-fill').attr('r', 1).transition().duration(600).attr('r', (d) => Math.max(0, d.r - Math.max(1, Math.round(Math.max(2, Math.min(12, d.r * 0.08)) * 0.5))));
-      circleNodes
-        .selectAll('.ring-only')
-        .attr('r', 1)
-        .attr('stroke-width', 1)
-        .transition()
-        .duration(600)
-        .attr('r', (d) => d.r)
-        .attr('stroke-width', (d) => Math.max(2, Math.min(12, d.r * 0.08)));
+        circleEnter.selectAll('.ring-fill')
+          .transition()
+          .duration(600)
+          .attr('r', (d) => {
+            const pct = (d.data && d.data.price_change_percentage_24h) || 0;
+            const ringW = Math.max(2, Math.min(12, d.r * (0.06 + Math.min(0.18, Math.abs(pct) * 0.0025))));
+            return Math.max(0, d.r - Math.max(1, Math.round(ringW * 0.5)));
+          });
 
-      // labels: fade/scale in by transitioning font-size (note: exact font sizes are computed when labels are rendered)
-      labelNodes.selectAll('.symbol').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.36))}px`);
-      labelNodes.selectAll('.pct').style('font-size', '2px').transition().duration(600).style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.24))}px`);
+        circleEnter.selectAll('.ring-only')
+          .transition()
+          .duration(600)
+          .attr('r', (d) => d.r)
+          .attr('stroke-width', (d) => {
+            const pct = (d.data && d.data.price_change_percentage_24h) || 0;
+            return Math.max(2, Math.min(12, d.r * (0.06 + Math.min(0.18, Math.abs(pct) * 0.0025))));
+          })
+          .style('opacity', 0.95);
+
+        // Fade in new nodes
+        circleEnter.transition().duration(600).style('opacity', 1);
+        labelEnter.transition().duration(600).style('opacity', 1);
+
+        // labels: fade/scale in by transitioning font-size
+        labelEnter.selectAll('.symbol')
+          .transition()
+          .duration(600)
+          .style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.36))}px`);
+        labelEnter.selectAll('.pct, .price, .price-change')
+          .transition()
+          .duration(600)
+          .style('font-size', (d) => `${Math.max(8, Math.round(d.r * 0.24))}px`);
+      }
     } catch (e) {
       // ignore animation errors
     }
@@ -996,8 +1248,14 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         try {
           const speed = Math.hypot(d.vx || 0, d.vy || 0);
           const blur = glowScale(speed);
-          const isPos = (d.data.price_change_percentage_24h || 0) >= 0;
-          const color = isPos ? 'rgba(35,197,94,0.95)' : 'rgba(242,85,85,0.95)';
+          const pctGlow = (d.data.price_change_percentage_24h || 0);
+          let color;
+          if (isNeutralChange(pctGlow)) {
+            color = 'rgba(59,130,246,0.95)'; // blue for neutral - softer tone
+          } else {
+            const isPos = pctGlow >= 0;
+            color = isPos ? 'rgba(35,197,94,0.95)' : 'rgba(242,85,85,0.95)';
+          }
           const g = d3.select(this);
           g.select('.glow').style('filter', `drop-shadow(0 0 ${blur}px ${color})`).style('opacity', Math.min(0.95, 0.35 + blur / 40));
           const baseRing = Math.max(1, Math.min(6, d.r * (0.03 + Math.min(0.12, Math.abs(d.data.price_change_percentage_24h || 0) * 0.0015))));
@@ -1014,7 +1272,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       tooltip.remove();
       svg.on('.zoom', null);
     };
-  }, [data, size.width, size.height, single, radiusScale, selections, aggregations]);
+  }, [data, size.width, size.height, single, radiusScale, selections, aggregations, currentInterval]);
 
   // Periodically sample node positions to update the visible count without rerendering on every tick.
   useEffect(() => {
