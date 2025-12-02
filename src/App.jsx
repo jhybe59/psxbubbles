@@ -11,6 +11,8 @@ import SymbolsPanel from './components/SymbolsPanel'
 import PriceRange from './components/PriceRange'
 import SnapshotPanel from './components/SnapshotPanel'
 import MarketSummary from './components/MarketSummary'
+import FilterButton from './components/FilterButton'
+import FilterBuilder from './components/FilterBuilder'
 import useMarketStats from './hooks/useMarketStats'
 import { createRadiusScale } from './utils/scales'
 import './App.css'
@@ -149,6 +151,28 @@ function App() {
   const [priceRange, setPriceRange] = useState([1, Number.POSITIVE_INFINITY])
   const [symbolsPanelOpen, setSymbolsPanelOpen] = useState(false)
 
+  // Filter state
+  const [selectedFilter, setSelectedFilter] = useState(() => {
+    try {
+      const v = localStorage.getItem('selectedFilter');
+      return v ? JSON.parse(v) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [savedFilters, setSavedFilters] = useState(() => {
+    try {
+      const v = localStorage.getItem('savedFilters');
+      return v ? JSON.parse(v) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [filterBuilderOpen, setFilterBuilderOpen] = useState(false);
+  const [editingFilter, setEditingFilter] = useState(null);
+
   // load favorites from localStorage; store array of coin ids
   const [favorites] = useState(() => {
     try {
@@ -247,6 +271,81 @@ function App() {
     return visible.filter((c) => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q));
   }, [coins, query])
 
+  // Apply filter logic to coins
+  const applyFilter = useCallback((coinsList, filter) => {
+    if (!filter || !filter.conditions) return coinsList;
+
+    const resolveValue = (coin, field, interval) => {
+      // Basic fields
+      if (field === 'price') return Number(coin.price || coin.close || 0);
+      if (field === 'volume') return Number(coin.volume || 0);
+      if (field === 'changePct') return Number(coin.price_change_percentage_24h || coin.interval_pct || 0);
+      if (field === 'value') return Number(coin.value || coin.daily_value || 0);
+      if (field === 'dailyVolume') return Number(coin.daily_volume || coin.volume || 0);
+
+      // Technicals
+      if (field === 'priceChange1h') return Number(coin.price_change_percentage_24h || 0) / 24;
+      if (field === 'priceChange24h') return Number(coin.price_change_percentage_24h || 0);
+      if (field === 'momentum') return Number(coin.interval_pct || coin.price_change_percentage_24h || 0);
+
+      // Growth
+      if (field === 'volumeGrowth') return Number(coin.volume || 0);
+      if (field === 'priceGrowth') return Number(coin.price_change_percentage_24h || coin.interval_pct || 0);
+
+      // Financials
+      if (field === 'peRatio') return Number(coin.extra?.peRatio || coin.raw?.peRatio || 0);
+      if (field === 'marketCap') return Number(coin.extra?.marketCap || coin.raw?.marketCap || 0);
+
+      // OHLC fields - try to get from raw data if available
+      if (field === 'open') return Number(coin.raw?.open || coin.open || coin.price || 0);
+      if (field === 'high') return Number(coin.raw?.high || coin.high || coin.price || 0);
+      if (field === 'low') return Number(coin.raw?.low || coin.low || coin.price || 0);
+
+      return 0;
+    };
+
+    const compare = (sourceVal, operator, targetVal) => {
+      if (sourceVal == null || targetVal == null) return false;
+
+      switch (operator) {
+        case 'above': return sourceVal > targetVal;
+        case 'aboveOrEqual': return sourceVal >= targetVal;
+        case 'below': return sourceVal < targetVal;
+        case 'belowOrEqual': return sourceVal <= targetVal;
+        case 'equal': return Math.abs(sourceVal - targetVal) < 0.000001;
+        case 'crosses': return false;
+        case 'crossesUp': return sourceVal > targetVal;
+        case 'crossesDown': return sourceVal < targetVal;
+        default: return false;
+      }
+    };
+
+    return coinsList.filter(coin => {
+      const conditions = filter.conditions;
+
+      for (const [key, cond] of Object.entries(conditions)) {
+        if (!cond) continue;
+
+        // Determine source value based on filter key
+        let sourceVal = resolveValue(coin, key);
+
+        // Handle Range (Min/Max)
+        if (cond.min != null && sourceVal < cond.min) return false;
+        if (cond.max != null && sourceVal > cond.max) return false;
+
+        // Handle Advanced Operator/Target
+        if (cond.operator && cond.target) {
+          if (cond.target !== 'value') {
+            const targetVal = resolveValue(coin, cond.target, cond.interval);
+            if (!compare(sourceVal, cond.operator, targetVal)) return false;
+          }
+        }
+      }
+
+      return true;
+    });
+  }, [])
+
   // apply page filter if selected (pageIndex maps to 0 => 1-100, 1 => 101-200 ...)
   // NOTE: when a specific page is selected we slice the full `coins` array
   // so the page buckets remain stable (1-100, 101-200, ...) even if a
@@ -255,23 +354,31 @@ function App() {
   const displayedCoins = useMemo(() => {
     const per = 100;
     const [pmin, pmax] = priceRange || [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY];
+
+    let result = filtered;
+
+    // Apply price range filter
+    result = result.filter((c) => {
+      const p = Number(c.price == null ? c.close || 0 : c.price);
+      return !Number.isNaN(p) && p >= pmin && p <= pmax;
+    });
+
+    // Apply custom filter if selected
+    if (selectedFilter) {
+      result = applyFilter(result, selectedFilter);
+    }
+
     // If an index is selected, ignore page buckets and show only index members
     if (selectedIndex) {
       const members = indexMap && indexMap[selectedIndex] ? new Set((indexMap[selectedIndex] || []).map(s => s.toLowerCase())) : null;
       if (!members) return [];
-      return filtered
-        .filter((c) => members.has((c.symbol || c.id || '').toLowerCase()))
-        .filter((c) => {
-          const p = Number(c.price == null ? c.close || 0 : c.price);
-          return !Number.isNaN(p) && p >= pmin && p <= pmax;
-        });
+      return result.filter((c) => members.has((c.symbol || c.id || '').toLowerCase()));
     }
+
     if (pageIndex == null) {
-      return filtered.filter((c) => {
-        const p = Number(c.price == null ? c.close || 0 : c.price);
-        return !Number.isNaN(p) && p >= pmin && p <= pmax;
-      });
+      return result;
     }
+
     const start = pageIndex * per;
     // use visible coins for paging so hidden symbols don't occupy slots
     const meta = getAllMetadata();
@@ -280,7 +387,7 @@ function App() {
       const p = Number(c.price == null ? c.close || 0 : c.price);
       return !Number.isNaN(p) && p >= pmin && p <= pmax;
     });
-  }, [filtered, coins, pageIndex, selectedIndex, indexMap, priceRange]);
+  }, [filtered, coins, pageIndex, selectedIndex, indexMap, priceRange, selectedFilter, applyFilter]);
 
   // Memoize the bubble chart data to prevent unnecessary recreations on every render
   // This prevents bubbles from being recreated when only UI state changes (like menu opens/closes)
@@ -315,7 +422,7 @@ function App() {
         lastRefreshTimeRef.current = Date.now();
         setRefreshProgress(0);
         setIsProgressAnimating(true);
-        
+
         refreshForInterval(currentInterval);
       }
     } catch (e) {
@@ -378,10 +485,23 @@ function App() {
     } catch (e) { /* ignore */ }
   }, [selectedIndex]);
 
+  // Persist selected filter
+  useEffect(() => {
+    try {
+      if (selectedFilter) {
+        localStorage.setItem('selectedFilter', JSON.stringify(selectedFilter));
+      } else {
+        localStorage.removeItem('selectedFilter');
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [selectedFilter]);
+
   // Use refs to store latest values so callbacks don't need to be recreated
   const refreshForIntervalRef = useRef(refreshForInterval);
   const currentIntervalRef = useRef(currentInterval);
-  
+
   // Update refs when values change
   useEffect(() => {
     refreshForIntervalRef.current = refreshForInterval;
@@ -395,9 +515,9 @@ function App() {
       clearTimeout(autoRefreshTimerRef.current);
       autoRefreshTimerRef.current = null;
     }
-    
+
     // NOTE: Progress reset yahan nahi karte - progress reset interval change aur auto-refresh pe hoti hai
-    
+
     // Set up auto-refresh after 30 seconds
     autoRefreshTimerRef.current = setTimeout(() => {
       if (refreshForIntervalRef.current) {
@@ -405,13 +525,13 @@ function App() {
         lastRefreshTimeRef.current = Date.now();
         setRefreshProgress(0);
         setIsProgressAnimating(true);
-        
+
         refreshForIntervalRef.current(currentIntervalRef.current);
       }
       // Schedule the next refresh
       autoRefreshTimerRef.current = null;
       scheduleNextRefresh();
-    }, 30000); // 30 seconds = 30000 milliseconds
+    }, AUTO_REFRESH_MS); // Configured interval
   }, []); // No dependencies - uses refs instead
 
   // Function to handle manual refresh and set up auto-refresh cycle
@@ -421,19 +541,19 @@ function App() {
       clearTimeout(autoRefreshTimerRef.current);
       autoRefreshTimerRef.current = null;
     }
-    
+
     // Reset progress
     setIsProgressAnimating(false); // Disable animation before reset
     lastRefreshTimeRef.current = Date.now();
     setRefreshProgress(0);
     // Re-enable animation after a brief moment
     setTimeout(() => setIsProgressAnimating(true), 50);
-    
+
     // Perform the refresh
     if (refreshForIntervalRef.current) {
       refreshForIntervalRef.current(currentIntervalRef.current);
     }
-    
+
     // Schedule the next auto-refresh
     scheduleNextRefresh();
   }, [scheduleNextRefresh]);
@@ -441,13 +561,13 @@ function App() {
   // Progress tracking for refresh cycle
   useEffect(() => {
     if (!ENABLE_LIVE_API) return;
-    
+
     // Update progress every 100ms for smooth animation
     refreshProgressTimerRef.current = setInterval(() => {
       const now = Date.now();
       const elapsed = now - lastRefreshTimeRef.current;
-      const progress = Math.min((elapsed / 30000) * 100, 100); // 30 seconds = 100%
-      
+      const progress = Math.min((elapsed / AUTO_REFRESH_MS) * 100, 100); // Configured interval = 100%
+
       // Auto-reset when reaching 100% (refresh happens) - direct jump, no animation
       if (progress >= 100) {
         setIsProgressAnimating(false); // Disable animation before reset
@@ -460,7 +580,7 @@ function App() {
         setRefreshProgress(progress);
       }
     }, 100);
-    
+
     return () => {
       if (refreshProgressTimerRef.current) {
         clearInterval(refreshProgressTimerRef.current);
@@ -474,7 +594,7 @@ function App() {
     if (!loading && (coins.length > 0 || snapCount !== null)) {
       scheduleNextRefresh();
     }
-    
+
     // Cleanup timer on unmount or when dependencies change
     return () => {
       if (autoRefreshTimerRef.current) {
@@ -493,28 +613,28 @@ function App() {
     function onGlobalKeyDown(e) {
       // Don't trigger if search is already open
       if (searchOpen) return;
-      
+
       // Don't trigger if user is typing in an input, textarea, or contenteditable element
       const target = e.target;
-      const isInputElement = target.tagName === 'INPUT' || 
-                            target.tagName === 'TEXTAREA' || 
-                            target.isContentEditable ||
-                            target.closest('input, textarea, [contenteditable="true"]');
-      
+      const isInputElement = target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        target.closest('input, textarea, [contenteditable="true"]');
+
       if (isInputElement) return;
-      
+
       // Don't trigger on modifier keys or special keys
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      
+
       // Don't trigger on function keys, arrows, etc.
       const specialKeys = [
         'Escape', 'Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
         'Home', 'End', 'PageUp', 'PageDown', 'Insert', 'Delete', 'Backspace',
         'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'
       ];
-      
+
       if (specialKeys.includes(e.key)) return;
-      
+
       // If it's a printable character (length 1), open search with that character
       if (e.key.length === 1) {
         e.preventDefault();
@@ -522,7 +642,7 @@ function App() {
         setSearchOpen(true);
       }
     }
-    
+
     window.addEventListener('keydown', onGlobalKeyDown);
     return () => {
       window.removeEventListener('keydown', onGlobalKeyDown);
@@ -741,6 +861,42 @@ function App() {
             </div>
           </div>
 
+          {/* Filter Button - Add this after interval dropdowns */}
+          <FilterButton
+            selectedFilter={selectedFilter}
+            savedFilters={savedFilters}
+            onSelectFilter={(filter) => {
+              setSelectedFilter(filter);
+              // Close interval menus when filter is selected
+              setDayIntervalMenuOpen(false);
+              setMonthlyIntervalMenuOpen(false);
+            }}
+            onCreateNew={() => {
+              setEditingFilter(null);
+              setFilterBuilderOpen(true);
+              // Close interval menus when opening filter builder
+              setDayIntervalMenuOpen(false);
+              setMonthlyIntervalMenuOpen(false);
+            }}
+            onDeleteFilter={(filterId) => {
+              const updated = savedFilters.filter(f => f.id !== filterId);
+              setSavedFilters(updated);
+              try {
+                localStorage.setItem('savedFilters', JSON.stringify(updated));
+              } catch (e) {
+                // ignore
+              }
+              if (selectedFilter?.id === filterId) {
+                setSelectedFilter(null);
+                try {
+                  localStorage.removeItem('selectedFilter');
+                } catch (e) {
+                  // ignore
+                }
+              }
+            }}
+          />
+
           {/* Header Pages Dropdown - Visible in Landscape */}
           <div className="header-pages-dropdown">
             {(() => {
@@ -760,7 +916,7 @@ function App() {
                   >
                     ★ {floatingLabel} ▾
                   </button>
-                  
+
                   {/* Menu content - Column layout like screenshot */}
                   {favoritesOpen && (
                     <div className="header-favorites-menu header-favorites-menu-columns">
@@ -786,9 +942,9 @@ function App() {
                               const sign = avg >= 0 ? '+' : '';
                               const bgColor = avg > 0 ? 'rgba(61,220,132,0.15)' : avg < 0 ? 'rgba(255,155,155,0.15)' : 'transparent';
                               return (
-                                <button 
-                                  key={i} 
-                                  className={`menu-row ${(pageIndex === i && !selectedIndex) ? 'active' : ''}`} 
+                                <button
+                                  key={i}
+                                  className={`menu-row ${(pageIndex === i && !selectedIndex) ? 'active' : ''}`}
                                   onClick={() => { setSelectedIndex(null); setPageIndex(i); }}
                                   style={{ background: bgColor }}
                                 >
@@ -801,7 +957,7 @@ function App() {
                           })()}
                         </div>
                       </div>
-                      
+
                       {/* Lists Column */}
                       <div className="menu-column">
                         <div className="menu-title">Lists <span className="interval">{currentInterval}</span></div>
@@ -831,7 +987,7 @@ function App() {
                           })()}
                         </div>
                       </div>
-                      
+
                       {/* Indices Column */}
                       <div className="menu-column">
                         <div className="menu-title">Indices <span className="interval">{currentInterval}</span></div>
@@ -967,14 +1123,14 @@ function App() {
       {ENABLE_LIVE_API && marketSummaryOpen && (
         <>
           {/* Backdrop overlay */}
-          <div 
+          <div
             className="market-summary-backdrop"
             onClick={() => setMarketSummaryOpen(false)}
           />
-          
+
           {/* Panel - Same layout as before, but slides in from right */}
-          <div 
-            className="market-summary-panel market-summary-panel-slide" 
+          <div
+            className="market-summary-panel market-summary-panel-slide"
             id="market-summary-panel"
           >
             {marketError && (
@@ -1097,19 +1253,19 @@ function App() {
                     fontSize: '11px',
                     padding: '2px 6px',
                     borderRadius: '4px',
-                    background: marketError 
-                      ? 'rgba(255,155,155,0.14)' 
-                      : (!marketError && marketLoading 
-                        ? 'rgba(245,214,122,0.2)' 
-                        : (!marketError && !marketLoading && marketStats 
-                          ? 'rgba(61,220,132,0.12)' 
+                    background: marketError
+                      ? 'rgba(255,155,155,0.14)'
+                      : (!marketError && marketLoading
+                        ? 'rgba(245,214,122,0.2)'
+                        : (!marketError && !marketLoading && marketStats
+                          ? 'rgba(61,220,132,0.12)'
                           : 'rgba(255,255,255,0.08)')),
-                    color: marketError 
-                      ? '#ff9b9b' 
-                      : (!marketError && marketLoading 
-                        ? '#f5d67a' 
-                        : (!marketError && !marketLoading && marketStats 
-                          ? '#7fe6ae' 
+                    color: marketError
+                      ? '#ff9b9b'
+                      : (!marketError && marketLoading
+                        ? '#f5d67a'
+                        : (!marketError && !marketLoading && marketStats
+                          ? '#7fe6ae'
                           : '#9fb8b0'))
                   }}
                 >
@@ -1118,7 +1274,7 @@ function App() {
               </button>
             </div>
           )}
-          
+
           {(!coins || coins.length === 0) ? (
             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#9fb8b0' }}>
               <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>No chart data available</div>
@@ -1213,16 +1369,16 @@ function App() {
                     const end = Math.min((i + 1) * per, total || (i + 1) * per);
                     const chunk = coins.slice(i * per, (i + 1) * per);
                     const vals = chunk.map((c) => approxPctForInterval(currentInterval, c.price_change_percentage_24h || 0));
-                              const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
-                              const sign = avg >= 0 ? '+' : '';
-                              const bgColor = avg > 0 ? 'rgba(61,220,132,0.15)' : avg < 0 ? 'rgba(255,155,155,0.15)' : 'transparent';
-                              return (
-                                <button key={i} className={`menu-row ${(pageIndex === i && !selectedIndex) ? 'active' : ''}`} onClick={() => { setSelectedIndex(null); setPageIndex(i); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: bgColor, border: 'none', textAlign: 'left', flex: '1 1 auto', padding: '6px 8px' }}>
-                                  <input type="radio" readOnly checked={(pageIndex === i && !selectedIndex)} />
-                                  <span className="menu-label">{`${start} - ${end}`}</span>
-                                  <span className={`menu-pct ${avg >= 0 ? 'pos' : 'neg'}`}>{`${sign}${avg.toFixed(2)}%`}</span>
-                                </button>
-                              );
+                    const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+                    const sign = avg >= 0 ? '+' : '';
+                    const bgColor = avg > 0 ? 'rgba(61,220,132,0.15)' : avg < 0 ? 'rgba(255,155,155,0.15)' : 'transparent';
+                    return (
+                      <button key={i} className={`menu-row ${(pageIndex === i && !selectedIndex) ? 'active' : ''}`} onClick={() => { setSelectedIndex(null); setPageIndex(i); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: bgColor, border: 'none', textAlign: 'left', flex: '1 1 auto', padding: '6px 8px' }}>
+                        <input type="radio" readOnly checked={(pageIndex === i && !selectedIndex)} />
+                        <span className="menu-label">{`${start} - ${end}`}</span>
+                        <span className={`menu-pct ${avg >= 0 ? 'pos' : 'neg'}`}>{`${sign}${avg.toFixed(2)}%`}</span>
+                      </button>
+                    );
                   });
                 })()}
               </div>
@@ -1323,6 +1479,29 @@ function App() {
       {selectedCoin && <CoinModal coin={selectedCoin} onClose={() => setSelectedCoin(null)} />}
       {/* Debug HUD removed in demo-only reset */}
       {/* Debug Panel removed in demo-only reset */}
+
+      {/* Filter Builder Modal */}
+      <FilterBuilder
+        open={filterBuilderOpen}
+        onClose={() => {
+          setFilterBuilderOpen(false);
+          setEditingFilter(null);
+        }}
+        initialFilter={editingFilter}
+        onSave={(filter) => {
+          const updated = savedFilters.filter(f => f.id !== filter.id);
+          updated.push(filter);
+          setSavedFilters(updated);
+          try {
+            localStorage.setItem('savedFilters', JSON.stringify(updated));
+          } catch (e) {
+            // ignore
+          }
+          // Auto-select the saved filter
+          setSelectedFilter(filter);
+        }}
+        coins={coins}
+      />
     </div>
   )
 }

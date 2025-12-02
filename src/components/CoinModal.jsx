@@ -180,7 +180,7 @@ export default function CoinModal({ coin, onClose }) {
   // Define displayCoin BEFORE it's used in useEffect
   const displayCoin = currentCoin || coin;
 
-  // Calculate 24h stats - prefer raw data fields which already have correct values
+  // Calculate 24h stats - prefer API-provided daily fields (most accurate)
   useEffect(() => {
     let mounted = true;
     async function load24hStats() {
@@ -189,6 +189,15 @@ export default function CoinModal({ coin, onClose }) {
       try {
         const raw = displayCoin?.raw || coin?.raw || {};
 
+        // PRIORITY 1: Use API-provided daily fields (from backend SQL calculation)
+        // These are guaranteed to be accurate 24h values regardless of selected interval
+        const apiDailyHigh = displayCoin?.dailyHigh ?? coin?.dailyHigh ?? null;
+        const apiDailyLow = displayCoin?.dailyLow ?? coin?.dailyLow ?? null;
+        const apiDailyVolume = displayCoin?.dailyVolume ?? coin?.dailyVolume ?? null;
+        const apiDailyValue = displayCoin?.dailyValue ?? coin?.dailyValue ?? null;
+        const apiDailyOpen = displayCoin?.dailyOpen ?? coin?.dailyOpen ?? null;
+
+        // PRIORITY 2: Fallback to raw data fields (from CSV/API)
         // Get values from raw data first (most accurate)
         // These fields come directly from CSV/API and are already calculated correctly
         const rawHigh = raw['High 1 day'] != null ? Number(raw['High 1 day']) :
@@ -233,13 +242,13 @@ export default function CoinModal({ coin, onClose }) {
           priceDelta = latestPrice - todayOpenPrice;
         }
 
-        // If we have raw data, use it; otherwise calculate from snapshots as fallback
+        // Use API daily fields if available, otherwise use raw data, otherwise calculate
         let stats = {
-          high: rawHigh,
-          low: rawLow,
-          volume: rawVolume,
-          value: rawValue,
-          open: todayOpenPrice,
+          high: apiDailyHigh ?? rawHigh,
+          low: apiDailyLow ?? rawLow,
+          volume: apiDailyVolume ?? rawVolume,
+          value: apiDailyValue ?? rawValue,
+          open: apiDailyOpen ?? todayOpenPrice,
           pctChange: rawDailyPct != null ? rawDailyPct : (displayCoin?.daily_change_1d != null ? displayCoin.daily_change_1d : displayCoin?.price_change_percentage_24h || null),
           priceDelta: priceDelta,
           close: latestPrice
@@ -354,7 +363,7 @@ export default function CoinModal({ coin, onClose }) {
       mounted = false;
       clearInterval(interval);
     };
-  }, [coin?.symbol, coin?.raw, displayCoin?.price, displayCoin?.raw, displayCoin?.volume, displayCoin?.daily_change_1d, displayCoin?.price_change_percentage_24h]);
+  }, [coin?.symbol, coin?.raw, coin?.dailyHigh, coin?.dailyLow, coin?.dailyVolume, coin?.dailyValue, coin?.dailyOpen, displayCoin?.price, displayCoin?.raw, displayCoin?.volume, displayCoin?.daily_change_1d, displayCoin?.price_change_percentage_24h, displayCoin?.dailyHigh, displayCoin?.dailyLow, displayCoin?.dailyVolume, displayCoin?.dailyValue, displayCoin?.dailyOpen]);
 
   // Refresh latest coin data periodically when modal is open
   useEffect(() => {

@@ -109,12 +109,66 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
              ELSE (price - prev_close) / prev_close * 100 END AS interval_pct
       FROM ranked
       WHERE rk = 1
+    ),
+    daily_24h_stats AS (
+      -- Calculate 24h statistics for coin modal (always full day)
+      SELECT DISTINCT ON (l.symbol)
+        l.symbol,
+        (
+          SELECT MAX(high) 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+        ) AS daily_high,
+        (
+          SELECT MIN(low) 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+        ) AS daily_low,
+        (
+          SELECT SUM(volume) 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+        ) AS daily_volume,
+        (
+          SELECT SUM(value) 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+        ) AS daily_value,
+        (
+          SELECT open 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+          ORDER BY ts ASC
+          LIMIT 1
+        ) AS daily_open
+      FROM latest l
     )
-    SELECT symbol, ts, price, 
-           COALESCE(interval_pct, daily_pct, 0) AS interval_pct, 
-           COALESCE(daily_pct, interval_pct) AS daily_pct, 
-           volume, value, raw
-    FROM latest
+    SELECT 
+      l.symbol, 
+      l.ts, 
+      l.price, 
+      COALESCE(l.interval_pct, l.daily_pct, 0) AS interval_pct, 
+      COALESCE(l.daily_pct, l.interval_pct) AS daily_pct, 
+      l.volume, 
+      l.value, 
+      l.raw,
+      d.daily_high,
+      d.daily_low,
+      d.daily_volume,
+      d.daily_value,
+      d.daily_open
+    FROM latest l
+    LEFT JOIN daily_24h_stats d ON l.symbol = d.symbol
     ORDER BY ${buildOrderClause('pct', favoritesParam)}
     LIMIT ${limitParam};
   `;
@@ -163,12 +217,16 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
 
   // Real-time approach: Get latest data, then find data N minutes before
   // This uses the exact same pattern as 1m but with configurable time interval
+  // PLUS: Always calculate 24h statistics for the coin modal
   const sql = `
     WITH ranked AS (
       SELECT
         symbol,
         ts,
         close AS price,
+        open,
+        high,
+        low,
         volume,
         value,
         daily_pct,
@@ -183,6 +241,9 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
         symbol,
         ts,
         price,
+        open,
+        high,
+        low,
         volume,
         value,
         daily_pct,
@@ -191,7 +252,7 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
       WHERE rk = 1
     ),
     earlier_data AS (
-      -- Get data point closest to (latest_ts - interval)
+      -- Get data point closest to (latest_ts - interval) for interval percentage
       SELECT DISTINCT ON (l.symbol)
         l.symbol,
         e.close AS earlier_price
@@ -205,8 +266,51 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
         LIMIT 1
       ) e ON true
     ),
+    daily_24h_stats AS (
+      -- Calculate 24h statistics for coin modal (always full day)
+      SELECT DISTINCT ON (l.symbol)
+        l.symbol,
+        (
+          SELECT MAX(high) 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+        ) AS daily_high,
+        (
+          SELECT MIN(low) 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+        ) AS daily_low,
+        (
+          SELECT SUM(volume) 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+        ) AS daily_volume,
+        (
+          SELECT SUM(value) 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+        ) AS daily_value,
+        (
+          SELECT open 
+          FROM minute_bars 
+          WHERE symbol = l.symbol 
+            AND ts >= l.ts - INTERVAL '24 hours'
+            AND ts <= l.ts
+          ORDER BY ts ASC
+          LIMIT 1
+        ) AS daily_open
+      FROM latest_data l
+    ),
     calculated AS (
-      -- Calculate percentage change (real-time calculation)
+      -- Calculate interval percentage change (real-time calculation)
       SELECT 
         l.symbol,
         l.ts,
@@ -216,12 +320,18 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
         l.daily_pct,
         l.raw,
         e.earlier_price,
+        d.daily_high,
+        d.daily_low,
+        d.daily_volume,
+        d.daily_value,
+        d.daily_open,
         CASE 
           WHEN e.earlier_price IS NULL OR e.earlier_price = 0 THEN l.daily_pct
           ELSE (l.price - e.earlier_price) / e.earlier_price * 100 
         END AS interval_pct
       FROM latest_data l
       LEFT JOIN earlier_data e ON l.symbol = e.symbol
+      LEFT JOIN daily_24h_stats d ON l.symbol = d.symbol
     )
     SELECT 
       symbol,
@@ -231,7 +341,12 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
       daily_pct,
       volume,
       value,
-      raw
+      raw,
+      daily_high,
+      daily_low,
+      daily_volume,
+      daily_value,
+      daily_open
     FROM calculated
     ORDER BY ${buildOrderClause('pct', favoritesParam)}
     LIMIT ${limitParam};
@@ -262,7 +377,13 @@ const hydrateResponse = (rows, interval) => {
       volume: row.volume != null ? Number(row.volume) : null,
       turnover: row.value != null ? Number(row.value) : null,
       ts: row.bucket ?? row.ts,
-      raw: row.raw
+      raw: row.raw,
+      // Add daily (24h) statistics for coin modal - always calculated regardless of interval
+      dailyHigh: row.daily_high != null ? Number(row.daily_high) : null,
+      dailyLow: row.daily_low != null ? Number(row.daily_low) : null,
+      dailyVolume: row.daily_volume != null ? Number(row.daily_volume) : null,
+      dailyValue: row.daily_value != null ? Number(row.daily_value) : null,
+      dailyOpen: row.daily_open != null ? Number(row.daily_open) : null
     }))
   };
 };

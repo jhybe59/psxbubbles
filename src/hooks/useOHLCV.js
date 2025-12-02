@@ -31,36 +31,62 @@ async function fetchLiveInterval(interval) {
     : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
   const url = new URL('bubbles', base.endsWith('/') ? base : `${base}/`);
   url.searchParams.set('interval', apiInterval);
-  const headers = { 
+  const headers = {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache'
   };
   if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
-  // Add timestamp to URL to bypass browser cache
-  url.searchParams.set('_t', Date.now().toString());
-  const res = await fetch(url.toString(), { 
-    headers,
-    cache: 'no-store'
-  });
-  if (!res.ok) {
-    throw new Error(`Live API error (${res.status})`);
+
+  const MAX_RETRIES = 3;
+  let attempt = 0;
+
+  while (attempt <= MAX_RETRIES) {
+    try {
+      // Add timestamp to URL to bypass browser cache
+      url.searchParams.set('_t', Date.now().toString());
+      const res = await fetch(url.toString(), {
+        headers,
+        cache: 'no-store'
+      });
+
+      if (res.status === 429) {
+        attempt++;
+        if (attempt > MAX_RETRIES) throw new Error(`Live API rate limit exceeded (${res.status})`);
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        console.warn(`[useOHLCV] Rate limit hit, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new Error(`Live API error (${res.status})`);
+      }
+
+      const json = await res.json();
+      if (!json || !Array.isArray(json.symbols)) {
+        return [];
+      }
+      return json.symbols.map((row) => ({
+        id: row.symbol,
+        symbol: row.symbol,
+        name: row.name || fallbackName(row.symbol),
+        price: Number(row.price ?? 0),
+        volume: row.volume != null ? Number(row.volume) : null,
+        price_change_percentage_24h: Number(row.intervalPct ?? 0),
+        daily_change_1d: row.dailyPct != null ? Number(row.dailyPct) : null,
+        ts: row.ts ? Number(new Date(row.ts).getTime()) : null,
+        raw: row
+      }));
+    } catch (err) {
+      if (attempt >= MAX_RETRIES) throw err;
+      attempt++;
+      // Simple retry for network errors
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
   }
-  const json = await res.json();
-  if (!json || !Array.isArray(json.symbols)) {
-    return [];
-  }
-  return json.symbols.map((row) => ({
-    id: row.symbol,
-    symbol: row.symbol,
-    name: row.name || fallbackName(row.symbol),
-    price: Number(row.price ?? 0),
-    volume: row.volume != null ? Number(row.volume) : null,
-    price_change_percentage_24h: Number(row.intervalPct ?? 0),
-    daily_change_1d: row.dailyPct != null ? Number(row.dailyPct) : null,
-    ts: row.ts ? Number(new Date(row.ts).getTime()) : null,
-    raw: row
-  }));
+  return [];
 }
 
 export default function useOHLCV() {
