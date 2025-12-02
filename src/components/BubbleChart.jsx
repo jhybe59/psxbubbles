@@ -1060,6 +1060,15 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }
 
       const pctClass = selections && selections.content === 'Price' ? 'price' : (selections && selections.content === 'Price Change' ? 'price-change' : 'pct');
+
+      // Ensure only the chosen content type is visible on the bubble
+      // Remove any previous lower-line text elements that don't match the active class
+      ln.selectAll('.pct, .price, .price-change')
+        .filter(function () {
+          return !this.classList.contains(pctClass);
+        })
+        .remove();
+
       let pctEl = ln.select(`.${pctClass}`);
       if (pctEl.empty()) {
         pctEl = ln.append('text')

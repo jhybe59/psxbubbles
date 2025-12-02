@@ -24,6 +24,10 @@ function App() {
   const [showControls, setShowControls] = useState(false)
   const chartRef = useRef(null)
   const autoRefreshTimerRef = useRef(null)
+  const refreshProgressTimerRef = useRef(null)
+  const lastRefreshTimeRef = useRef(Date.now())
+  const [refreshProgress, setRefreshProgress] = useState(0) // 0-100
+  const [isProgressAnimating, setIsProgressAnimating] = useState(false) // Track if progress is animating
   const [currentInterval, setCurrentInterval] = useState('Day')
   const [pillMenuOpen, setPillMenuOpen] = useState(false)
   const aggregations = null; // demo-only: no live aggregations
@@ -31,6 +35,7 @@ function App() {
   const [pillSelections, setPillSelections] = useState({ size: 'Performance', content: 'Performance', color: 'Performance' })
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchAnchor, setSearchAnchor] = useState(null)
+  const [initialSearchQuery, setInitialSearchQuery] = useState('')
   const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [dayIntervalMenuOpen, setDayIntervalMenuOpen] = useState(false)
   const [monthlyIntervalMenuOpen, setMonthlyIntervalMenuOpen] = useState(false)
@@ -305,7 +310,14 @@ function App() {
   // when the user switches interval, ask OHLCV hook to refresh computed interval values
   useEffect(() => {
     try {
-      if (refreshForInterval) refreshForInterval(currentInterval);
+      if (refreshForInterval) {
+        // Progress line ko sync karein - refresh hone se pehle
+        lastRefreshTimeRef.current = Date.now();
+        setRefreshProgress(0);
+        setIsProgressAnimating(true);
+        
+        refreshForInterval(currentInterval);
+      }
     } catch (e) {
       // ignore
     }
@@ -384,9 +396,16 @@ function App() {
       autoRefreshTimerRef.current = null;
     }
     
+    // NOTE: Progress reset yahan nahi karte - progress reset interval change aur auto-refresh pe hoti hai
+    
     // Set up auto-refresh after 30 seconds
     autoRefreshTimerRef.current = setTimeout(() => {
       if (refreshForIntervalRef.current) {
+        // Progress line ko sync karein before refresh
+        lastRefreshTimeRef.current = Date.now();
+        setRefreshProgress(0);
+        setIsProgressAnimating(true);
+        
         refreshForIntervalRef.current(currentIntervalRef.current);
       }
       // Schedule the next refresh
@@ -403,6 +422,13 @@ function App() {
       autoRefreshTimerRef.current = null;
     }
     
+    // Reset progress
+    setIsProgressAnimating(false); // Disable animation before reset
+    lastRefreshTimeRef.current = Date.now();
+    setRefreshProgress(0);
+    // Re-enable animation after a brief moment
+    setTimeout(() => setIsProgressAnimating(true), 50);
+    
     // Perform the refresh
     if (refreshForIntervalRef.current) {
       refreshForIntervalRef.current(currentIntervalRef.current);
@@ -411,6 +437,36 @@ function App() {
     // Schedule the next auto-refresh
     scheduleNextRefresh();
   }, [scheduleNextRefresh]);
+
+  // Progress tracking for refresh cycle
+  useEffect(() => {
+    if (!ENABLE_LIVE_API) return;
+    
+    // Update progress every 100ms for smooth animation
+    refreshProgressTimerRef.current = setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - lastRefreshTimeRef.current;
+      const progress = Math.min((elapsed / 30000) * 100, 100); // 30 seconds = 100%
+      
+      // Auto-reset when reaching 100% (refresh happens) - direct jump, no animation
+      if (progress >= 100) {
+        setIsProgressAnimating(false); // Disable animation before reset
+        setRefreshProgress(0); // Direct reset without animation
+        lastRefreshTimeRef.current = now;
+        // Re-enable animation after a brief moment
+        setTimeout(() => setIsProgressAnimating(true), 50);
+      } else {
+        setIsProgressAnimating(true); // Enable animation during progress
+        setRefreshProgress(progress);
+      }
+    }, 100);
+    
+    return () => {
+      if (refreshProgressTimerRef.current) {
+        clearInterval(refreshProgressTimerRef.current);
+      }
+    };
+  }, [ENABLE_LIVE_API]);
 
   // Auto-start refresh cycle when data loads
   useEffect(() => {
@@ -431,6 +487,55 @@ function App() {
   // NOTE: priceRange is discrete via PriceRange marks (1,10,100,500,1000+).
   // We intentionally don't override user selection on coins load so the
   // marks-based slider remains stable and predictable.
+
+  // Global keyboard listener for opening search with typing
+  useEffect(() => {
+    function onGlobalKeyDown(e) {
+      // Don't trigger if search is already open
+      if (searchOpen) return;
+      
+      // Don't trigger if user is typing in an input, textarea, or contenteditable element
+      const target = e.target;
+      const isInputElement = target.tagName === 'INPUT' || 
+                            target.tagName === 'TEXTAREA' || 
+                            target.isContentEditable ||
+                            target.closest('input, textarea, [contenteditable="true"]');
+      
+      if (isInputElement) return;
+      
+      // Don't trigger on modifier keys or special keys
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      
+      // Don't trigger on function keys, arrows, etc.
+      const specialKeys = [
+        'Escape', 'Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+        'Home', 'End', 'PageUp', 'PageDown', 'Insert', 'Delete', 'Backspace',
+        'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'
+      ];
+      
+      if (specialKeys.includes(e.key)) return;
+      
+      // If it's a printable character (length 1), open search with that character
+      if (e.key.length === 1) {
+        e.preventDefault();
+        setInitialSearchQuery(e.key);
+        setSearchOpen(true);
+      }
+    }
+    
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onGlobalKeyDown);
+    };
+  }, [searchOpen]);
+
+  // Reset initial query when search closes
+  useEffect(() => {
+    if (!searchOpen) {
+      // Small delay to ensure SearchPopover has closed
+      setTimeout(() => setInitialSearchQuery(''), 100);
+    }
+  }, [searchOpen]);
 
   return (
     <div className="app">
@@ -768,7 +873,7 @@ function App() {
 
           <button
             className="search-icon"
-            title="Search"
+            title="Search (or start typing)"
             aria-label="Open search"
             onClick={(e) => { setSearchAnchor(e.currentTarget.getBoundingClientRect()); setSearchOpen(true); }}
           >
@@ -835,6 +940,28 @@ function App() {
           {/* Demo-only: removed Live, Debug, Backfill and Fetch controls */}
         </div>
       </header>
+      {/* Full Width Progress Bar - Header ke down */}
+      {ENABLE_LIVE_API && (
+        <div
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '3px',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            overflow: 'hidden'
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              width: `${refreshProgress}%`,
+              backgroundColor: 'rgba(61, 220, 132, 0.8)',
+              transition: isProgressAnimating ? 'width 0.1s linear' : 'none',
+              boxShadow: '0 0 8px rgba(61, 220, 132, 0.5)'
+            }}
+          />
+        </div>
+      )}
 
       {/* Market Summary Panel */}
       {ENABLE_LIVE_API && marketSummaryOpen && (
@@ -891,8 +1018,26 @@ function App() {
 
       {searchOpen && (
         <SearchPopover
-          coins={(() => { const m = getAllMetadata(); return (coins || []).filter((c) => !(m[c.symbol] && m[c.symbol].hidden)); })()}
+          coins={(() => {
+            const m = getAllMetadata();
+            const visible = (coins || []).filter((c) => !(m[c.symbol] && m[c.symbol].hidden));
+            // Merge metadata (image, displayName, shortName) into each coin so SearchPopover can render logos
+            return visible.map((c) => {
+              try {
+                const key = (c.symbol || c.id || '').toString();
+                const meta = m[key] || {};
+                return Object.assign({}, c, {
+                  image: meta.image || c.image,
+                  displayName: meta.displayName || c.displayName,
+                  shortName: meta.shortName || c.shortName
+                });
+              } catch (e) {
+                return c;
+              }
+            });
+          })()}
           anchorRect={searchAnchor}
+          initialQuery={initialSearchQuery}
           onSelect={(c) => setSelectedCoin(c)}
           onClose={() => setSearchOpen(false)}
         />

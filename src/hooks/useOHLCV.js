@@ -31,9 +31,18 @@ async function fetchLiveInterval(interval) {
     : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
   const url = new URL('bubbles', base.endsWith('/') ? base : `${base}/`);
   url.searchParams.set('interval', apiInterval);
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { 
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache'
+  };
   if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
-  const res = await fetch(url.toString(), { headers });
+  // Add timestamp to URL to bypass browser cache
+  url.searchParams.set('_t', Date.now().toString());
+  const res = await fetch(url.toString(), { 
+    headers,
+    cache: 'no-store'
+  });
   if (!res.ok) {
     throw new Error(`Live API error (${res.status})`);
   }

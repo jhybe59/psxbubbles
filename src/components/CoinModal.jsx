@@ -185,54 +185,66 @@ export default function CoinModal({ coin, onClose }) {
     let mounted = true;
     async function load24hStats() {
       if (!coin || !coin.symbol) return;
-      
+
       try {
         const raw = displayCoin?.raw || coin?.raw || {};
-        
+
         // Get values from raw data first (most accurate)
         // These fields come directly from CSV/API and are already calculated correctly
-        const rawHigh = raw['High 1 day'] != null ? Number(raw['High 1 day']) : 
-                       raw['High'] != null ? Number(raw['High']) : 
-                       raw['high'] != null ? Number(raw['high']) : null;
-        const rawLow = raw['Low 1 day'] != null ? Number(raw['Low 1 day']) : 
-                      raw['Low'] != null ? Number(raw['Low']) : 
-                      raw['low'] != null ? Number(raw['low']) : null;
-        const rawVolume = raw['Volume 1 day'] != null ? Number(raw['Volume 1 day']) : 
-                         raw['Volume'] != null ? Number(raw['Volume']) : 
-                         raw['volume'] != null ? Number(raw['volume']) : null;
-        const rawValue = raw['Turnover 1 day'] != null ? Number(raw['Turnover 1 day']) : 
-                        raw['Turnover'] != null ? Number(raw['Turnover']) : 
-                        raw['turnover'] != null ? Number(raw['turnover']) : 
-                        raw['Value'] != null ? Number(raw['Value']) : null;
+        const rawHigh = raw['High 1 day'] != null ? Number(raw['High 1 day']) :
+          raw['High'] != null ? Number(raw['High']) :
+            raw['high'] != null ? Number(raw['high']) : null;
+        const rawLow = raw['Low 1 day'] != null ? Number(raw['Low 1 day']) :
+          raw['Low'] != null ? Number(raw['Low']) :
+            raw['low'] != null ? Number(raw['low']) : null;
+        const rawVolume = raw['Volume 1 day'] != null ? Number(raw['Volume 1 day']) :
+          raw['Volume'] != null ? Number(raw['Volume']) :
+            raw['volume'] != null ? Number(raw['volume']) : null;
+        const rawValue = raw['Turnover 1 day'] != null ? Number(raw['Turnover 1 day']) :
+          raw['Turnover'] != null ? Number(raw['Turnover']) :
+            raw['turnover'] != null ? Number(raw['turnover']) :
+              raw['Value'] != null ? Number(raw['Value']) : null;
         const rawDailyPct = raw['Price Change % 1 day'] != null ? Number(raw['Price Change % 1 day']) :
-                           raw['Price Change % 1 Day'] != null ? Number(raw['Price Change % 1 Day']) :
-                           raw['Price Change %'] != null ? Number(raw['Price Change %']) :
-                           raw['daily_pct'] != null ? Number(raw['daily_pct']) : null;
-        
+          raw['Price Change % 1 Day'] != null ? Number(raw['Price Change % 1 Day']) :
+            raw['Price Change %'] != null ? Number(raw['Price Change %']) :
+              raw['daily_pct'] != null ? Number(raw['daily_pct']) : null;
+
         // Get current price
         const latestPrice = displayCoin?.price || coin?.price || null;
-        
-        // Calculate price delta from percentage if we have it
+
+        // Calculate today's open price and price delta
+        let todayOpenPrice = null;
         let priceDelta = null;
-        if (rawDailyPct != null && latestPrice != null) {
-          // priceDelta = (latestPrice * rawDailyPct) / (100 + rawDailyPct) // approximate
-          // Better: find opening price from percentage
-          // If pct = ((current - open) / open) * 100, then open = current / (1 + pct/100)
-          const openPrice = latestPrice / (1 + rawDailyPct / 100);
-          priceDelta = latestPrice - openPrice;
+
+        // Try to get open price from raw data first
+        const rawOpen = raw['Open 1 day'] != null ? Number(raw['Open 1 day']) :
+          raw['Open'] != null ? Number(raw['Open']) :
+            raw['open'] != null ? Number(raw['open']) : null;
+
+        if (rawOpen != null) {
+          todayOpenPrice = rawOpen;
+        } else if (rawDailyPct != null && latestPrice != null) {
+          // Calculate open price from percentage: open = current / (1 + pct/100)
+          todayOpenPrice = latestPrice / (1 + rawDailyPct / 100);
         }
-        
+
+        // Calculate price delta if we have open price
+        if (todayOpenPrice != null && latestPrice != null) {
+          priceDelta = latestPrice - todayOpenPrice;
+        }
+
         // If we have raw data, use it; otherwise calculate from snapshots as fallback
         let stats = {
           high: rawHigh,
           low: rawLow,
           volume: rawVolume,
           value: rawValue,
+          open: todayOpenPrice,
           pctChange: rawDailyPct != null ? rawDailyPct : (displayCoin?.daily_change_1d != null ? displayCoin.daily_change_1d : displayCoin?.price_change_percentage_24h || null),
           priceDelta: priceDelta,
           close: latestPrice
         };
-        
+
         // Fallback: if raw data is missing, calculate from ALL 24h snapshots (not just latest)
         if ((stats.high == null || stats.low == null || stats.volume == null) || !stats.value) {
           const tsList = await storage.getAllTimestamps();
@@ -240,11 +252,27 @@ export default function CoinModal({ coin, onClose }) {
             const latestTs = tsList[tsList.length - 1];
             // Calculate 24 hours ago (24 * 60 * 60 * 1000 milliseconds)
             const twentyFourHoursAgo = latestTs - (24 * 60 * 60 * 1000);
-            
+
             // Get ALL snapshots from the last 24 hours
             const snapshots24h = await storage.getRange(coin.symbol, twentyFourHoursAgo, latestTs);
-            
+
             if (snapshots24h && snapshots24h.length > 0) {
+              // Sort snapshots by timestamp to get first one (today's open)
+              snapshots24h.sort((a, b) => a.ts - b.ts);
+
+              // Calculate today's open price from first snapshot if not already set
+              if (stats.open == null && snapshots24h.length > 0) {
+                const firstSnapshot = snapshots24h[0];
+                const openPrice = firstSnapshot.open || firstSnapshot.price || firstSnapshot.close;
+                if (openPrice != null && Number.isFinite(Number(openPrice))) {
+                  stats.open = Number(openPrice);
+                  // Recalculate price delta if we now have open price
+                  if (latestPrice != null) {
+                    stats.priceDelta = latestPrice - stats.open;
+                  }
+                }
+              }
+
               // Calculate high from all 24h snapshots
               if (stats.high == null) {
                 const prices = snapshots24h
@@ -254,7 +282,7 @@ export default function CoinModal({ coin, onClose }) {
                   stats.high = Math.max(...prices);
                 }
               }
-              
+
               // Calculate low from all 24h snapshots
               if (stats.low == null) {
                 const prices = snapshots24h
@@ -264,7 +292,7 @@ export default function CoinModal({ coin, onClose }) {
                   stats.low = Math.min(...prices);
                 }
               }
-              
+
               // Calculate total volume from all 24h snapshots
               if (stats.volume == null) {
                 const volumes = snapshots24h
@@ -274,7 +302,7 @@ export default function CoinModal({ coin, onClose }) {
                   stats.volume = volumes.reduce((sum, v) => sum + Number(v), 0);
                 }
               }
-              
+
               // Calculate total value (turnover) from all 24h snapshots
               // Value = sum of (price * volume) for each snapshot
               if (!stats.value) {
@@ -307,7 +335,7 @@ export default function CoinModal({ coin, onClose }) {
             }
           }
         }
-        
+
         if (mounted) {
           setDaily24hStats(stats);
         }
@@ -316,12 +344,12 @@ export default function CoinModal({ coin, onClose }) {
         if (mounted) setDaily24hStats(null);
       }
     }
-    
+
     load24hStats();
-    
+
     // Refresh 24h stats periodically when modal is open (every 30 seconds)
     const interval = setInterval(load24hStats, 30000);
-    
+
     return () => {
       mounted = false;
       clearInterval(interval);
@@ -333,14 +361,14 @@ export default function CoinModal({ coin, onClose }) {
     let mounted = true;
     async function refreshCoinData() {
       if (!coin || !coin.symbol) return;
-      
+
       try {
         const tsList = await storage.getAllTimestamps();
         if (!tsList || tsList.length === 0) return;
-        
+
         const latestTs = tsList[tsList.length - 1];
         const latestSnap = await storage.getSnapshotAtOrBefore(coin.symbol, latestTs);
-        
+
         if (mounted && latestSnap) {
           // Update current coin with latest data
           setCurrentCoin({
@@ -355,12 +383,12 @@ export default function CoinModal({ coin, onClose }) {
         // Ignore errors
       }
     }
-    
+
     refreshCoinData();
-    
+
     // Refresh every 10 seconds when modal is open
     const interval = setInterval(refreshCoinData, 10000);
-    
+
     return () => {
       mounted = false;
       clearInterval(interval);
@@ -370,17 +398,17 @@ export default function CoinModal({ coin, onClose }) {
   // Get percentage from raw data first (most accurate), then from daily24hStats, then from coin
   const raw = displayCoin?.raw || coin?.raw || {};
   const rawDailyPct = raw['Price Change % 1 day'] != null ? Number(raw['Price Change % 1 day']) :
-                     raw['Price Change % 1 Day'] != null ? Number(raw['Price Change % 1 Day']) :
-                     raw['Price Change %'] != null ? Number(raw['Price Change %']) :
-                     raw['daily_pct'] != null ? Number(raw['daily_pct']) : null;
-  
-  const pct = rawDailyPct != null 
-    ? rawDailyPct 
-    : (daily24hStats?.pctChange != null 
-        ? daily24hStats.pctChange 
-        : (displayCoin.daily_change_1d != null
-            ? displayCoin.daily_change_1d
-            : (displayCoin.price_change_percentage_24h || 0)));
+    raw['Price Change % 1 Day'] != null ? Number(raw['Price Change % 1 Day']) :
+      raw['Price Change %'] != null ? Number(raw['Price Change %']) :
+        raw['daily_pct'] != null ? Number(raw['daily_pct']) : null;
+
+  const pct = rawDailyPct != null
+    ? rawDailyPct
+    : (daily24hStats?.pctChange != null
+      ? daily24hStats.pctChange
+      : (displayCoin.daily_change_1d != null
+        ? displayCoin.daily_change_1d
+        : (displayCoin.price_change_percentage_24h || 0)));
   const pctColor = pct >= 0 ? '#24c55e' : '#ff4d4d';
 
   // pctToColor function to match bubble colors (same as in App.jsx)
@@ -406,58 +434,60 @@ export default function CoinModal({ coin, onClose }) {
 
   // Get bubble color RGB for this coin
   const bubbleColorRgb = pctToColorRgb(pct);
-  
+
   // Create colorful background with bubble color tint for top-box
   const topBoxStyle = {
-    background: pct >= 0 
+    background: pct >= 0
       ? `linear-gradient(180deg, rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.18), rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.06))`
       : `linear-gradient(180deg, rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.15), rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.04))`,
     borderColor: `rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.3)`,
     boxShadow: `0 8px 24px rgba(${bubbleColorRgb.r}, ${bubbleColorRgb.g}, ${bubbleColorRgb.b}, 0.15), inset 0 1px 0 rgba(255,255,255,0.1)`
   };
 
-  // Use daily24hStats for all 24h calculations, prefer raw data values
+  // ALL STATS BELOW ARE FOR TODAY (ENTIRE DAY) ONLY - NOT AFFECTED BY TIMEFRAME SELECTION
+  // Use daily24hStats for all today's calculations, prefer raw data values
   const displayPrice = displayCoin?.price || daily24hStats?.close || coin?.price || '-';
-  
-  // Price delta - prefer calculated from daily24hStats, fallback to computed
-  const displayPriceDelta = daily24hStats?.priceDelta != null 
-    ? daily24hStats.priceDelta 
+
+  // Price delta - ONLY use daily24hStats (today's data), NEVER use ohlcSummary (timeframe-dependent)
+  const displayPriceDelta = daily24hStats?.priceDelta != null
+    ? daily24hStats.priceDelta
     : (() => {
-        // Try to calculate from percentage if we have it
-        const pct = daily24hStats?.pctChange != null ? daily24hStats.pctChange : (displayCoin?.daily_change_1d != null ? displayCoin.daily_change_1d : displayCoin?.price_change_percentage_24h);
-        if (pct != null && displayPrice != null && typeof displayPrice === 'number') {
-          const openPrice = displayPrice / (1 + pct / 100);
-          return displayPrice - openPrice;
-        }
-        // Fallback to other calculations
-        if (displayCoin?.price_change != null && !Number.isNaN(Number(displayCoin.price_change))) {
-          return Number(displayCoin.price_change);
-        }
-        if (ohlcSummary && ohlcSummary.open != null && ohlcSummary.close != null) {
-          return Number(ohlcSummary.close) - Number(ohlcSummary.open);
-        }
-        return null;
-      })();
-  
-  // 24h High/Low - ONLY use daily24hStats, NEVER fallback to ohlcSummary (which is timeframe-dependent)
+      // Try to calculate from today's open price if available
+      if (daily24hStats?.open != null && displayPrice != null && typeof displayPrice === 'number') {
+        return displayPrice - daily24hStats.open;
+      }
+      // Try to calculate from percentage if we have it
+      const pct = daily24hStats?.pctChange != null ? daily24hStats.pctChange : (displayCoin?.daily_change_1d != null ? displayCoin.daily_change_1d : displayCoin?.price_change_percentage_24h);
+      if (pct != null && displayPrice != null && typeof displayPrice === 'number') {
+        const openPrice = displayPrice / (1 + pct / 100);
+        return displayPrice - openPrice;
+      }
+      // Fallback to price_change if available (should be today's change)
+      if (displayCoin?.price_change != null && !Number.isNaN(Number(displayCoin.price_change))) {
+        return Number(displayCoin.price_change);
+      }
+      return null;
+    })();
+
+  // Today's High/Low - ONLY use daily24hStats (today's data), NEVER fallback to ohlcSummary (which is timeframe-dependent)
   const display24hHigh = daily24hStats?.high != null ? daily24hStats.high : '-';
   const display24hLow = daily24hStats?.low != null ? daily24hStats.low : '-';
-  
-  // 24h Volume - prefer raw data which is already 24h volume, don't sum snapshots
-  const display24hVolume = daily24hStats?.volume != null 
-    ? daily24hStats.volume 
-    : (displayCoin?.volume != null 
-        ? displayCoin.volume 
-        : (latestSnapshot?.volume != null 
-            ? latestSnapshot.volume 
-            : coin?.volume || null));
-  
-  // 24h Value - prefer raw turnover value, fallback to volume * price
-  const display24hValue = daily24hStats?.value != null 
-    ? daily24hStats.value 
+
+  // Today's Volume - prefer raw data which is already today's volume, don't sum snapshots
+  const display24hVolume = daily24hStats?.volume != null
+    ? daily24hStats.volume
+    : (displayCoin?.volume != null
+      ? displayCoin.volume
+      : (latestSnapshot?.volume != null
+        ? latestSnapshot.volume
+        : coin?.volume || null));
+
+  // Today's Value - prefer raw turnover value, fallback to volume * price
+  const display24hValue = daily24hStats?.value != null
+    ? daily24hStats.value
     : (display24hVolume != null && displayPrice != null && typeof displayPrice === 'number'
-        ? display24hVolume * displayPrice
-        : null);
+      ? display24hVolume * displayPrice
+      : null);
 
   // Share calculator state: two boxes (shares <=> PKR) — animated target display
   const [shareCount, setShareCount] = useState('');
@@ -474,8 +504,8 @@ export default function CoinModal({ coin, onClose }) {
   const rafRefShares = useRef(null);
 
   const priceNum = (() => {
-    const p = displayPrice != null && typeof displayPrice === 'number' 
-      ? Number(displayPrice) 
+    const p = displayPrice != null && typeof displayPrice === 'number'
+      ? Number(displayPrice)
       : (ohlcSummary && ohlcSummary.close != null ? Number(ohlcSummary.close) : 0);
     return Number.isFinite(p) ? p : 0;
   })();
@@ -563,142 +593,142 @@ export default function CoinModal({ coin, onClose }) {
         {/* improved header: symbol-first layout with price / pct and compact stats row */}
 
         <div className="top-box" style={topBoxStyle}>
-        <div className="coin-top header-v2">
-          <div className="symbol-row">
-            {coin.image && <img src={coin.image} alt="" className="coin-image" />}
-            <div className="symbol-info">
-              <div className="symbol-line">
-                <div className="symbol-code">{coin.symbol?.toUpperCase() || ''}</div>
-                <div className="symbol-badge">{coin.market || 'REG'}</div>
+          <div className="coin-top header-v2">
+            <div className="symbol-row">
+              {coin.image && <img src={coin.image} alt="" className="coin-image" />}
+              <div className="symbol-info">
+                <div className="symbol-line">
+                  <div className="symbol-code">{coin.symbol?.toUpperCase() || ''}</div>
+                  <div className="symbol-badge">{coin.market || 'REG'}</div>
+                </div>
+                <div className="price-line">
+                  <div className="coin-price">
+                    {typeof displayPrice === 'number'
+                      ? Number(displayPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                      : displayPrice}
+                  </div>
+                  <div className="pct-badge" style={{ background: pct >= 0 ? 'rgba(36,197,94,0.14)' : 'rgba(255,77,77,0.08)', color: pct >= 0 ? '#24c55e' : '#ff4d4d' }}>
+                    {pct >= 0 ? '+' : ''}{typeof pct === 'number' ? pct.toFixed(2) : pct}%
+                  </div>
+                  <div className="small-change" style={{ color: (displayPriceDelta != null && displayPriceDelta >= 0) ? '#24c55e' : '#ff4d4d' }}>
+                    {displayPriceDelta != null ? (displayPriceDelta >= 0 ? '+' : '') + Number(displayPriceDelta).toFixed(2) : ''}
+                  </div>
+                </div>
               </div>
-              <div className="price-line">
-                <div className="coin-price">
-                  {typeof displayPrice === 'number' 
-                    ? Number(displayPrice).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4}) 
-                    : displayPrice}
+            </div>
+
+            {/* Today's stats using daily24hStats - always shows entire day data, regardless of timeframe selection */}
+            <div className="top-stats">
+              <div className="stat-col">
+                <div className="stat-label">Today High</div>
+                <div className="stat-value">
+                  {typeof display24hHigh === 'number'
+                    ? Number(display24hHigh).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                    : display24hHigh}
                 </div>
-                <div className="pct-badge" style={{ background: pct >= 0 ? 'rgba(36,197,94,0.14)' : 'rgba(255,77,77,0.08)', color: pct >= 0 ? '#24c55e' : '#ff4d4d' }}>
-                  {pct >= 0 ? '+' : ''}{typeof pct === 'number' ? pct.toFixed(2) : pct}%
+              </div>
+              <div className="stat-col">
+                <div className="stat-label">Today Low</div>
+                <div className="stat-value">
+                  {typeof display24hLow === 'number'
+                    ? Number(display24hLow).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                    : display24hLow}
                 </div>
-                <div className="small-change" style={{ color: (displayPriceDelta != null && displayPriceDelta >= 0) ? '#24c55e' : '#ff4d4d' }}>
-                  {displayPriceDelta != null ? (displayPriceDelta >= 0 ? '+' : '') + Number(displayPriceDelta).toFixed(2) : ''}
+              </div>
+              <div className="stat-col">
+                <div className="stat-label">Today Vol</div>
+                <div className="stat-value">
+                  {display24hVolume != null && typeof display24hVolume === 'number'
+                    ? formatLargeNumber(display24hVolume)
+                    : (display24hVolume || '-')}
+                </div>
+              </div>
+              <div className="stat-col">
+                <div className="stat-label">Today Value</div>
+                <div className="stat-value">
+                  {display24hValue != null && typeof display24hValue === 'number'
+                    ? formatLargeNumber(display24hValue)
+                    : (display24hValue || '-')}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 24h stats using daily24hStats for accurate calculations */}
-          <div className="top-stats">
-            <div className="stat-col">
-              <div className="stat-label">24h High</div>
-              <div className="stat-value">
-                {typeof display24hHigh === 'number' 
-                  ? Number(display24hHigh).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4})
-                  : display24hHigh}
-              </div>
-            </div>
-            <div className="stat-col">
-              <div className="stat-label">24h Low</div>
-              <div className="stat-value">
-                {typeof display24hLow === 'number' 
-                  ? Number(display24hLow).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4})
-                  : display24hLow}
-              </div>
-            </div>
-            <div className="stat-col">
-              <div className="stat-label">24h Vol</div>
-              <div className="stat-value">
-                {display24hVolume != null && typeof display24hVolume === 'number'
-                  ? formatLargeNumber(display24hVolume)
-                  : (display24hVolume || '-')}
-              </div>
-            </div>
-            <div className="stat-col">
-              <div className="stat-label">24h Value</div>
-              <div className="stat-value">
-                {display24hValue != null && typeof display24hValue === 'number'
-                  ? formatLargeNumber(display24hValue)
-                  : (display24hValue || '-')}
-              </div>
+          <div className="coin-stats-row">
+            <div className="coin-stats-left" />
+            <div className="coin-stats-right">
+              <div className="stat">Market Cap<br /><strong>{coin.market_cap?.toLocaleString?.() ?? '-'}</strong></div>
             </div>
           </div>
-        </div>
 
-        <div className="coin-stats-row">
-          <div className="coin-stats-left" />
-          <div className="coin-stats-right">
-            <div className="stat">Market Cap<br/><strong>{coin.market_cap?.toLocaleString?.() ?? '-'}</strong></div>
-          </div>
-        </div>
-
-        {/* Share calculator: exactly two boxes with '=' between them. Editing either box updates the other immediately. */}
-        <div className="share-calc">
-          <label className="share-label">Converter</label>
-          <div className="share-input-row">
-            <div className="share-input-wrap">
-              <span className="share-icon">✎</span>
-              <input
-                className="share-input"
-                type="text"
-                inputMode="decimal"
-                placeholder="Shares"
-                value={shareFocused ? shareCount : (displayedShares ? Number(displayedShares).toFixed(4).replace(/\.0000$/, '') : shareCount)}
-                onFocus={() => setShareFocused(true)}
-                onBlur={() => {
-                  setShareFocused(false);
-                  // when leaving focus, update the raw share string to the current displayed value
-                  setShareCount(displayedShares ? Number(displayedShares).toFixed(4).replace(/\.0000$/, '') : '');
-                }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setShareCount(v);
-                  // update target total to animate the PKR display
-                  const s = Number(String(v).replace(/[^0-9.-]+/g, ''));
-                  if (Number.isFinite(s)) {
-                    // set pkrInput only when pkr field is focused (so typing there isn't clobbered)
-                    if (pkrFocused) {
-                      setPkrInput(computePkrFromShares(s));
+          {/* Share calculator: exactly two boxes with '=' between them. Editing either box updates the other immediately. */}
+          <div className="share-calc">
+            <label className="share-label">Converter</label>
+            <div className="share-input-row">
+              <div className="share-input-wrap">
+                <span className="share-icon">✎</span>
+                <input
+                  className="share-input"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Shares"
+                  value={shareFocused ? shareCount : (displayedShares ? Number(displayedShares).toFixed(4).replace(/\.0000$/, '') : shareCount)}
+                  onFocus={() => setShareFocused(true)}
+                  onBlur={() => {
+                    setShareFocused(false);
+                    // when leaving focus, update the raw share string to the current displayed value
+                    setShareCount(displayedShares ? Number(displayedShares).toFixed(4).replace(/\.0000$/, '') : '');
+                  }}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setShareCount(v);
+                    // update target total to animate the PKR display
+                    const s = Number(String(v).replace(/[^0-9.-]+/g, ''));
+                    if (Number.isFinite(s)) {
+                      // set pkrInput only when pkr field is focused (so typing there isn't clobbered)
+                      if (pkrFocused) {
+                        setPkrInput(computePkrFromShares(s));
+                      }
+                      // animation will run because targetTotal derived from shareCount changed
                     }
-                    // animation will run because targetTotal derived from shareCount changed
-                  }
-                }}
-              />
-            </div>
+                  }}
+                />
+              </div>
 
-            <div className="calc-result">
-              <span className="calc-eq">=</span>
-            </div>
+              <div className="calc-result">
+                <span className="calc-eq">=</span>
+              </div>
 
-            <div className="share-input-wrap pkr-wrap">
-              <span className="share-icon">₨</span>
-              <input
-                className="share-input"
-                type="text"
-                inputMode="decimal"
-                placeholder="PKR"
-                value={pkrFocused ? pkrInput : (displayedTotal ? Number(displayedTotal).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:2}) : pkrInput)}
-                onFocus={() => setPkrFocused(true)}
-                onBlur={() => {
-                  setPkrFocused(false);
-                  // sync raw pkrInput to displayed value when leaving focus
-                  setPkrInput(displayedTotal ? Number(displayedTotal).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:2}) : '');
-                }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setPkrInput(v);
-                  const pkr = Number(String(v).replace(/[^0-9.-]+/g, ''));
-                  if (Number.isFinite(pkr) && priceNum > 0) {
-                    if (shareFocused) {
-                      setShareCount(computeSharesFromPkr(pkr));
+              <div className="share-input-wrap pkr-wrap">
+                <span className="share-icon">₨</span>
+                <input
+                  className="share-input"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="PKR"
+                  value={pkrFocused ? pkrInput : (displayedTotal ? Number(displayedTotal).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : pkrInput)}
+                  onFocus={() => setPkrFocused(true)}
+                  onBlur={() => {
+                    setPkrFocused(false);
+                    // sync raw pkrInput to displayed value when leaving focus
+                    setPkrInput(displayedTotal ? Number(displayedTotal).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '');
+                  }}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setPkrInput(v);
+                    const pkr = Number(String(v).replace(/[^0-9.-]+/g, ''));
+                    if (Number.isFinite(pkr) && priceNum > 0) {
+                      if (shareFocused) {
+                        setShareCount(computeSharesFromPkr(pkr));
+                      }
+                      // animation will run because targetSharesFromPkr derived from pkrInput changed
                     }
-                    // animation will run because targetSharesFromPkr derived from pkrInput changed
-                  }
-                }}
-              />
+                  }}
+                />
+              </div>
             </div>
           </div>
-        </div>
-        {/* Area chart only — removed area/line/candles toggle */}
+          {/* Area chart only — removed area/line/candles toggle */}
         </div>
         <div className="chart-area">
           <div className="chart-header">
@@ -706,15 +736,15 @@ export default function CoinModal({ coin, onClose }) {
           </div>
 
           <div className="sparkline">
-          
+
             <InteractiveChart series={series} pct={pct} height={320} />
           </div>
 
           <div className="timeframe-row">
-            {['Hour','Day','Week','Month','Year'].map((tf) => (
-              <div key={tf} className={`time-pill ${timeframe===tf? 'active':''}`} onClick={() => setTimeframe(tf)}>
+            {['Hour', 'Day', 'Week', 'Month', 'Year'].map((tf) => (
+              <div key={tf} className={`time-pill ${timeframe === tf ? 'active' : ''}`} onClick={() => setTimeframe(tf)}>
                 {tf}
-                <br/>
+                <br />
                 <span className="pill-pct">{pillPctMap && pillPctMap[tf] != null ? pillPctMap[tf] : '-'}</span>
               </div>
             ))}
@@ -722,7 +752,7 @@ export default function CoinModal({ coin, onClose }) {
         </div>
 
 
-  {/* close button removed per request (backdrop click and Escape still close the modal) */}
+        {/* close button removed per request (backdrop click and Escape still close the modal) */}
       </div>
     </div>
   );

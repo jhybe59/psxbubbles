@@ -98,12 +98,13 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
         volume,
         value,
         daily_pct,
+        raw,
         LAG(close) OVER (PARTITION BY symbol ORDER BY ts) AS prev_close,
         ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY ts DESC) AS rk
       FROM minute_bars
       ${where}
     ), latest AS (
-      SELECT symbol, ts, price, volume, value, daily_pct, prev_close,
+      SELECT symbol, ts, price, volume, value, daily_pct, raw, prev_close,
         CASE WHEN prev_close IS NULL OR prev_close = 0 THEN daily_pct
              ELSE (price - prev_close) / prev_close * 100 END AS interval_pct
       FROM ranked
@@ -112,7 +113,7 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
     SELECT symbol, ts, price, 
            COALESCE(interval_pct, daily_pct, 0) AS interval_pct, 
            COALESCE(daily_pct, interval_pct) AS daily_pct, 
-           volume, value
+           volume, value, raw
     FROM latest
     ORDER BY ${buildOrderClause('pct', favoritesParam)}
     LIMIT ${limitParam};
@@ -122,14 +123,18 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
 };
 
 const aggregateQuery = ({ interval, limit, indices, favorites }) => {
-  const viewName = intervalMap[interval];
   const params = [];
   let paramIndex = 1;
 
-  // Look back 2 periods to ensure we get latest available data even if slightly delayed
-  // For Day interval, look back 3 days to cover weekends/holidays
-  const lookback = interval === 'Day' ? "INTERVAL '3 days'" : "INTERVAL '2 hours'";
-  const whereClauses = [`bucket > NOW() - ${lookback}`];
+  // Calculate exact time interval - same real-time approach as 1m but with time-based lookup
+  const timeInterval = {
+    '5m': "INTERVAL '5 minutes'",
+    '15m': "INTERVAL '15 minutes'",
+    '1h': "INTERVAL '1 hour'",
+    'Day': "INTERVAL '1 day'"
+  }[interval] || "INTERVAL '5 minutes'";
+
+  const whereClauses = [];
 
   // Filter by configured symbols if available (from env var)
   const configuredSymbols = getSymbolsList();
@@ -154,49 +159,113 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
   params.push(limit);
   const limitParam = `$${paramIndex}`;
 
-  const sql = `
-    SELECT DISTINCT ON (symbol)
-      symbol,
-      bucket,
-      close AS price,
-      COALESCE(pct_change, 0) AS interval_pct,
-      daily_pct,
-      volume_sum AS volume,
-      turnover_sum AS value
-    FROM ${viewName}
-    WHERE ${whereClauses.join(' AND ')}
-    ORDER BY symbol, bucket DESC
-  `;
+  const where = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-  // Wrap in subquery to apply sorting and limit
-  const wrappedSql = `
-    WITH latest_data AS (
-      ${sql}
+  // Real-time approach: Get latest data, then find data N minutes before
+  // This uses the exact same pattern as 1m but with configurable time interval
+  const sql = `
+    WITH ranked AS (
+      SELECT
+        symbol,
+        ts,
+        close AS price,
+        volume,
+        value,
+        daily_pct,
+        raw,
+        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY ts DESC) AS rk
+      FROM minute_bars
+      ${where}
+    ),
+    latest_data AS (
+      -- Get ABSOLUTE latest data point for each symbol (real-time)
+      SELECT 
+        symbol,
+        ts,
+        price,
+        volume,
+        value,
+        daily_pct,
+        raw
+      FROM ranked
+      WHERE rk = 1
+    ),
+    earlier_data AS (
+      -- Get data point closest to (latest_ts - interval)
+      SELECT DISTINCT ON (l.symbol)
+        l.symbol,
+        e.close AS earlier_price
+      FROM latest_data l
+      LEFT JOIN LATERAL (
+        SELECT close
+        FROM minute_bars
+        WHERE symbol = l.symbol
+          AND ts <= l.ts - ${timeInterval}
+        ORDER BY ts DESC
+        LIMIT 1
+      ) e ON true
+    ),
+    calculated AS (
+      -- Calculate percentage change (real-time calculation)
+      SELECT 
+        l.symbol,
+        l.ts,
+        l.price,
+        l.volume,
+        l.value,
+        l.daily_pct,
+        l.raw,
+        e.earlier_price,
+        CASE 
+          WHEN e.earlier_price IS NULL OR e.earlier_price = 0 THEN l.daily_pct
+          ELSE (l.price - e.earlier_price) / e.earlier_price * 100 
+        END AS interval_pct
+      FROM latest_data l
+      LEFT JOIN earlier_data e ON l.symbol = e.symbol
     )
-    SELECT * FROM latest_data
+    SELECT 
+      symbol,
+      ts AS bucket,
+      price,
+      COALESCE(interval_pct, daily_pct, 0) AS interval_pct,
+      daily_pct,
+      volume,
+      value,
+      raw
+    FROM calculated
     ORDER BY ${buildOrderClause('pct', favoritesParam)}
     LIMIT ${limitParam};
   `;
 
-  return { sql: wrappedSql, params };
+  return { sql, params };
 };
 
-const hydrateResponse = (rows, interval) => ({
-  interval,
-  asOf: rows.length ? rows.reduce((latest, row) => {
+const hydrateResponse = (rows, interval) => {
+  // Get latest data timestamp from rows
+  const latestDataTs = rows.length ? rows.reduce((latest, row) => {
     const ts = row.bucket ?? row.ts;
     return ts && ts > latest ? ts : latest;
-  }, 0) : null,
-  symbols: rows.map((row) => ({
-    symbol: row.symbol,
-    price: Number(row.price),
-    intervalPct: Number(row.interval_pct ?? 0),
-    dailyPct: row.daily_pct != null ? Number(row.daily_pct) : null,
-    volume: row.volume != null ? Number(row.volume) : null,
-    turnover: row.value != null ? Number(row.value) : null,
-    ts: row.bucket ?? row.ts
-  }))
-});
+  }, 0) : null;
+
+  // Use current time as "asOf" to show real-time status
+  // If no data, return null
+  const asOf = latestDataTs ? new Date().toISOString() : null;
+
+  return {
+    interval,
+    asOf,
+    symbols: rows.map((row) => ({
+      symbol: row.symbol,
+      price: Number(row.price),
+      intervalPct: Number(row.interval_pct ?? 0),
+      dailyPct: row.daily_pct != null ? Number(row.daily_pct) : null,
+      volume: row.volume != null ? Number(row.volume) : null,
+      turnover: row.value != null ? Number(row.value) : null,
+      ts: row.bucket ?? row.ts,
+      raw: row.raw
+    }))
+  };
+};
 
 router.get('/', async (req, res, next) => {
   let parsed;
@@ -207,36 +276,72 @@ router.get('/', async (req, res, next) => {
     return;
   }
 
-  const cacheKey = `bubbles:${parsed.interval}:${parsed.limit}:${parsed.indices?.join('|') ?? ''}:${parsed.favorites?.join('|') ?? ''}`;
-  try {
-    if (parsed.interval !== '1m') {
-      const cached = await getCache(cacheKey);
-      if (cached) {
-        res.set('X-Cache', 'HIT');
-        res.json(cached);
-        return;
-      }
-    }
-  } catch (err) {
-    logger.warn({ err }, 'Cache fetch failed');
-  }
+  // Skip cache for all intervals to ensure real-time data
+  // Cache was causing delayed data for intervals other than 1m
+  // const cacheKey = `bubbles:${parsed.interval}:${parsed.limit}:${parsed.indices?.join('|') ?? ''}:${parsed.favorites?.join('|') ?? ''}`;
+  // try {
+  //   if (parsed.interval !== '1m') {
+  //     const cached = await getCache(cacheKey);
+  //     if (cached) {
+  //       res.set('X-Cache', 'HIT');
+  //       res.json(cached);
+  //       return;
+  //     }
+  //   }
+  // } catch (err) {
+  //   logger.warn({ err }, 'Cache fetch failed');
+  // }
 
   try {
     const queryBuilder = parsed.interval === '1m' ? latestRawQuery : aggregateQuery;
     const { sql, params } = queryBuilder(parsed);
 
     const rows = await withClient(async (client) => {
+      // Debug: Check actual latest timestamp in database
+      if (parsed.interval !== '1m') {
+        const latestCheck = await client.query(`
+          SELECT MAX(ts) as max_ts, COUNT(*) as total_rows 
+          FROM minute_bars 
+          WHERE ts > NOW() - INTERVAL '1 hour'
+        `);
+        logger.info({
+          interval: parsed.interval,
+          dbLatestTs: latestCheck.rows[0]?.max_ts,
+          dbRowCount: latestCheck.rows[0]?.total_rows,
+          currentTime: new Date().toISOString()
+        }, 'Database latest timestamp check');
+      }
+
       const result = await client.query(sql, params);
+
+      // Debug: Log query result timestamps
+      if (parsed.interval !== '1m' && result.rows.length > 0) {
+        const timestamps = result.rows.map(r => r.bucket ?? r.ts).filter(Boolean).sort((a, b) => new Date(b) - new Date(a));
+        const latestTs = timestamps[0];
+        logger.info({
+          interval: parsed.interval,
+          rowCount: result.rows.length,
+          queryLatestTimestamp: latestTs,
+          sampleSymbols: result.rows.slice(0, 3).map(r => ({ symbol: r.symbol, ts: r.bucket ?? r.ts }))
+        }, 'Query result check');
+      }
+
       return result.rows;
     });
 
     const payload = hydrateResponse(rows, parsed.interval);
 
-    if (parsed.interval !== '1m') {
-      await setCache(cacheKey, payload, parsed.interval === 'Day' ? 60 : 15);
-    }
+    // Skip cache to ensure real-time data for all intervals
+    // if (parsed.interval !== '1m') {
+    //   await setCache(cacheKey, payload, parsed.interval === 'Day' ? 60 : 15);
+    // }
 
     res.set('X-Cache', 'MISS');
+    // Disable ETag and caching for real-time data
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.removeHeader('ETag');
     res.json(payload);
   } catch (err) {
     next(err);
@@ -244,4 +349,3 @@ router.get('/', async (req, res, next) => {
 });
 
 export default router;
-
