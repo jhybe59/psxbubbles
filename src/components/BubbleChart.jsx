@@ -81,7 +81,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     const svg = d3.select(svgRef.current);
     const intervalChanged = prevIntervalRef.current !== currentInterval && prevIntervalRef.current !== null;
     prevIntervalRef.current = currentInterval;
-    
+
     // If interval changed, do hard refresh
     if (intervalChanged) {
       svg.selectAll('*').remove();
@@ -93,10 +93,18 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         simRef.current = null;
       }
     }
-    
+
     if (!data || data.length === 0) {
-      if (intervalChanged) return;
-      // If no data but interval didn't change, keep existing visualization
+      // Clear visualization when data is empty (e.g., filter returned 0 results)
+      svg.selectAll('*').remove();
+      nodesRef.current = null;
+      circleSelRef.current = null;
+      labelSelRef.current = null;
+      if (simRef.current) {
+        simRef.current.stop();
+        simRef.current = null;
+      }
+      setVisibleCount(0);
       return;
     }
 
@@ -153,7 +161,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
       defs.append('filter').attr('id', 'inner-shadow').append('feDropShadow').attr('dx', 0).attr('dy', 8).attr('stdDeviation', 14).attr('flood-color', '#000').attr('flood-opacity', 0.45);
       defs.append('filter').attr('id', 'drop').append('feDropShadow').attr('dx', 0).attr('dy', 3).attr('stdDeviation', 4).attr('flood-color', '#000').attr('flood-opacity', 0.45);
-      
+
       const textFilter = defs.append('filter').attr('id', 'textShadow');
       textFilter.append('feOffset').attr('dx', 0).attr('dy', 1).attr('result', 'off');
       textFilter.append('feGaussianBlur').attr('in', 'off').attr('stdDeviation', 0.6).attr('result', 'blur');
@@ -185,7 +193,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
 
     // Main group - check if exists for smooth updates
-    let g = svg.select('g').filter(function() {
+    let g = svg.select('g').filter(function () {
       const transform = d3.select(this).attr('transform');
       return transform && transform.includes(`translate(${margin.left},${margin.top})`);
     });
@@ -229,6 +237,18 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     // the chosen metric into a visual radius. Range tuned to previous defaults.
     let sizeMetric = 'Performance';
     if (selections && selections.size) sizeMetric = selections.size;
+
+    // Debug logging
+    console.log('[BubbleChart] Size metric:', sizeMetric);
+    if (sizeMetric === 'Volatility') {
+      const sampleVolatility = used.slice(0, 5).map(d => ({
+        symbol: d.symbol || d.id,
+        volatility: d.volatility,
+        dataVolatility: d.data?.volatility
+      }));
+      console.log('[BubbleChart] Sample volatility values:', sampleVolatility);
+    }
+
     let sizeMax = 1;
     if (sizeMetric === 'Performance') {
       // percent-based sizing (absolute percent)
@@ -255,6 +275,22 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         }
         return 0;
       }) || inferredMaxVol || 1;
+    } else if (sizeMetric === 'Volatility') {
+      // Volatility-based sizing
+      sizeMax = d3.max(used, (d) => {
+        if (!d) return 0;
+        if (d.volatility != null) return Number(d.volatility) || 0;
+        if (d.data && d.data.volatility != null) return Number(d.data.volatility) || 0;
+        return 0;
+      }) || 10; // Default max volatility if none found
+    } else if (sizeMetric === 'Relative Volume') {
+      // Relative Volume-based sizing
+      sizeMax = d3.max(used, (d) => {
+        if (!d) return 0;
+        if (d.relative_volume != null) return Number(d.relative_volume) || 0;
+        if (d.data && d.data.relative_volume != null) return Number(d.data.relative_volume) || 0;
+        return 0;
+      }) || 5; // Default max relative volume if none found (5x average)
     } else {
       // Market Cap
       sizeMax = d3.max(used, (d) => {
@@ -291,7 +327,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       return Number(candidate) || 0;
     }
 
-    // If single mode is requested, pick the largest absolute percent-change coin and render it centered
+    // If single mode is requested, pick the largest according to current sizing metric
     if (single) {
       // pick the largest according to current sizing metric
       const largest = used.reduce((a, b) => {
@@ -306,6 +342,16 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
             const mb = extractMarketCapItem(b);
             return mb > ma ? b : a;
           }
+          if (selections && selections.size === 'Volatility') {
+            const va = (a.volatility != null ? a.volatility : (a.data && a.data.volatility)) || 0;
+            const vb = (b.volatility != null ? b.volatility : (b.data && b.data.volatility)) || 0;
+            return vb > va ? b : a;
+          }
+          if (selections && selections.size === 'Relative Volume') {
+            const va = (a.relative_volume != null ? a.relative_volume : (a.data && a.data.relative_volume)) || 0;
+            const vb = (b.relative_volume != null ? b.relative_volume : (b.data && b.data.relative_volume)) || 0;
+            return vb > va ? b : a;
+          }
         } catch (e) {
           // fall back to percent if any error
         }
@@ -315,7 +361,18 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       // compute baseR using the active size metric (allow external radiusScale override)
       if (radiusScale) {
         // delegate to provided radiusScale (assumed to accept the chosen metric)
-        const largestMetricVal = (selections && selections.size === 'Performance') ? Math.abs(largest.price_change_percentage_24h || 0) : (selections && selections.size === 'Volume' ? extractVolumeItem(largest) : extractMarketCapItem(largest));
+        let largestMetricVal;
+        if (selections && selections.size === 'Performance') {
+          largestMetricVal = Math.abs(largest.price_change_percentage_24h || 0);
+        } else if (selections && selections.size === 'Volume') {
+          largestMetricVal = extractVolumeItem(largest);
+        } else if (selections && selections.size === 'Volatility') {
+          largestMetricVal = (largest.volatility != null ? largest.volatility : (largest.data && largest.data.volatility)) || 0;
+        } else if (selections && selections.size === 'Relative Volume') {
+          largestMetricVal = (largest.relative_volume != null ? largest.relative_volume : (largest.data && largest.data.relative_volume)) || 0;
+        } else {
+          largestMetricVal = extractMarketCapItem(largest);
+        }
         // radiusScale expected to map raw metric -> radius
         var baseR = Math.max(12, Math.round(radiusScale(largestMetricVal)));
       } else {
@@ -326,6 +383,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         } else if (selections && selections.size === 'Market Cap') {
           const lm = extractMarketCapItem(largest) || 1;
           var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lm || sizeMax)]).range([12, 160])(lm)));
+        } else if (selections && selections.size === 'Volatility') {
+          const lv = (largest.volatility != null ? largest.volatility : (largest.data && largest.data.volatility)) || 1;
+          var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lv || sizeMax)]).range([12, 160])(lv)));
+        } else if (selections && selections.size === 'Relative Volume') {
+          const lrv = (largest.relative_volume != null ? largest.relative_volume : (largest.data && largest.data.relative_volume)) || 1;
+          var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lrv || sizeMax)]).range([12, 160])(lrv)));
         } else {
           var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMaxPct]).range([12, 160])(Math.abs(largest.price_change_percentage_24h || 0))));
         }
@@ -426,6 +489,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       } else if (selections && selections.size === 'Market Cap') {
         const mcVal = extractMarketCapItem(d) || 0;
         baseR = Math.max(8, Math.round(localRadiusScale(mcVal)));
+      } else if (selections && selections.size === 'Volatility') {
+        const volVal = (d.volatility != null ? d.volatility : (d.data && d.data.volatility)) || 0;
+        baseR = Math.max(8, Math.round(localRadiusScale(volVal)));
+      } else if (selections && selections.size === 'Relative Volume') {
+        const relVolVal = (d.relative_volume != null ? d.relative_volume : (d.data && d.data.relative_volume)) || 0;
+        baseR = Math.max(8, Math.round(localRadiusScale(relVolVal)));
       } else {
         baseR = Math.max(8, Math.round(localRadiusScale(pctAbs)));
       }
@@ -433,23 +502,26 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       // PSX-aware sizing: compute how much of the allowed daily move this symbol used
       // Rules: if price <= 10 PKR then daily absolute cap = 1 PKR else cap = 10% of price
       // Compute normalized = delta / cap in [-1,1], map magnitude -> multiplier (1..MAX_INCREASE)
-      try {
-        const P = (d.data && Number(d.data.price)) || 0;
-        const pctVal = Number(samplePct) || 0; // percent (e.g., 5 means 5%)
-        // absolute change in PKR
-        const delta = (pctVal / 100) * P;
-        const cap = P > 0 ? (P <= 10 ? 1 : 0.1 * P) : null;
-        if (cap && isFinite(cap) && cap > 0) {
-          const normalized = Math.max(-1, Math.min(1, delta / cap));
-          const magnitude = Math.abs(normalized);
-          // parameters (tweakable)
-          const MAX_INCREASE = 2.2; // fully-performing bubble scales up to ~2.2x
-          const ALPHA = 0.6; // curve exponent (sqrt-like emphasis)
-          const factor = 1 + (MAX_INCREASE - 1) * Math.pow(magnitude, ALPHA);
-          baseR = Math.max(8, Math.round(baseR * factor));
+      // IMPORTANT: Only apply this multiplier when sizing by Performance, not for Volume/Market Cap/Volatility
+      if (selections && selections.size === 'Performance') {
+        try {
+          const P = (d.data && Number(d.data.price)) || 0;
+          const pctVal = Number(samplePct) || 0; // percent (e.g., 5 means 5%)
+          // absolute change in PKR
+          const delta = (pctVal / 100) * P;
+          const cap = P > 0 ? (P <= 10 ? 1 : 0.1 * P) : null;
+          if (cap && isFinite(cap) && cap > 0) {
+            const normalized = Math.max(-1, Math.min(1, delta / cap));
+            const magnitude = Math.abs(normalized);
+            // parameters (tweakable)
+            const MAX_INCREASE = 2.2; // fully-performing bubble scales up to ~2.2x
+            const ALPHA = 0.6; // curve exponent (sqrt-like emphasis)
+            const factor = 1 + (MAX_INCREASE - 1) * Math.pow(magnitude, ALPHA);
+            baseR = Math.max(8, Math.round(baseR * factor));
+          }
+        } catch (e) {
+          // if any error, fall back to baseR computed earlier
         }
-      } catch (e) {
-        // if any error, fall back to baseR computed earlier
       }
 
       const r = baseR;
@@ -575,7 +647,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         const minX = nd.r + padding;
         const maxY = Math.max(nd.r + padding, h - nd.r - padding);
         const minY = nd.r + padding;
-        
+
         // Random position across full viewport (responsive to w and h)
         nd.x = minX + Math.random() * Math.max(1, maxX - minX);
         nd.y = minY + Math.random() * Math.max(1, maxY - minY);
@@ -603,15 +675,15 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           }
           const phase = n.__phase;
           const freq = 0.04; // Very slow frequency for gentle drift (hawa mein float jaisa)
-          
+
           // Subtle circular motion around base position
           const offsetX = Math.sin(t * freq + phase) * strength * 12;
           const offsetY = Math.cos(t * (freq * 0.75) + phase + 1) * strength * 12;
-          
+
           // Elastic pull back towards base position (keeps bubbles in their space)
           const pullX = (n.__baseX - n.x) * 0.015;
           const pullY = (n.__baseY - n.y) * 0.015;
-          
+
           n.vx += (offsetX + pullX) * alpha;
           n.vy += (offsetY + pullY) * alpha;
         }
@@ -659,7 +731,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     let circlesGroup = g.select('.circles-group');
     let labelsGroup = g.select('.labels-group');
     const isSmoothUpdate = !circlesGroup.empty() && !intervalChanged;
-    
+
     if (circlesGroup.empty()) {
       circlesGroup = g.append('g').attr('class', 'circles-group');
     }
@@ -672,12 +744,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     const circleExit = circleUpdate.exit();
     const circleEnter = circleUpdate.enter().append('g').attr('class', 'node');
     const circleNodes = circleUpdate.merge(circleEnter);
-    
+
     const labelUpdate = labelsGroup.selectAll('g.label-node').data(nodes, (d) => d.id);
     const labelExit = labelUpdate.exit();
     const labelEnter = labelUpdate.enter().append('g').attr('class', 'label-node');
     const labelNodes = labelUpdate.merge(labelEnter);
-    
+
     // Handle exit: fade out and remove
     if (!intervalChanged) {
       circleExit.transition().duration(400).style('opacity', 0).remove();
@@ -686,11 +758,11 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       circleExit.remove();
       labelExit.remove();
     }
-    
+
     // Handle enter: set initial transform and opacity
     circleEnter.attr('transform', (d) => `translate(${d.x || 0},${d.y || 0})`).style('opacity', intervalChanged ? 1 : 0);
     labelEnter.attr('transform', (d) => `translate(${d.x || 0},${d.y || 0})`).style('opacity', intervalChanged ? 1 : 0);
-    
+
     circleSelRef.current = circleNodes;
     labelSelRef.current = labelNodes;
 
@@ -769,7 +841,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       const posDark = '#053017'; const posBright = '#23c55e';
       const negDark = '#2a0b0b'; const negBright = '#ff6b6b';
       const neutDark = '#041321'; const neutBright = '#3b82f6';
-      
+
       let edgeColor;
       if (isNeutralChange(pct)) {
         // blue for neutral/no change
@@ -780,7 +852,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       const ringW = Math.max(2, Math.min(12, d.r * (0.06 + Math.min(0.18, Math.abs(pct) * 0.0025))));
       // subtle inner fill using the same edge color (opacity bucketed by magnitude)
       const fillOpacity = bucketFillOpacity(Math.abs(pct));
-      
+
       let ringFill = n.select('.ring-fill');
       if (ringFill.empty()) {
         ringFill = n.append('circle')
@@ -859,12 +931,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
         // Remove any existing text/labels first
         ln.selectAll('.symbol, .pct, .price, .price-change, .logo-badge').remove();
-        
+
         // Dynamic logo size based on bubble radius - bigger bubbles get bigger logos
         const smallLogoSize = Math.max(6, Math.min(Math.round(d.r * 0.85), Math.round(availableInnerWidth)));
         const topY = -Math.round(smallLogoSize / 2) + nudge;
         const clipRadius = Math.max(2, Math.round(smallLogoSize / 2));
-        
+
         // Check if clipPath exists, create if not, always update radius
         let clipPath = defs.select(`#clip-logo-small-${d.id}`);
         if (clipPath.empty()) {
@@ -884,7 +956,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .attr('r', clipRadius)
           .attr('cx', 0)
           .attr('cy', 0);
-        
+
         // Check if logo exists, update or create
         let logoImg = ln.select('.logo-small');
         if (logoImg.empty()) {
@@ -905,7 +977,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .style('pointer-events', 'none');
         return;
       }
-      
+
       // Remove logo-small if switching to text mode
       ln.select('.logo-small').remove();
 
@@ -925,10 +997,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       if (hasBadge) {
         // move badge slightly upward so it doesn't hug the top edge and adds visual balance
         const badgeCenterY = topY + Math.round(badgeImgSize / 2) - logoUp;
-        
+
         // Dynamic badge size based on bubble radius - bigger bubbles get bigger badges
         const badgeClipRadius = Math.max(4, Math.round(badgeImgSize / 2));
-        
+
         // Check if clipPath exists, create if not, always update radius
         let badgeClipPath = defs.select(`#clip-logo-badge-${d.id}`);
         if (badgeClipPath.empty()) {
@@ -948,14 +1020,14 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .attr('r', badgeClipRadius)
           .attr('cx', 0)
           .attr('cy', 0);
-        
+
         // Check if badge exists, update or create
         let badge = ln.select('.logo-badge');
         if (badge.empty()) {
           badge = ln.append('g').attr('class', 'logo-badge');
         }
         badge.attr('transform', `translate(0, ${badgeCenterY})`);
-        
+
         // Check if image exists in badge, update or create
         let badgeImg = badge.select('image');
         if (badgeImg.empty()) {
@@ -1054,6 +1126,16 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         const volNum = Number(volRaw) || 0;
         contentText = formatLargeNumber(volNum);
         contentColor = '#ffffff';
+      } else if (selections && selections.content === 'Volatility') {
+        // show volatility percentage
+        const volVal = (d.data && d.data.volatility != null) ? d.data.volatility : (d.volatility != null ? d.volatility : 0);
+        contentText = `${volVal.toFixed(2)}%`;
+        contentColor = '#f59e0b'; // Amber color for volatility
+      } else if (selections && selections.content === 'Relative Volume') {
+        // show relative volume (multiple of average)
+        const relVolVal = (d.data && d.data.relative_volume != null) ? d.data.relative_volume : (d.relative_volume != null ? d.relative_volume : 0);
+        contentText = `${relVolVal.toFixed(2)}x`;
+        contentColor = '#06b6d4'; // Cyan color for relative volume
       } else {
         contentText = `${isNeutralChange(pct) ? '' : (pct >= 0 ? '+' : '')}${(pct || 0).toFixed(1)}%`;
         contentColor = isNeutralChange(pct) ? '#93c5fd' : (pct >= 0 ? '#baf3c9' : '#ffb6b6');
@@ -1206,7 +1288,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       const padding = 10;
       nodes.forEach((d) => {
         const r = d.r;
-        
+
         // X bounds - soft boundary with gentle push back
         if (d.x < r + padding) {
           const overshoot = (r + padding) - d.x;

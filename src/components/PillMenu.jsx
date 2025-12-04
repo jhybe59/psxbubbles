@@ -38,8 +38,8 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
   }
 
   // Trimmed/streamlined option lists
-  const sizes = ['Performance','Market Cap','Volume'];
-  const contents = ['Performance','Price','Price Change','Volume'];
+  const sizes = ['Performance', 'Market Cap', 'Volume', 'Volatility', 'Relative Volume'];
+  const contents = ['Performance', 'Price', 'Price Change', 'Volume', 'Volatility', 'Relative Volume'];
 
   // Keyboard navigation: handle arrow navigation between pills and Enter/Space to activate
   useEffect(() => {
@@ -72,7 +72,7 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
   }, []);
 
   return (
-  <div ref={rootRef} className="pill-menu" style={style} role="dialog" aria-modal="false">
+    <div ref={rootRef} className="pill-menu" style={style} role="dialog" aria-modal="false">
       <div className="pill-menu-header">
         <div className="pill-menu-title">Bubble Settings</div>
         <button className="pill-menu-close" onClick={onClose} aria-label="Close">✕</button>

@@ -95,16 +95,23 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
         symbol,
         ts,
         close AS price,
+        open,
+        high,
+        low,
         volume,
         value,
         daily_pct,
         raw,
         LAG(close) OVER (PARTITION BY symbol ORDER BY ts) AS prev_close,
+        LAG(open) OVER (PARTITION BY symbol ORDER BY ts) AS prev_open,
+        LAG(high) OVER (PARTITION BY symbol ORDER BY ts) AS prev_high,
+        LAG(low) OVER (PARTITION BY symbol ORDER BY ts) AS prev_low,
+        LAG(volume) OVER (PARTITION BY symbol ORDER BY ts) AS prev_volume,
         ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY ts DESC) AS rk
       FROM minute_bars
       ${where}
     ), latest AS (
-      SELECT symbol, ts, price, volume, value, daily_pct, raw, prev_close,
+      SELECT symbol, ts, price, open, high, low, volume, value, daily_pct, raw, prev_close, prev_open, prev_high, prev_low, prev_volume,
         CASE WHEN prev_close IS NULL OR prev_close = 0 THEN daily_pct
              ELSE (price - prev_close) / prev_close * 100 END AS interval_pct
       FROM ranked
@@ -152,11 +159,48 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
           LIMIT 1
         ) AS daily_open
       FROM latest l
+    ),
+    lookback_stats AS (
+      -- Calculate rolling aggregates for flexible strategy builder
+      SELECT DISTINCT ON (l.symbol)
+        l.symbol,
+        -- 5 minute lookback
+        (SELECT MAX(high) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '5 minutes' AND ts < l.ts) AS max_high_5m,
+        (SELECT MIN(low) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '5 minutes' AND ts < l.ts) AS min_low_5m,
+        (SELECT MAX(close) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '5 minutes' AND ts < l.ts) AS max_close_5m,
+        (SELECT MIN(close) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '5 minutes' AND ts < l.ts) AS min_close_5m,
+        (SELECT SUM(volume) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '5 minutes' AND ts < l.ts) AS sum_volume_5m,
+        (SELECT AVG(volume) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '5 minutes' AND ts < l.ts) AS avg_volume_5m,
+        -- 15 minute lookback
+        (SELECT MAX(high) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '15 minutes' AND ts < l.ts) AS max_high_15m,
+        (SELECT MIN(low) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '15 minutes' AND ts < l.ts) AS min_low_15m,
+        (SELECT MAX(close) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '15 minutes' AND ts < l.ts) AS max_close_15m,
+        (SELECT MIN(close) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '15 minutes' AND ts < l.ts) AS min_close_15m,
+        (SELECT SUM(volume) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '15 minutes' AND ts < l.ts) AS sum_volume_15m,
+        (SELECT AVG(volume) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '15 minutes' AND ts < l.ts) AS avg_volume_15m,
+        -- 30 minute lookback
+        (SELECT MAX(high) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '30 minutes' AND ts < l.ts) AS max_high_30m,
+        (SELECT MIN(low) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '30 minutes' AND ts < l.ts) AS min_low_30m,
+        (SELECT MAX(close) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '30 minutes' AND ts < l.ts) AS max_close_30m,
+        (SELECT MIN(close) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '30 minutes' AND ts < l.ts) AS min_close_30m,
+        (SELECT SUM(volume) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '30 minutes' AND ts < l.ts) AS sum_volume_30m,
+        (SELECT AVG(volume) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '30 minutes' AND ts < l.ts) AS avg_volume_30m,
+        -- 1 hour lookback
+        (SELECT MAX(high) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '1 hour' AND ts < l.ts) AS max_high_1h,
+        (SELECT MIN(low) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '1 hour' AND ts < l.ts) AS min_low_1h,
+        (SELECT MAX(close) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '1 hour' AND ts < l.ts) AS max_close_1h,
+        (SELECT MIN(close) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '1 hour' AND ts < l.ts) AS min_close_1h,
+        (SELECT SUM(volume) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '1 hour' AND ts < l.ts) AS sum_volume_1h,
+        (SELECT AVG(volume) FROM minute_bars WHERE symbol = l.symbol AND ts >= l.ts - INTERVAL '1 hour' AND ts < l.ts) AS avg_volume_1h
+      FROM latest l
     )
     SELECT 
       l.symbol, 
       l.ts, 
       l.price, 
+      l.open,
+      l.high,
+      l.low,
       COALESCE(l.interval_pct, l.daily_pct, 0) AS interval_pct, 
       COALESCE(l.daily_pct, l.interval_pct) AS daily_pct, 
       l.volume, 
@@ -166,9 +210,20 @@ const latestRawQuery = ({ limit, indices, favorites }) => {
       d.daily_low,
       d.daily_volume,
       d.daily_value,
-      d.daily_open
+      d.daily_open,
+      l.prev_close,
+      l.prev_open,
+      l.prev_high,
+      l.prev_low,
+      l.prev_volume,
+      -- Lookback stats for flexible strategy builder
+      lb.max_high_5m, lb.min_low_5m, lb.max_close_5m, lb.min_close_5m, lb.sum_volume_5m, lb.avg_volume_5m,
+      lb.max_high_15m, lb.min_low_15m, lb.max_close_15m, lb.min_close_15m, lb.sum_volume_15m, lb.avg_volume_15m,
+      lb.max_high_30m, lb.min_low_30m, lb.max_close_30m, lb.min_close_30m, lb.sum_volume_30m, lb.avg_volume_30m,
+      lb.max_high_1h, lb.min_low_1h, lb.max_close_1h, lb.min_close_1h, lb.sum_volume_1h, lb.avg_volume_1h
     FROM latest l
     LEFT JOIN daily_24h_stats d ON l.symbol = d.symbol
+    LEFT JOIN lookback_stats lb ON l.symbol = lb.symbol
     ORDER BY ${buildOrderClause('pct', favoritesParam)}
     LIMIT ${limitParam};
   `;
@@ -231,6 +286,11 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
         value,
         daily_pct,
         raw,
+        LAG(close) OVER (PARTITION BY symbol ORDER BY ts) AS prev_close,
+        LAG(open) OVER (PARTITION BY symbol ORDER BY ts) AS prev_open,
+        LAG(high) OVER (PARTITION BY symbol ORDER BY ts) AS prev_high,
+        LAG(low) OVER (PARTITION BY symbol ORDER BY ts) AS prev_low,
+        LAG(volume) OVER (PARTITION BY symbol ORDER BY ts) AS prev_volume,
         ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY ts DESC) AS rk
       FROM minute_bars
       ${where}
@@ -247,7 +307,12 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
         volume,
         value,
         daily_pct,
-        raw
+        raw,
+        prev_close,
+        prev_open,
+        prev_high,
+        prev_low,
+        prev_volume
       FROM ranked
       WHERE rk = 1
     ),
@@ -325,6 +390,11 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
         d.daily_volume,
         d.daily_value,
         d.daily_open,
+        l.prev_close,
+        l.prev_open,
+        l.prev_high,
+        l.prev_low,
+        l.prev_volume,
         CASE 
           WHEN e.earlier_price IS NULL OR e.earlier_price = 0 THEN l.daily_pct
           ELSE (l.price - e.earlier_price) / e.earlier_price * 100 
@@ -346,7 +416,12 @@ const aggregateQuery = ({ interval, limit, indices, favorites }) => {
       daily_low,
       daily_volume,
       daily_value,
-      daily_open
+      daily_open,
+      prev_close,
+      prev_open,
+      prev_high,
+      prev_low,
+      prev_volume
     FROM calculated
     ORDER BY ${buildOrderClause('pct', favoritesParam)}
     LIMIT ${limitParam};
@@ -372,6 +447,9 @@ const hydrateResponse = (rows, interval) => {
     symbols: rows.map((row) => ({
       symbol: row.symbol,
       price: Number(row.price),
+      open: row.open != null ? Number(row.open) : null,
+      high: row.high != null ? Number(row.high) : null,
+      low: row.low != null ? Number(row.low) : null,
       intervalPct: Number(row.interval_pct ?? 0),
       dailyPct: row.daily_pct != null ? Number(row.daily_pct) : null,
       volume: row.volume != null ? Number(row.volume) : null,
@@ -383,7 +461,44 @@ const hydrateResponse = (rows, interval) => {
       dailyLow: row.daily_low != null ? Number(row.daily_low) : null,
       dailyVolume: row.daily_volume != null ? Number(row.daily_volume) : null,
       dailyValue: row.daily_value != null ? Number(row.daily_value) : null,
-      dailyOpen: row.daily_open != null ? Number(row.daily_open) : null
+      dailyOpen: row.daily_open != null ? Number(row.daily_open) : null,
+      // Previous bar data for breakout detection strategies
+      prevClose: row.prev_close != null ? Number(row.prev_close) : null,
+      prevOpen: row.prev_open != null ? Number(row.prev_open) : null,
+      prevHigh: row.prev_high != null ? Number(row.prev_high) : null,
+      prevLow: row.prev_low != null ? Number(row.prev_low) : null,
+      prevVolume: row.prev_volume != null ? Number(row.prev_volume) : null,
+      // Lookback stats for flexible strategy builder
+      lookback: {
+        // 5 minute
+        maxHigh5m: row.max_high_5m != null ? Number(row.max_high_5m) : null,
+        minLow5m: row.min_low_5m != null ? Number(row.min_low_5m) : null,
+        maxClose5m: row.max_close_5m != null ? Number(row.max_close_5m) : null,
+        minClose5m: row.min_close_5m != null ? Number(row.min_close_5m) : null,
+        sumVolume5m: row.sum_volume_5m != null ? Number(row.sum_volume_5m) : null,
+        avgVolume5m: row.avg_volume_5m != null ? Number(row.avg_volume_5m) : null,
+        // 15 minute
+        maxHigh15m: row.max_high_15m != null ? Number(row.max_high_15m) : null,
+        minLow15m: row.min_low_15m != null ? Number(row.min_low_15m) : null,
+        maxClose15m: row.max_close_15m != null ? Number(row.max_close_15m) : null,
+        minClose15m: row.min_close_15m != null ? Number(row.min_close_15m) : null,
+        sumVolume15m: row.sum_volume_15m != null ? Number(row.sum_volume_15m) : null,
+        avgVolume15m: row.avg_volume_15m != null ? Number(row.avg_volume_15m) : null,
+        // 30 minute
+        maxHigh30m: row.max_high_30m != null ? Number(row.max_high_30m) : null,
+        minLow30m: row.min_low_30m != null ? Number(row.min_low_30m) : null,
+        maxClose30m: row.max_close_30m != null ? Number(row.max_close_30m) : null,
+        minClose30m: row.min_close_30m != null ? Number(row.min_close_30m) : null,
+        sumVolume30m: row.sum_volume_30m != null ? Number(row.sum_volume_30m) : null,
+        avgVolume30m: row.avg_volume_30m != null ? Number(row.avg_volume_30m) : null,
+        // 1 hour
+        maxHigh1h: row.max_high_1h != null ? Number(row.max_high_1h) : null,
+        minLow1h: row.min_low_1h != null ? Number(row.min_low_1h) : null,
+        maxClose1h: row.max_close_1h != null ? Number(row.max_close_1h) : null,
+        minClose1h: row.min_close_1h != null ? Number(row.min_close_1h) : null,
+        sumVolume1h: row.sum_volume_1h != null ? Number(row.sum_volume_1h) : null,
+        avgVolume1h: row.avg_volume_1h != null ? Number(row.avg_volume_1h) : null
+      }
     }))
   };
 };

@@ -11,14 +11,15 @@ import SymbolsPanel from './components/SymbolsPanel'
 import PriceRange from './components/PriceRange'
 import SnapshotPanel from './components/SnapshotPanel'
 import MarketSummary from './components/MarketSummary'
-import FilterButton from './components/FilterButton'
-import FilterBuilder from './components/FilterBuilder'
 import useMarketStats from './hooks/useMarketStats'
 import { createRadiusScale } from './utils/scales'
 import './App.css'
 import { getAllMetadata } from './hooks/useSymbolMetadata'
 import { ENABLE_LIVE_API, AUTO_REFRESH_MS } from './config'
 import { sanitizeIndexMap } from './utils/indexMap'
+import storage from './lib/storage'
+import { applyFilter } from './utils/filterUtils'
+import ScreenerBar from './components/ScreenerBar'
 
 function App() {
   const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp } = useOHLCV();
@@ -35,6 +36,8 @@ function App() {
   const aggregations = null; // demo-only: no live aggregations
   const [pillAnchor, setPillAnchor] = useState(null)
   const [pillSelections, setPillSelections] = useState({ size: 'Performance', content: 'Performance', color: 'Performance' })
+  // Note: 'Volatility' will be handled as a valid size option dynamically or we can add it to the UI menu later.
+  // For now, we need to ensure the bubble chart logic handles 'Volatility' size.
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchAnchor, setSearchAnchor] = useState(null)
   const [initialSearchQuery, setInitialSearchQuery] = useState('')
@@ -43,6 +46,7 @@ function App() {
   const [monthlyIntervalMenuOpen, setMonthlyIntervalMenuOpen] = useState(false)
   const dayIntervalAnchorRef = useRef(null)
   const monthlyIntervalAnchorRef = useRef(null)
+  const [activeFilters, setActiveFilters] = useState([])
   const [selectedCoin, setSelectedCoin] = useState(null)
   const [pageIndex, setPageIndex] = useState(() => {
     try {
@@ -151,27 +155,7 @@ function App() {
   const [priceRange, setPriceRange] = useState([1, Number.POSITIVE_INFINITY])
   const [symbolsPanelOpen, setSymbolsPanelOpen] = useState(false)
 
-  // Filter state
-  const [selectedFilter, setSelectedFilter] = useState(() => {
-    try {
-      const v = localStorage.getItem('selectedFilter');
-      return v ? JSON.parse(v) : null;
-    } catch {
-      return null;
-    }
-  });
 
-  const [savedFilters, setSavedFilters] = useState(() => {
-    try {
-      const v = localStorage.getItem('savedFilters');
-      return v ? JSON.parse(v) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [filterBuilderOpen, setFilterBuilderOpen] = useState(false);
-  const [editingFilter, setEditingFilter] = useState(null);
 
   // load favorites from localStorage; store array of coin ids
   const [favorites] = useState(() => {
@@ -271,129 +255,76 @@ function App() {
     return visible.filter((c) => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q));
   }, [coins, query])
 
-  // Apply filter logic to coins
-  const applyFilter = useCallback((coinsList, filter) => {
-    if (!filter || !filter.conditions) return coinsList;
-
-    const resolveValue = (coin, field, interval) => {
-      // Basic fields
-      if (field === 'price') return Number(coin.price || coin.close || 0);
-      if (field === 'volume') return Number(coin.volume || 0);
-      if (field === 'changePct') return Number(coin.price_change_percentage_24h || coin.interval_pct || 0);
-      if (field === 'value') return Number(coin.value || coin.daily_value || 0);
-      if (field === 'dailyVolume') return Number(coin.daily_volume || coin.volume || 0);
-
-      // Technicals
-      if (field === 'priceChange1h') return Number(coin.price_change_percentage_24h || 0) / 24;
-      if (field === 'priceChange24h') return Number(coin.price_change_percentage_24h || 0);
-      if (field === 'momentum') return Number(coin.interval_pct || coin.price_change_percentage_24h || 0);
-
-      // Growth
-      if (field === 'volumeGrowth') return Number(coin.volume || 0);
-      if (field === 'priceGrowth') return Number(coin.price_change_percentage_24h || coin.interval_pct || 0);
-
-      // Financials
-      if (field === 'peRatio') return Number(coin.extra?.peRatio || coin.raw?.peRatio || 0);
-      if (field === 'marketCap') return Number(coin.extra?.marketCap || coin.raw?.marketCap || 0);
-
-      // OHLC fields - try to get from raw data if available
-      if (field === 'open') return Number(coin.raw?.open || coin.open || coin.price || 0);
-      if (field === 'high') return Number(coin.raw?.high || coin.high || coin.price || 0);
-      if (field === 'low') return Number(coin.raw?.low || coin.low || coin.price || 0);
-
-      return 0;
-    };
-
-    const compare = (sourceVal, operator, targetVal) => {
-      if (sourceVal == null || targetVal == null) return false;
-
-      switch (operator) {
-        case 'above': return sourceVal > targetVal;
-        case 'aboveOrEqual': return sourceVal >= targetVal;
-        case 'below': return sourceVal < targetVal;
-        case 'belowOrEqual': return sourceVal <= targetVal;
-        case 'equal': return Math.abs(sourceVal - targetVal) < 0.000001;
-        case 'crosses': return false;
-        case 'crossesUp': return sourceVal > targetVal;
-        case 'crossesDown': return sourceVal < targetVal;
-        default: return false;
-      }
-    };
-
-    return coinsList.filter(coin => {
-      const conditions = filter.conditions;
-
-      for (const [key, cond] of Object.entries(conditions)) {
-        if (!cond) continue;
-
-        // Determine source value based on filter key
-        let sourceVal = resolveValue(coin, key);
-
-        // Handle Range (Min/Max)
-        if (cond.min != null && sourceVal < cond.min) return false;
-        if (cond.max != null && sourceVal > cond.max) return false;
-
-        // Handle Advanced Operator/Target
-        if (cond.operator && cond.target) {
-          if (cond.target !== 'value') {
-            const targetVal = resolveValue(coin, cond.target, cond.interval);
-            if (!compare(sourceVal, cond.operator, targetVal)) return false;
-          }
-        }
-      }
-
-      return true;
-    });
-  }, [])
 
   // apply page filter if selected (pageIndex maps to 0 => 1-100, 1 => 101-200 ...)
   // NOTE: when a specific page is selected we slice the full `coins` array
   // so the page buckets remain stable (1-100, 101-200, ...) even if a
   // search query is active. When no page is selected we respect the search
   // and return the filtered results.
-  const displayedCoins = useMemo(() => {
-    const per = 100;
-    const [pmin, pmax] = priceRange || [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY];
+  const [displayedCoins, setDisplayedCoins] = useState([]);
 
-    let result = filtered;
+  useEffect(() => {
+    let cancelled = false;
 
-    // Apply price range filter
-    result = result.filter((c) => {
-      const p = Number(c.price == null ? c.close || 0 : c.price);
-      return !Number.isNaN(p) && p >= pmin && p <= pmax;
-    });
+    async function computeDisplayedCoins() {
+      const per = 100;
+      const [pmin, pmax] = priceRange || [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY];
 
-    // Apply custom filter if selected
-    if (selectedFilter) {
-      result = applyFilter(result, selectedFilter);
+      let result = filtered;
+
+      // Apply price range filter
+      result = result.filter((c) => {
+        const p = Number(c.price == null ? c.close || 0 : c.price);
+        return !Number.isNaN(p) && p >= pmin && p <= pmax;
+      });
+
+      // Apply Screener Filters
+      if (activeFilters && activeFilters.length > 0) {
+        activeFilters.forEach(filter => {
+          if (filter.conditions) {
+            result = applyFilter(result, filter.conditions);
+          }
+        });
+      }
+
+      // If an index is selected, ignore page buckets and show only index members
+      if (selectedIndex) {
+        const members = indexMap && indexMap[selectedIndex] ? new Set((indexMap[selectedIndex] || []).map(s => s.toLowerCase())) : null;
+        if (!members) {
+          if (!cancelled) setDisplayedCoins([]);
+          return;
+        }
+        result = result.filter((c) => members.has((c.symbol || c.id || '').toLowerCase()));
+      }
+
+      if (pageIndex == null) {
+        if (!cancelled) setDisplayedCoins(result);
+        return;
+      }
+
+      // Apply paging to the FILTERED result (not raw coins)
+      // This ensures screener filters are respected when paging is active
+      const start = pageIndex * per;
+      const end = start + per;
+      result = result.slice(start, end);
+
+      if (!cancelled) setDisplayedCoins(result);
     }
 
-    // If an index is selected, ignore page buckets and show only index members
-    if (selectedIndex) {
-      const members = indexMap && indexMap[selectedIndex] ? new Set((indexMap[selectedIndex] || []).map(s => s.toLowerCase())) : null;
-      if (!members) return [];
-      return result.filter((c) => members.has((c.symbol || c.id || '').toLowerCase()));
-    }
+    computeDisplayedCoins();
 
-    if (pageIndex == null) {
-      return result;
-    }
-
-    const start = pageIndex * per;
-    // use visible coins for paging so hidden symbols don't occupy slots
-    const meta = getAllMetadata();
-    const visible = (coins || []).filter((c) => !(meta[c.symbol] && meta[c.symbol].hidden));
-    return visible.slice(start, start + per).filter((c) => {
-      const p = Number(c.price == null ? c.close || 0 : c.price);
-      return !Number.isNaN(p) && p >= pmin && p <= pmax;
-    });
-  }, [filtered, coins, pageIndex, selectedIndex, indexMap, priceRange, selectedFilter, applyFilter]);
+    return () => {
+      cancelled = true;
+    };
+  }, [filtered, coins, pageIndex, selectedIndex, indexMap, priceRange, activeFilters]);
 
   // Memoize the bubble chart data to prevent unnecessary recreations on every render
   // This prevents bubbles from being recreated when only UI state changes (like menu opens/closes)
   const bubbleChartData = useMemo(() => {
     const meta = getAllMetadata();
-    const src = displayedCoins && displayedCoins.length ? displayedCoins : (coins || []);
+    // Use displayedCoins directly - do NOT fallback to coins when empty
+    // If filter returns 0 results, we should show 0 bubbles
+    const src = displayedCoins || [];
     // merge metadata (image, displayName, shortName) into each coin so BubbleChart can render logos
     return (src || []).map((c) => {
       try {
@@ -404,7 +335,7 @@ function App() {
         return c;
       }
     });
-  }, [displayedCoins, coins]); // Only recreate when displayedCoins or coins actually change
+  }, [displayedCoins]); // Only depend on displayedCoins, not coins
 
   useEffect(() => {
     function onKey(e) {
@@ -485,18 +416,6 @@ function App() {
     } catch (e) { /* ignore */ }
   }, [selectedIndex]);
 
-  // Persist selected filter
-  useEffect(() => {
-    try {
-      if (selectedFilter) {
-        localStorage.setItem('selectedFilter', JSON.stringify(selectedFilter));
-      } else {
-        localStorage.removeItem('selectedFilter');
-      }
-    } catch (e) {
-      // ignore
-    }
-  }, [selectedFilter]);
 
   // Use refs to store latest values so callbacks don't need to be recreated
   const refreshForIntervalRef = useRef(refreshForInterval);
@@ -861,42 +780,6 @@ function App() {
             </div>
           </div>
 
-          {/* Filter Button - Add this after interval dropdowns */}
-          <FilterButton
-            selectedFilter={selectedFilter}
-            savedFilters={savedFilters}
-            onSelectFilter={(filter) => {
-              setSelectedFilter(filter);
-              // Close interval menus when filter is selected
-              setDayIntervalMenuOpen(false);
-              setMonthlyIntervalMenuOpen(false);
-            }}
-            onCreateNew={() => {
-              setEditingFilter(null);
-              setFilterBuilderOpen(true);
-              // Close interval menus when opening filter builder
-              setDayIntervalMenuOpen(false);
-              setMonthlyIntervalMenuOpen(false);
-            }}
-            onDeleteFilter={(filterId) => {
-              const updated = savedFilters.filter(f => f.id !== filterId);
-              setSavedFilters(updated);
-              try {
-                localStorage.setItem('savedFilters', JSON.stringify(updated));
-              } catch (e) {
-                // ignore
-              }
-              if (selectedFilter?.id === filterId) {
-                setSelectedFilter(null);
-                try {
-                  localStorage.removeItem('selectedFilter');
-                } catch (e) {
-                  // ignore
-                }
-              }
-            }}
-          />
-
           {/* Header Pages Dropdown - Visible in Landscape */}
           <div className="header-pages-dropdown">
             {(() => {
@@ -1118,6 +1001,14 @@ function App() {
           />
         </div>
       )}
+
+      {/* Screener Bar */}
+      <ScreenerBar
+        activeFilters={activeFilters}
+        onFilterChange={setActiveFilters}
+        resultCount={displayedCoins.length}
+        totalCount={coins.length}
+      />
 
       {/* Market Summary Panel */}
       {ENABLE_LIVE_API && marketSummaryOpen && (
@@ -1480,28 +1371,6 @@ function App() {
       {/* Debug HUD removed in demo-only reset */}
       {/* Debug Panel removed in demo-only reset */}
 
-      {/* Filter Builder Modal */}
-      <FilterBuilder
-        open={filterBuilderOpen}
-        onClose={() => {
-          setFilterBuilderOpen(false);
-          setEditingFilter(null);
-        }}
-        initialFilter={editingFilter}
-        onSave={(filter) => {
-          const updated = savedFilters.filter(f => f.id !== filter.id);
-          updated.push(filter);
-          setSavedFilters(updated);
-          try {
-            localStorage.setItem('savedFilters', JSON.stringify(updated));
-          } catch (e) {
-            // ignore
-          }
-          // Auto-select the saved filter
-          setSelectedFilter(filter);
-        }}
-        coins={coins}
-      />
     </div>
   )
 }
