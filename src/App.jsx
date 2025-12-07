@@ -19,7 +19,7 @@ import { ENABLE_LIVE_API, AUTO_REFRESH_MS } from './config'
 import { sanitizeIndexMap } from './utils/indexMap'
 import storage from './lib/storage'
 import { applyFilter } from './utils/filterUtils'
-import ScreenerBar from './components/ScreenerBar'
+import ScreenerDropdown from './components/ScreenerDropdown'
 
 function App() {
   const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp } = useOHLCV();
@@ -42,11 +42,24 @@ function App() {
   const [searchAnchor, setSearchAnchor] = useState(null)
   const [initialSearchQuery, setInitialSearchQuery] = useState('')
   const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [dayIntervalMenuOpen, setDayIntervalMenuOpen] = useState(false)
-  const [monthlyIntervalMenuOpen, setMonthlyIntervalMenuOpen] = useState(false)
-  const dayIntervalAnchorRef = useRef(null)
-  const monthlyIntervalAnchorRef = useRef(null)
-  const [activeFilters, setActiveFilters] = useState([])
+  const [intervalMenuOpen, setIntervalMenuOpen] = useState(false)
+  const intervalAnchorRef = useRef(null)
+  const [favoriteIntervals, setFavoriteIntervals] = useState(() => {
+    try {
+      const saved = localStorage.getItem('favoriteIntervals');
+      return saved ? JSON.parse(saved) : ['1 Min', 'Day'];
+    } catch {
+      return ['1 Min', 'Day'];
+    }
+  })
+  const [activeFilters, setActiveFilters] = useState(() => {
+    try {
+      const saved = localStorage.getItem('activeFilters');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  })
   const [selectedCoin, setSelectedCoin] = useState(null)
   const [pageIndex, setPageIndex] = useState(() => {
     try {
@@ -191,6 +204,12 @@ function App() {
         return pct24h / (24 * 60);
       case '15 Min':
         return pct24h / (24 * 60 / 15);
+      // Tick intervals use daily percent (count-based, not time-based)
+      case '10 Ticks':
+      case '100 Ticks':
+      case '500 Ticks':
+      case '1000 Ticks':
+        return pct24h;
       default:
         return pct24h;
     }
@@ -217,6 +236,12 @@ function App() {
       case 'Week': return 7 * 24 * 60 * 60 * 1000;
       case 'Month': return 30 * 24 * 60 * 60 * 1000;
       case 'Year': return 365 * 24 * 60 * 60 * 1000;
+      // Tick intervals use hourly equivalent for refresh timing
+      case '10 Ticks':
+      case '100 Ticks':
+      case '500 Ticks':
+      case '1000 Ticks':
+        return 60 * 60 * 1000;
       default: return 60 * 60 * 1000;
     }
   }
@@ -365,19 +390,18 @@ function App() {
   // Define intervals
   const dayIntervals = ['1 Min', '5 Min', '15 Min', 'Hour'];
   const monthlyIntervals = ['Day', 'Week', 'Month', 'Year'];
+  const tickIntervals = ['10 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks'];
 
   // Get current dropdown type
   const isDayInterval = dayIntervals.includes(currentInterval);
   const isMonthlyInterval = monthlyIntervals.includes(currentInterval);
+  const isTickInterval = tickIntervals.includes(currentInterval);
 
-  // Close menus when clicking outside
+  // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dayIntervalAnchorRef.current && !dayIntervalAnchorRef.current.contains(event.target)) {
-        setDayIntervalMenuOpen(false);
-      }
-      if (monthlyIntervalAnchorRef.current && !monthlyIntervalAnchorRef.current.contains(event.target)) {
-        setMonthlyIntervalMenuOpen(false);
+      if (intervalAnchorRef.current && !intervalAnchorRef.current.contains(event.target)) {
+        setIntervalMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -415,6 +439,13 @@ function App() {
       else localStorage.setItem('selectedIndex', String(selectedIndex));
     } catch (e) { /* ignore */ }
   }, [selectedIndex]);
+
+  // persist active filters so they survive page refresh
+  useEffect(() => {
+    try {
+      localStorage.setItem('activeFilters', JSON.stringify(activeFilters));
+    } catch (e) { /* ignore */ }
+  }, [activeFilters]);
 
 
   // Use refs to store latest values so callbacks don't need to be recreated
@@ -585,78 +616,152 @@ function App() {
         </div>
 
         <div className="header-actions">
-          {/* Interval Dropdowns */}
-          <div className="interval-dropdowns" style={{ display: 'flex', gap: '8px', marginRight: '12px' }}>
-            {/* Day Intervals Dropdown */}
-            <div ref={dayIntervalAnchorRef} style={{ position: 'relative' }}>
-              <button
-                className="interval-dropdown-btn"
-                type="button"
-                onClick={() => {
-                  setDayIntervalMenuOpen(!dayIntervalMenuOpen);
-                  setMonthlyIntervalMenuOpen(false);
-                }}
-                style={{
-                  padding: '8px 16px',
-                  background: isDayInterval ? 'rgba(61, 220, 132, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                  border: `1px solid ${isDayInterval ? 'rgba(61, 220, 132, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
-                  borderRadius: '8px',
-                  color: '#eaeaea',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDayInterval ? 'rgba(61, 220, 132, 0.2)' : 'rgba(255, 255, 255, 0.08)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isDayInterval ? 'rgba(61, 220, 132, 0.15)' : 'rgba(255, 255, 255, 0.05)';
-                }}
-              >
-                <span>{isDayInterval ? currentInterval : dayIntervals[0]}</span>
-                <span style={{ fontSize: '10px' }}>▼</span>
-              </button>
-              {dayIntervalMenuOpen && (
+          {/* Screener Dropdown */}
+          <div style={{ marginRight: '12px' }}>
+            <ScreenerDropdown
+              activeFilters={activeFilters}
+              onFilterChange={setActiveFilters}
+              resultCount={displayedCoins.length}
+              totalCount={coins.length}
+            />
+          </div>
+
+          {/* Interval Section: Favorite Buttons + Dropdown */}
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginRight: '12px' }}>
+            {/* Favorite Interval Quick-Access Buttons */}
+            {favoriteIntervals.map((interval) => {
+              const isActive = interval === currentInterval;
+              const isTickType = tickIntervals.includes(interval);
+              return (
+                <button
+                  key={`quick-${interval}`}
+                  type="button"
+                  onClick={() => setCurrentInterval(interval)}
+                  style={{
+                    padding: '6px 12px',
+                    background: isActive
+                      ? (isTickType ? 'rgba(147, 51, 234, 0.25)' : 'rgba(61, 220, 132, 0.25)')
+                      : 'rgba(255, 255, 255, 0.05)',
+                    border: `1px solid ${isActive
+                      ? (isTickType ? 'rgba(147, 51, 234, 0.4)' : 'rgba(61, 220, 132, 0.4)')
+                      : 'rgba(255, 255, 255, 0.1)'}`,
+                    borderRadius: '6px',
+                    color: isActive ? (isTickType ? '#c084fc' : '#7ff0a0') : '#9ca3af',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    transition: 'all 0.15s',
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.color = '#eaeaea';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.color = '#9ca3af';
+                    }
+                  }}
+                >
+                  {interval}
+                </button>
+              );
+            })}
+
+            {/* Main Dropdown Button - Shows selected interval */}
+            <div ref={intervalAnchorRef} style={{ position: 'relative' }}>
+              {(() => {
+                const isCurrentInFavorites = favoriteIntervals.includes(currentInterval);
+                const isTickType = tickIntervals.includes(currentInterval);
+                return (
+                  <button
+                    className="interval-dropdown-btn"
+                    type="button"
+                    onClick={() => setIntervalMenuOpen(!intervalMenuOpen)}
+                    style={{
+                      padding: '6px 12px',
+                      background: !isCurrentInFavorites
+                        ? (isTickType ? 'rgba(147, 51, 234, 0.25)' : 'rgba(61, 220, 132, 0.25)')
+                        : 'rgba(255, 255, 255, 0.05)',
+                      border: `1px solid ${!isCurrentInFavorites
+                        ? (isTickType ? 'rgba(147, 51, 234, 0.4)' : 'rgba(61, 220, 132, 0.4)')
+                        : 'rgba(255, 255, 255, 0.15)'}`,
+                      borderRadius: '6px',
+                      color: !isCurrentInFavorites
+                        ? (isTickType ? '#c084fc' : '#7ff0a0')
+                        : '#9ca3af',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.15s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.color = '#eaeaea';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = !isCurrentInFavorites
+                        ? (isTickType ? 'rgba(147, 51, 234, 0.25)' : 'rgba(61, 220, 132, 0.25)')
+                        : 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.color = !isCurrentInFavorites
+                        ? (isTickType ? '#c084fc' : '#7ff0a0')
+                        : '#9ca3af';
+                    }}
+                  >
+                    <span>{currentInterval}</span>
+                    <span style={{ fontSize: '9px' }}>▼</span>
+                  </button>
+                );
+              })()}
+              {intervalMenuOpen && (
                 <div
                   className="interval-dropdown-menu"
                   style={{
                     position: 'absolute',
                     top: '100%',
-                    left: 0,
+                    right: 0,
                     marginTop: '4px',
                     background: '#1a2332',
                     border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '8px',
-                    padding: '4px',
-                    minWidth: '120px',
+                    borderRadius: '12px',
+                    padding: '8px',
+                    minWidth: '180px',
                     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
-                    zIndex: 1000
+                    zIndex: 1000,
+                    maxHeight: '400px',
+                    overflowY: 'auto'
                   }}
                 >
-                  {dayIntervals.map((interval) => {
-                    const pct = avgFavPctForInterval(interval);
-                    const bg = pctToColor(pct);
+                  {/* Tick-Based Section - FIRST */}
+                  <div style={{ padding: '4px 8px', color: '#a78bfa', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Tick-Based
+                  </div>
+                  {tickIntervals.map((interval) => {
+                    const isFav = favoriteIntervals.includes(interval);
+                    const isActive = interval === currentInterval;
                     return (
                       <button
                         key={interval}
                         type="button"
                         onClick={() => {
                           setCurrentInterval(interval);
-                          setDayIntervalMenuOpen(false);
+                          setIntervalMenuOpen(false);
                         }}
                         style={{
                           width: '100%',
-                          padding: '10px 12px',
-                          background: interval === currentInterval ? 'rgba(61, 220, 132, 0.2)' : 'transparent',
+                          padding: '8px 10px',
+                          background: isActive ? 'rgba(147, 51, 234, 0.2)' : 'transparent',
                           border: 'none',
                           borderRadius: '6px',
-                          color: interval === currentInterval ? '#7ff0a0' : '#eaeaea',
+                          color: isActive ? '#c084fc' : '#eaeaea',
                           cursor: 'pointer',
-                          fontSize: '14px',
+                          fontSize: '13px',
                           textAlign: 'left',
                           display: 'flex',
                           alignItems: 'center',
@@ -664,95 +769,57 @@ function App() {
                           transition: 'all 0.15s'
                         }}
                         onMouseEnter={(e) => {
-                          if (interval !== currentInterval) {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                          }
+                          if (!isActive) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                         }}
                         onMouseLeave={(e) => {
-                          if (interval !== currentInterval) {
-                            e.currentTarget.style.background = 'transparent';
-                          }
+                          if (!isActive) e.currentTarget.style.background = 'transparent';
                         }}
                       >
-                        <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: bg, flexShrink: 0 }} />
-                        <span>{interval}</span>
+                        <span style={{ flex: 1 }}>{interval}</span>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newFavs = isFav
+                              ? favoriteIntervals.filter(f => f !== interval)
+                              : [...favoriteIntervals, interval];
+                            setFavoriteIntervals(newFavs);
+                            try { localStorage.setItem('favoriteIntervals', JSON.stringify(newFavs)); } catch { }
+                          }}
+                          style={{ cursor: 'pointer', fontSize: '14px', opacity: isFav ? 1 : 0.3 }}
+                        >
+                          {isFav ? '⭐' : '☆'}
+                        </span>
                       </button>
                     );
                   })}
-                </div>
-              )}
-            </div>
 
-            {/* Monthly Intervals Dropdown */}
-            <div ref={monthlyIntervalAnchorRef} style={{ position: 'relative' }}>
-              <button
-                className="interval-dropdown-btn"
-                type="button"
-                onClick={() => {
-                  setMonthlyIntervalMenuOpen(!monthlyIntervalMenuOpen);
-                  setDayIntervalMenuOpen(false);
-                }}
-                style={{
-                  padding: '8px 16px',
-                  background: isMonthlyInterval ? 'rgba(61, 220, 132, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                  border: `1px solid ${isMonthlyInterval ? 'rgba(61, 220, 132, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
-                  borderRadius: '8px',
-                  color: '#eaeaea',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isMonthlyInterval ? 'rgba(61, 220, 132, 0.2)' : 'rgba(255, 255, 255, 0.08)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isMonthlyInterval ? 'rgba(61, 220, 132, 0.15)' : 'rgba(255, 255, 255, 0.05)';
-                }}
-              >
-                <span>{isMonthlyInterval ? currentInterval : monthlyIntervals[0]}</span>
-                <span style={{ fontSize: '10px' }}>▼</span>
-              </button>
-              {monthlyIntervalMenuOpen && (
-                <div
-                  className="interval-dropdown-menu"
-                  style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    marginTop: '4px',
-                    background: '#1a2332',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '8px',
-                    padding: '4px',
-                    minWidth: '120px',
-                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
-                    zIndex: 1000
-                  }}
-                >
-                  {monthlyIntervals.map((interval) => {
-                    const pct = avgFavPctForInterval(interval);
-                    const bg = pctToColor(pct);
+                  {/* Separator */}
+                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '8px 0' }} />
+
+                  {/* Intraday Section - SECOND */}
+                  <div style={{ padding: '4px 8px', color: '#64748b', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Intraday
+                  </div>
+                  {dayIntervals.map((interval) => {
+                    const isFav = favoriteIntervals.includes(interval);
+                    const isActive = interval === currentInterval;
                     return (
                       <button
                         key={interval}
                         type="button"
                         onClick={() => {
                           setCurrentInterval(interval);
-                          setMonthlyIntervalMenuOpen(false);
+                          setIntervalMenuOpen(false);
                         }}
                         style={{
                           width: '100%',
-                          padding: '10px 12px',
-                          background: interval === currentInterval ? 'rgba(61, 220, 132, 0.2)' : 'transparent',
+                          padding: '8px 10px',
+                          background: isActive ? 'rgba(61, 220, 132, 0.2)' : 'transparent',
                           border: 'none',
                           borderRadius: '6px',
-                          color: interval === currentInterval ? '#7ff0a0' : '#eaeaea',
+                          color: isActive ? '#7ff0a0' : '#eaeaea',
                           cursor: 'pointer',
-                          fontSize: '14px',
+                          fontSize: '13px',
                           textAlign: 'left',
                           display: 'flex',
                           alignItems: 'center',
@@ -760,18 +827,84 @@ function App() {
                           transition: 'all 0.15s'
                         }}
                         onMouseEnter={(e) => {
-                          if (interval !== currentInterval) {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                          }
+                          if (!isActive) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                         }}
                         onMouseLeave={(e) => {
-                          if (interval !== currentInterval) {
-                            e.currentTarget.style.background = 'transparent';
-                          }
+                          if (!isActive) e.currentTarget.style.background = 'transparent';
                         }}
                       >
-                        <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: bg, flexShrink: 0 }} />
-                        <span>{interval}</span>
+                        <span style={{ flex: 1 }}>{interval}</span>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newFavs = isFav
+                              ? favoriteIntervals.filter(f => f !== interval)
+                              : [...favoriteIntervals, interval];
+                            setFavoriteIntervals(newFavs);
+                            try { localStorage.setItem('favoriteIntervals', JSON.stringify(newFavs)); } catch { }
+                          }}
+                          style={{ cursor: 'pointer', fontSize: '14px', opacity: isFav ? 1 : 0.3 }}
+                        >
+                          {isFav ? '⭐' : '☆'}
+                        </span>
+                      </button>
+                    );
+                  })}
+
+                  {/* Separator */}
+                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '8px 0' }} />
+
+                  {/* Daily & Above Section - THIRD */}
+                  <div style={{ padding: '4px 8px', color: '#64748b', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Daily & Above
+                  </div>
+                  {monthlyIntervals.map((interval) => {
+                    const isFav = favoriteIntervals.includes(interval);
+                    const isActive = interval === currentInterval;
+                    return (
+                      <button
+                        key={interval}
+                        type="button"
+                        onClick={() => {
+                          setCurrentInterval(interval);
+                          setIntervalMenuOpen(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          background: isActive ? 'rgba(61, 220, 132, 0.2)' : 'transparent',
+                          border: 'none',
+                          borderRadius: '6px',
+                          color: isActive ? '#7ff0a0' : '#eaeaea',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          textAlign: 'left',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          transition: 'all 0.15s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <span style={{ flex: 1 }}>{interval}</span>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newFavs = isFav
+                              ? favoriteIntervals.filter(f => f !== interval)
+                              : [...favoriteIntervals, interval];
+                            setFavoriteIntervals(newFavs);
+                            try { localStorage.setItem('favoriteIntervals', JSON.stringify(newFavs)); } catch { }
+                          }}
+                          style={{ cursor: 'pointer', fontSize: '14px', opacity: isFav ? 1 : 0.3 }}
+                        >
+                          {isFav ? '⭐' : '☆'}
+                        </span>
                       </button>
                     );
                   })}
@@ -1002,13 +1135,7 @@ function App() {
         </div>
       )}
 
-      {/* Screener Bar */}
-      <ScreenerBar
-        activeFilters={activeFilters}
-        onFilterChange={setActiveFilters}
-        resultCount={displayedCoins.length}
-        totalCount={coins.length}
-      />
+
 
       {/* Market Summary Panel */}
       {ENABLE_LIVE_API && marketSummaryOpen && (

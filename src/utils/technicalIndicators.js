@@ -125,6 +125,23 @@ export async function calculateAverageVolume(priceData, period = 20) {
 }
 
 /**
+ * Calculate Volume Moving Average (SMA of Volume)
+ * @param {Array} priceData - Array of price data with volume
+ * @param {number} period - MA period (10, 20, 50)
+ * @returns {number|null} Volume MA value or null if insufficient data
+ */
+export async function calculateVolumeMA(priceData, period = 20) {
+  if (!priceData || priceData.length < period) return null;
+  const volumes = priceData
+    .slice(-period)
+    .map(d => Number(d.volume || 0))
+    .filter(v => v >= 0);
+  if (volumes.length < period) return null;
+  const sum = volumes.reduce((a, b) => a + b, 0);
+  return sum / volumes.length;
+}
+
+/**
  * Get latest indicator value from array
  * @param {Array} indicatorArray - Array of indicator values
  * @returns {number|null} Latest value or null
@@ -173,12 +190,15 @@ export async function calculateAllIndicators(priceData) {
       bb_upper: null,
       bb_middle: null,
       bb_lower: null,
-      avg_volume: null
+      avg_volume: null,
+      volume_ma_10: null,
+      volume_ma_20: null,
+      volume_ma_50: null
     };
   }
 
   try {
-    const [rsi, sma20, sma50, sma200, ema20, macd, bb, avgVolume] = await Promise.all([
+    const [rsi, sma20, sma50, sma200, ema20, macd, bb, avgVolume, volMa10, volMa20, volMa50] = await Promise.all([
       calculateRSI(priceData, 14),
       calculateSMA(priceData, 20),
       calculateSMA(priceData, 50),
@@ -186,7 +206,10 @@ export async function calculateAllIndicators(priceData) {
       calculateEMA(priceData, 20),
       calculateMACD(priceData),
       calculateBollingerBands(priceData, 20, 2),
-      calculateAverageVolume(priceData, 20)
+      calculateAverageVolume(priceData, 20),
+      calculateVolumeMA(priceData, 10),
+      calculateVolumeMA(priceData, 20),
+      calculateVolumeMA(priceData, 50)
     ]);
 
     const latestMACD = getLatestMACD(macd);
@@ -203,7 +226,10 @@ export async function calculateAllIndicators(priceData) {
       bb_upper: getLatestIndicatorValue(bb.upper),
       bb_middle: getLatestIndicatorValue(bb.middle),
       bb_lower: getLatestIndicatorValue(bb.lower),
-      avg_volume: avgVolume
+      avg_volume: avgVolume,
+      volume_ma_10: volMa10,
+      volume_ma_20: volMa20,
+      volume_ma_50: volMa50
     };
   } catch (error) {
     console.warn('[calculateAllIndicators] Error:', error);
@@ -219,7 +245,10 @@ export async function calculateAllIndicators(priceData) {
       bb_upper: null,
       bb_middle: null,
       bb_lower: null,
-      avg_volume: null
+      avg_volume: null,
+      volume_ma_10: null,
+      volume_ma_20: null,
+      volume_ma_50: null
     };
   }
 }

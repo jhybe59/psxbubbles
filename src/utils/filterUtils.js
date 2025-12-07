@@ -23,12 +23,52 @@ export const resolveValue = (coin, field, interval) => {
     if (field === 'volatility') return coin.volatility != null ? Number(coin.volatility) : null;
     if (field === 'relative_volume') return coin.relative_volume != null ? Number(coin.relative_volume) : null;
 
-    // Previous bar data for breakout detection
+    // Candle Body Percentage - body size as % of total range (for candle strength filtering)
+    // body = |close - open|, range = high - low, body_pct = (body / range) * 100
+    if (field === 'candle_body_pct') {
+        const open = Number(coin.open || coin.price || 0);
+        const close = Number(coin.close || coin.price || 0);
+        const high = Number(coin.high || Math.max(open, close));
+        const low = Number(coin.low || Math.min(open, close));
+        const body = Math.abs(close - open);
+        const range = high - low;
+        if (range === 0) return 0;
+        return (body / range) * 100;
+    }
+
+    // Dynamic Volume Moving Averages - handles volume_ma_XX where XX is any period
+    if (field.startsWith('volume_ma_')) {
+        const period = parseInt(field.split('_')[2], 10);
+        if (!isNaN(period) && period > 0) {
+            // Check if pre-calculated, otherwise use avg_volume as fallback
+            const maKey = `volume_ma_${period}`;
+            if (coin[maKey] != null) return Number(coin[maKey]);
+            // For common periods, check specific fields
+            if (period === 10 && coin.volume_ma_10 != null) return Number(coin.volume_ma_10);
+            if (period === 20 && coin.volume_ma_20 != null) return Number(coin.volume_ma_20);
+            if (period === 50 && coin.volume_ma_50 != null) return Number(coin.volume_ma_50);
+            // Fallback to avg_volume for other periods
+            return coin.avg_volume != null ? Number(coin.avg_volume) : null;
+        }
+        return null;
+    }
+
+    // Previous bar data for breakout detection (1 candle back)
     if (field === 'prev_close') return coin.prev_close != null ? Number(coin.prev_close) : null;
     if (field === 'prev_open') return coin.prev_open != null ? Number(coin.prev_open) : null;
     if (field === 'prev_high') return coin.prev_high != null ? Number(coin.prev_high) : null;
     if (field === 'prev_low') return coin.prev_low != null ? Number(coin.prev_low) : null;
     if (field === 'prev_volume') return coin.prev_volume != null ? Number(coin.prev_volume) : null;
+
+    // 2-candles back data for strong breakout confirmation
+    if (field === 'prev_prev_close') return coin.prev_prev_close != null ? Number(coin.prev_prev_close) : null;
+    if (field === 'prev_prev_open') return coin.prev_prev_open != null ? Number(coin.prev_prev_open) : null;
+    if (field === 'prev_prev_high') return coin.prev_prev_high != null ? Number(coin.prev_prev_high) : null;
+    if (field === 'prev_prev_low') return coin.prev_prev_low != null ? Number(coin.prev_prev_low) : null;
+
+    // Previous volatility and RVOL for momentum confirmation
+    if (field === 'prev_volatility') return coin.prev_volatility != null ? Number(coin.prev_volatility) : null;
+    if (field === 'prev_rvol') return coin.prev_rvol != null ? Number(coin.prev_rvol) : null;
 
     // Lookback stats for flexible strategy builder
     // Format: max_high_5m, min_low_15m, avg_volume_1h, etc.

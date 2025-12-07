@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import storage from '../lib/storage';
-import { ENABLE_REPO_SNAPSHOTS } from '../config';
+import { ENABLE_REPO_SNAPSHOTS, ENABLE_LIVE_API, LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
 import InteractiveChart from './InteractiveChart';
 import { buildCandlesFromSnapshots } from '../lib/chartUtils';
 
@@ -25,6 +25,7 @@ export default function CoinModal({ coin, onClose }) {
   const [daily24hStats, setDaily24hStats] = useState(null);
   const [currentCoin, setCurrentCoin] = useState(coin);
   // only area chart is used now
+  const [chartType, setChartType] = useState('area');
   const INTERVAL_LOOKUP = { Hour: 1, Day: 1, Week: 5, Month: 22, Year: 252 };
 
   // Format large numbers with K/M abbreviations
@@ -188,6 +189,50 @@ export default function CoinModal({ coin, onClose }) {
 
       try {
         const raw = displayCoin?.raw || coin?.raw || {};
+
+        // PRIORITY 0: LIVE API (if enabled)
+        // If live API is enabled, fetch true 24h stats directly from the server
+        if (ENABLE_LIVE_API) {
+          try {
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            const base = LIVE_API_BASE_URL.startsWith('http')
+              ? LIVE_API_BASE_URL
+              : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+            const url = new URL('bubbles', base.endsWith('/') ? base : `${base}/`);
+            url.searchParams.set('interval', 'Day');
+            url.searchParams.set('favorites', coin.symbol);
+            url.searchParams.set('_t', Date.now().toString());
+
+            const headers = { 'Content-Type': 'application/json' };
+            if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
+
+            const res = await fetch(url.toString(), { headers });
+            if (res.ok) {
+              const json = await res.json();
+              const dayList = json.data || json.symbols || [];
+              if (dayList.length > 0) {
+                const dayData = dayList.find(d => d.symbol === coin.symbol) || dayList[0];
+                if (dayData) {
+                  // Found daily data, use it for stats
+                  const stats = {
+                    high: dayData.high,
+                    low: dayData.low,
+                    volume: dayData.volume,
+                    value: dayData.value,
+                    open: dayData.open,
+                    pctChange: dayData.pct_24h || dayData.percentage || dayData.daily_change_1d,
+                    // priceDelta: intentionally omitted to allow dynamic calculation (price - open) for real-time accuracy
+                    close: dayData.close
+                  };
+                  if (mounted) setDaily24hStats(stats);
+                  return; // Exit early, we have authoritative data
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to fetch daily stats from API, falling back to local data', e);
+          }
+        }
 
         // PRIORITY 1: Use API-provided daily fields (from backend SQL calculation)
         // These are guaranteed to be accurate 24h values regardless of selected interval
@@ -737,16 +782,27 @@ export default function CoinModal({ coin, onClose }) {
               </div>
             </div>
           </div>
-          {/* Area chart only — removed area/line/candles toggle */}
         </div>
         <div className="chart-area">
           <div className="chart-header">
-            {/* chart header left intentionally minimal (Open/Low/High removed per request) */}
+            <div className="chart-controls">
+              <button
+                className={`chart-type-btn ${chartType === 'area' ? 'active' : ''}`}
+                onClick={() => setChartType('area')}
+              >
+                Area
+              </button>
+              <button
+                className={`chart-type-btn ${chartType === 'candle' ? 'active' : ''}`}
+                onClick={() => setChartType('candle')}
+              >
+                Candles
+              </button>
+            </div>
           </div>
 
           <div className="sparkline">
-
-            <InteractiveChart series={series} pct={pct} height={320} />
+            <InteractiveChart series={series} pct={pct} height={320} type={chartType} />
           </div>
 
           <div className="timeframe-row">

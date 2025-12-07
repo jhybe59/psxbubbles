@@ -8,10 +8,12 @@ import logger from './logger.mjs';
 import { redisClient } from './cache.mjs';
 import { metricsHandler } from './metrics.mjs';
 import bubblesRoute from './routes/bubbles.mjs';
+import bubblesQuestRoute from './routes/bubbles-quest.mjs';
 import snapshotsRoute from './routes/snapshots.mjs';
 import indicesRoute from './routes/indices.mjs';
 import healthRoute from './routes/health.mjs';
 import marketStatsRoute from './routes/market-stats.mjs';
+import tickBubblesRoute from './routes/tick-bubbles.mjs';
 
 export const buildApp = () => {
   const app = express();
@@ -27,11 +29,11 @@ export const buildApp = () => {
 
   const limiter = config.redis.url
     ? new RateLimiterRedis({
-        storeClient: redisClient,
-        points: config.rateLimit.points,
-        duration: config.rateLimit.duration,
-        keyPrefix: 'rlflx'
-      })
+      storeClient: redisClient,
+      points: config.rateLimit.points,
+      duration: config.rateLimit.duration,
+      keyPrefix: 'rlflx'
+    })
     : null;
 
   const apiKeyMiddleware = (req, res, next) => {
@@ -49,23 +51,25 @@ export const buildApp = () => {
 
   const rateLimitMiddleware = limiter
     ? async (req, res, next) => {
-        const key = req.headers['x-api-key'] || req.ip;
-        try {
-          await limiter.consume(key);
-          next();
-        } catch (err) {
-          res.set('Retry-After', String(err.msBeforeNext / 1000));
-          res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
-        }
+      const key = req.headers['x-api-key'] || req.ip;
+      try {
+        await limiter.consume(key);
+        next();
+      } catch (err) {
+        res.set('Retry-After', String(err.msBeforeNext / 1000));
+        res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
       }
+    }
     : (_req, _res, next) => next();
 
   app.use('/api', apiKeyMiddleware, rateLimitMiddleware);
   app.get('/metrics', metricsHandler);
   app.use('/api/bubbles', bubblesRoute);
+  app.use('/api/bubbles-quest', bubblesQuestRoute);  // QuestDB test endpoint
   app.use('/api/snapshots', snapshotsRoute);
   app.use('/api/indices', indicesRoute);
   app.use('/api/market-stats', marketStatsRoute);
+  app.use('/api/tick-bubbles', tickBubblesRoute);  // Real-time tick-based bubbles
   app.use('/api/health', healthRoute);
 
   app.use((err, req, res, _next) => { // eslint-disable-line no-unused-vars

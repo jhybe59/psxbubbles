@@ -2,8 +2,9 @@ import WebSocket from 'ws';
 import { Gauge, Counter } from 'prom-client';
 import logger from './logger.mjs';
 import { loadSymbols } from './symbols.mjs';
-import { insertMinuteBars } from './timescale.mjs';
+import { initQuestDB, insertMinuteBarsQuest, closeQuestDB } from './questdb.mjs';
 import { config } from './config.mjs';
+import { addTick } from './tick-buffer.mjs';
 
 const wsConnectionsGauge = new Gauge({
     name: 'ingestion_ws_connections_active',
@@ -99,9 +100,12 @@ class WebSocketConnection {
 
             if (message.type === 'tickUpdate' && message.tick) {
                 this.buffer.push(message.tick);
+                // Also add to tick buffer for interval tracking
+                this.processTick(message.tick);
             } else if (message.type === 'marketData' && message.data) {
                 // Handle potential alternative format if any
                 this.buffer.push(message.data);
+                this.processTick(message.data);
             }
 
         } catch (err) {
@@ -118,10 +122,11 @@ class WebSocketConnection {
             const normalised = batch.map(row => this.normalise(row)).filter(Boolean);
 
             if (normalised.length) {
+                // Write to QuestDB only (fast time-series database)
                 try {
-                    await insertMinuteBars(normalised);
+                    await insertMinuteBarsQuest(normalised);
                 } catch (err) {
-                    logger.error({ id: this.id, count: normalised.length, err }, 'Failed to insert batch');
+                    logger.error({ id: this.id, count: normalised.length, err }, 'Failed to insert batch to QuestDB');
                 }
             }
         }, 1000); // Flush every second
@@ -157,6 +162,34 @@ class WebSocketConnection {
         }
     }
 
+    /**
+     * Process tick for tick-based interval tracking
+     */
+    processTick(tick) {
+        try {
+            const symbol = tick.s || tick.symbol;
+            const price = Number(tick.c || tick.close || tick.ltp);
+            const volume = Number(tick.v || tick.volume || 0);
+            let ts = Number(tick.t || tick.ts || Date.now());
+
+            // Convert seconds to ms if needed
+            if (ts < 10000000000) ts *= 1000;
+
+            if (!symbol || isNaN(price)) return;
+
+            // Add to tick buffer for interval tracking
+            const completed = addTick({ symbol, price, volume, ts });
+
+            // Log when any interval completes (for debugging)
+            if (completed) {
+                const intervals = Object.keys(completed).join(', ');
+                logger.debug({ symbol, intervals }, 'Tick interval(s) completed');
+            }
+        } catch (err) {
+            // Silently ignore errors in tick processing
+        }
+    }
+
     cleanup() {
         wsConnectionsGauge.dec();
         this.isAlive = false;
@@ -189,6 +222,9 @@ export class WebSocketManager {
         if (this.isRunning) return;
         this.isRunning = true;
 
+        // Initialize QuestDB sender
+        await initQuestDB();
+
         const symbols = await loadSymbols();
         const chunkSize = 20;
 
@@ -210,6 +246,9 @@ export class WebSocketManager {
         this.isRunning = false;
         this.connections.forEach(conn => conn.close());
         this.connections = [];
+
+        // Close QuestDB sender
+        await closeQuestDB();
     }
 }
 

@@ -1,4 +1,3 @@
--- Enable TimescaleDB and UUID extensions
-CREATE EXTENSION IF NOT EXISTS timescaledb;
+-- Enable UUID extension (no TimescaleDB needed anymore)
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 

@@ -229,3 +229,130 @@ select option:focus {
     font-size: 12px;
     white-space: nowrap;
 }
+
+/* Compare group styles */
+.compare-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+}
+
+.multiplier-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.multiplier-row .multiplier-input {
+    width: 55px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.multiplier-row .x-label {
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.compare-select {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Optgroup styling */
+select optgroup {
+    background: #1a2332;
+    color: #64748b;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px 4px;
+}
+
+select optgroup option {
+    background: #1a2332;
+    color: #e2e8f0;
+    font-weight: 400;
+    font-size: 14px;
+    text-transform: none;
+    padding: 8px 12px;
+}
+
+/* Period input row */
+.period-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.period-label {
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.period-input {
+    width: 60px;
+    text-align: center;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.period-suffix {
+    color: #64748b;
+    font-size: 12px;
+}
+
+/* Strategy label */
+.strategy-label {
+    color: #94a3b8;
+    font-weight: 500;
+    font-size: 14px;
+    min-width: 20px;
+}
+
+/* Footer buttons */
+.strategy-footer {
+    padding: 16px 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.2);
+    display: flex;
+    gap: 10px;
+}
+
+.cancel-btn {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 12px;
+    border-radius: 8px;
+    color: #94a3b8;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.cancel-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+}
+
+.save-btn {
+    flex: 2;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}

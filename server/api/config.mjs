@@ -52,6 +52,11 @@ export const config = {
   redis: {
     // Make Redis optional by default in hosted envs
     url: process.env.REDIS_URL || ''
+  },
+  questdb: {
+    host: process.env.QUESTDB_HOST || 'localhost',
+    httpPort: numberOr(process.env.QUESTDB_HTTP_PORT, 9000),
+    ilpPort: numberOr(process.env.QUESTDB_ILP_PORT, 9009)
   }
 };
 

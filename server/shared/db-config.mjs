@@ -17,21 +17,22 @@ export const parseDatabaseUrl = (databaseUrl) => {
 };
 
 export const buildTimescaleConfigFromEnv = (env) => {
-  // Prefer explicit TIMESCALE_* if provided
+  // Support both POSTGRES_* and legacy TIMESCALE_* env vars
   const hasExplicit =
+    env.POSTGRES_HOST || env.POSTGRES_PORT || env.POSTGRES_DB || env.POSTGRES_USER ||
     env.TIMESCALE_HOST || env.TIMESCALE_PORT || env.TIMESCALE_DB || env.TIMESCALE_USER;
 
   if (hasExplicit) {
     const ssl =
-      env.TIMESCALE_SSL != null
-        ? ['1', 'true', 'yes', 'on'].includes(String(env.TIMESCALE_SSL).toLowerCase())
+      (env.POSTGRES_SSL ?? env.TIMESCALE_SSL) != null
+        ? ['1', 'true', 'yes', 'on'].includes(String(env.POSTGRES_SSL ?? env.TIMESCALE_SSL).toLowerCase())
         : false;
     return {
-      host: env.TIMESCALE_HOST || 'localhost',
-      port: env.TIMESCALE_PORT ? Number(env.TIMESCALE_PORT) : 5432,
-      database: env.TIMESCALE_DB || 'cryptobubbles',
-      user: env.TIMESCALE_USER || 'postgres',
-      password: env.TIMESCALE_PASSWORD || 'postgres',
+      host: env.POSTGRES_HOST || env.TIMESCALE_HOST || 'localhost',
+      port: Number(env.POSTGRES_PORT || env.TIMESCALE_PORT) || 5432,
+      database: env.POSTGRES_DB || env.TIMESCALE_DB || 'cryptobubbles',
+      user: env.POSTGRES_USER || env.TIMESCALE_USER || 'postgres',
+      password: env.POSTGRES_PASSWORD || env.TIMESCALE_PASSWORD || 'postgres',
       ssl
     };
   }
@@ -39,9 +40,9 @@ export const buildTimescaleConfigFromEnv = (env) => {
   if (env.DATABASE_URL) {
     const parsed = parseDatabaseUrl(env.DATABASE_URL);
     if (parsed) {
-      // Allow override via TIMESCALE_SSL if explicitly set
-      if (env.TIMESCALE_SSL != null) {
-        parsed.ssl = ['1', 'true', 'yes', 'on'].includes(String(env.TIMESCALE_SSL).toLowerCase());
+      // Allow override via POSTGRES_SSL if explicitly set
+      if ((env.POSTGRES_SSL ?? env.TIMESCALE_SSL) != null) {
+        parsed.ssl = ['1', 'true', 'yes', 'on'].includes(String(env.POSTGRES_SSL ?? env.TIMESCALE_SSL).toLowerCase());
       }
       return parsed;
     }

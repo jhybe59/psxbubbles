@@ -26,6 +26,13 @@ const QUICK_FILTERS = [
         }
     },
     {
+        id: 'vol_ma_breakout',
+        label: '📊 Vol > MA(20)',
+        conditions: {
+            volume: { operator: 'above', target: 'volume_ma_20' }
+        }
+    },
+    {
         id: 'oversold',
         label: '📉 Oversold (RSI)',
         conditions: {
@@ -44,6 +51,29 @@ const QUICK_FILTERS = [
         label: '🏆 Near ATH',
         conditions: {
             price: { operator: 'above', target: 'high', interval: '1y', multiplier: 0.95 }
+        }
+    },
+    {
+        id: 'micro_breakout',
+        label: '⚡ Micro Breakout',
+        conditions: {
+            price: { operator: 'above', target: 'prev_high' }
+        }
+    },
+    {
+        id: 'strong_breakout',
+        label: '🔥 Strong Breakout',
+        conditions: {
+            price: { operator: 'above', target: 'prev_prev_high' }
+        }
+    },
+    {
+        id: 'ultimate_breakout',
+        label: '💎 Momentum Breakout',
+        conditions: {
+            price: { operator: 'above', target: 'prev_high' },
+            volume: { operator: 'above', target: 'prev_volume' },
+            relative_volume: { operator: 'above', target: 'prev_rvol' }
         }
     }
 ];
@@ -75,12 +105,8 @@ export default function ScreenerBar({ activeFilters, onFilterChange, resultCount
             setFilterToEdit(filter);
             setAdvancedOpen(true);
         } else {
-            // For now, toggle legacy filters or open legacy editor if supported
-            // toggleFilter(filter); 
-            // User requested edit, but legacy editor might not support it yet. 
-            // For now let's just do nothing or maybe show a toast? 
-            // Actually, let's just toggle for non-advanced to keep behavior consistent for quick filters
-            toggleFilter(filter);
+            setFilterToEdit(filter);
+            setEditorOpen(true);
         }
     };
 
@@ -97,6 +123,11 @@ export default function ScreenerBar({ activeFilters, onFilterChange, resultCount
 
     const handleCloseAdvanced = () => {
         setAdvancedOpen(false);
+        setFilterToEdit(null);
+    };
+
+    const handleCloseEditor = () => {
+        setEditorOpen(false);
         setFilterToEdit(null);
     };
 
@@ -159,8 +190,9 @@ export default function ScreenerBar({ activeFilters, onFilterChange, resultCount
 
             {editorOpen && (
                 <StrategyEditor
+                    initialFilter={filterToEdit}
                     onSave={handleAddFilter}
-                    onClose={() => setEditorOpen(false)}
+                    onClose={handleCloseEditor}
                 />
             )}
 

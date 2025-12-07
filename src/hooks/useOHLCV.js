@@ -41,10 +41,66 @@ const LIVE_INTERVAL_MAP = {
   'Day': 'Day',
   'Week': 'Day',
   'Month': 'Day',
-  'Year': 'Day'
+  'Year': 'Day',
+  // Tick-based intervals
+  '10 Ticks': '10t',
+  '100 Ticks': '100t',
+  '500 Ticks': '500t',
+  '1000 Ticks': '1000t'
 };
 
 const fallbackName = (symbol) => (symbol || '').toUpperCase();
+
+// ========== VOLATILITY & RVOL HELPERS ==========
+
+// Safe division to avoid Infinity/NaN
+function safeDiv(n, d, fallback = 0) {
+  if (!isFinite(d) || Math.abs(d) < 1e-8) return fallback;
+  return n / d;
+}
+
+// True Range for one candle
+function trueRange(high, low, prevClose) {
+  const tr1 = high - low;
+  const tr2 = Math.abs(high - (prevClose ?? high));
+  const tr3 = Math.abs(low - (prevClose ?? low));
+  return Math.max(tr1, tr2, tr3);
+}
+
+// Volatility as percentage (uses prevClose as denominator for robustness)
+function volatilityPct(high, low, close, prevClose) {
+  const tr = trueRange(high, low, prevClose);
+  // Use prevClose as denominator (more stable than low)
+  // Fall back to typical price if prevClose not available
+  let denom = prevClose;
+  if (!denom || Math.abs(denom) < 1e-8) {
+    denom = (high + low + close) / 3; // typical price
+  }
+  if (!denom || Math.abs(denom) < 1e-8) denom = 1;
+  return (tr / denom) * 100;
+}
+
+// Store previous candle data for prev_volatility and prev_rvol calculation
+const prevCandleHistory = new Map(); // Map<symbol, {high, low, close, volatility, rvol}[]>
+const PREV_CANDLE_HISTORY_LENGTH = 3; // Need at least 3 for prev_prev
+
+function addToPrevCandleHistory(symbol, candle) {
+  if (!prevCandleHistory.has(symbol)) {
+    prevCandleHistory.set(symbol, []);
+  }
+  const history = prevCandleHistory.get(symbol);
+  history.push(candle);
+  if (history.length > PREV_CANDLE_HISTORY_LENGTH) {
+    history.shift();
+  }
+}
+
+function getPrevCandleData(symbol, offset = 1) {
+  const history = prevCandleHistory.get(symbol);
+  if (!history || history.length < offset + 1) return null;
+  return history[history.length - 1 - offset];
+}
+
 
 async function fetchLiveInterval(interval) {
   const apiInterval = LIVE_INTERVAL_MAP[interval] || LIVE_INTERVAL_MAP.Day;
@@ -100,32 +156,25 @@ async function fetchLiveInterval(interval) {
 
         const prevClose = price / (1 + changePct / 100);
 
-        // Check if we have valid High/Low data
-        // If High and Low are exactly equal to Price, it means the API didn't provide them
-        // In this case, True Range would just be the gap (change), so Volatility would == Performance
-        // We want to avoid that.
+        // Calculate Volatility using robust helper (prevClose as denominator)
         const hasRangeData = high !== price || low !== price;
-
-        let volatility = 0;
-        if (hasRangeData) {
-          const tr1 = high - low;
-          const tr2 = Math.abs(high - prevClose);
-          const tr3 = Math.abs(low - prevClose);
-          const trueRange = Math.max(tr1, tr2, tr3);
-          volatility = low > 0 ? (trueRange * 100 / low) : 0;
-        }
+        const volatility = hasRangeData ? volatilityPct(high, low, price, prevClose) : 0;
 
         // Calculate Relative Volume using 10-period SMA
         const volume = Number(row.volume || 0);
-
-        // Add current volume to history
         addVolumeToHistory(row.symbol, volume);
-
-        // Calculate average from history
         const avgVolume = getAvgVolume(row.symbol);
-        const relative_volume = avgVolume > 0 ? (volume / avgVolume) : 1.0; // Default to 1.0 if no history
+        const relative_volume = safeDiv(volume, avgVolume, 1.0);
 
+        // Get previous candle data for prev_volatility and prev_rvol
+        const prevCandle = getPrevCandleData(row.symbol, 0); // offset 0 = previous (before we add current)
+        const prevPrevCandle = getPrevCandleData(row.symbol, 1); // offset 1 = 2 candles back
 
+        // Store current candle for next iteration
+        addToPrevCandleHistory(row.symbol, {
+          high, low, close: price, open,
+          volatility, rvol: relative_volume, volume
+        });
 
         return {
           id: row.symbol,
@@ -141,6 +190,9 @@ async function fetchLiveInterval(interval) {
           daily_change_1d: row.dailyPct != null ? Number(row.dailyPct) : null,
           volatility: volatility,
           relative_volume: relative_volume,
+          // Previous volatility and RVOL for momentum confirmation
+          prev_volatility: prevCandle?.volatility ?? null,
+          prev_rvol: prevCandle?.rvol ?? null,
           ts: row.ts ? Number(new Date(row.ts).getTime()) : null,
           // Previous bar data for breakout detection
           prev_close: row.prevClose != null ? Number(row.prevClose) : null,
@@ -148,6 +200,11 @@ async function fetchLiveInterval(interval) {
           prev_high: row.prevHigh != null ? Number(row.prevHigh) : null,
           prev_low: row.prevLow != null ? Number(row.prevLow) : null,
           prev_volume: row.prevVolume != null ? Number(row.prevVolume) : null,
+          // 2-candles back for strong breakout confirmation
+          prev_prev_high: prevPrevCandle?.high ?? null,
+          prev_prev_low: prevPrevCandle?.low ?? null,
+          prev_prev_close: prevPrevCandle?.close ?? null,
+          prev_prev_open: prevPrevCandle?.open ?? null,
           // Lookback stats for flexible strategy builder
           lookback: row.lookback || {},
           raw: row
@@ -161,6 +218,73 @@ async function fetchLiveInterval(interval) {
     }
   }
   return [];
+}
+
+/**
+ * Fetch tick-based interval data from /api/tick-bubbles
+ * @param {string} interval - One of '10 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks'
+ */
+async function fetchTickInterval(interval) {
+  // Extract tick count from interval string (e.g., '100 Ticks' -> 100)
+  const tickMatch = interval.match(/^(\d+)\s*Ticks?$/i);
+  if (!tickMatch) {
+    console.warn('[useOHLCV] Invalid tick interval:', interval);
+    return [];
+  }
+  const tickCount = parseInt(tickMatch[1], 10);
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const base = LIVE_API_BASE_URL.startsWith('http')
+    ? LIVE_API_BASE_URL
+    : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+  const url = new URL('tick-bubbles', base.endsWith('/') ? base : `${base}/`);
+  url.searchParams.set('ticks', tickCount.toString());
+  url.searchParams.set('_t', Date.now().toString());
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache'
+  };
+  if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
+
+  try {
+    const res = await fetch(url.toString(), { headers, cache: 'no-store' });
+    if (!res.ok) throw new Error(`Tick API error (${res.status})`);
+
+    const json = await res.json();
+    if (!Array.isArray(json)) return [];
+
+    return json.map((row) => {
+      const price = Number(row.close ?? row.price ?? 0);
+      const changePct = Number(row.pct_interval ?? 0);
+
+      return {
+        id: row.symbol,
+        symbol: row.symbol,
+        name: row.name || fallbackName(row.symbol),
+        price: price,
+        open: Number(row.open ?? price),
+        high: Number(row.high ?? price),
+        low: Number(row.low ?? price),
+        volume: Number(row.volume ?? 0),
+        avg_volume: 0,
+        price_change_percentage_24h: changePct,
+        daily_change_1d: null,
+        volatility: 0,
+        relative_volume: 1,
+        ts: row.ts ? new Date(row.ts).getTime() : null,
+        // Tick-specific fields
+        tickInterval: tickCount,
+        timeElapsedMs: row.timeElapsedMs ?? null,
+        startTs: row.startTs ? new Date(row.startTs).getTime() : null,
+        tickCount: row.tickCount ?? tickCount,
+        raw: row
+      };
+    });
+  } catch (err) {
+    console.error('[useOHLCV] fetchTickInterval error:', err);
+    return [];
+  }
 }
 
 export default function useOHLCV() {
@@ -288,7 +412,18 @@ export default function useOHLCV() {
     setError(null);
     try {
       if (ENABLE_LIVE_API) {
-        const liveCoins = await fetchLiveInterval(interval);
+        // Check if this is a tick-based interval
+        const isTickInterval = /^\d+\s*Ticks?$/i.test(interval);
+
+        let liveCoins;
+        if (isTickInterval) {
+          // Use dedicated tick-bubbles API for tick intervals
+          liveCoins = await fetchTickInterval(interval);
+        } else {
+          // Use standard bubbles API for time intervals
+          liveCoins = await fetchLiveInterval(interval);
+        }
+
         setCoins(liveCoins);
         setSnapshotCount(liveCoins.length);
         setLatestTimestamp(liveCoins.reduce((latest, row) => (row.ts && row.ts > latest ? row.ts : latest), null));

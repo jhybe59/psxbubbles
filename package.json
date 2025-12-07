@@ -27,6 +27,7 @@
     "sync:symbols": "node ./scripts/sync-symbols.js"
   },
   "dependencies": {
+    "@questdb/nodejs-client": "^4.2.0",
     "@vitejs/plugin-react": "^5.0.4",
     "adm-zip": "^0.5.9",
     "archiver": "^5.3.1",

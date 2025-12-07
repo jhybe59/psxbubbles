@@ -12,6 +12,9 @@ const CATEGORIES = [
             { id: 'avg_volume', label: 'Avg Volume' },
             { id: 'relative_volume', label: 'Relative Volume' },
             { id: 'dailyVolume', label: 'Daily Volume' },
+            { id: 'volume_ma_10', label: 'Vol MA(10)' },
+            { id: 'volume_ma_20', label: 'Vol MA(20)' },
+            { id: 'volume_ma_50', label: 'Vol MA(50)' },
         ]
     },
     {
@@ -83,6 +86,9 @@ const COMPARE_TARGETS = [
     { id: 'avg_volume', label: 'Avg Volume' },
     { id: 'sma_20', label: 'SMA 20' },
     { id: 'sma_50', label: 'SMA 50' },
+    { id: 'volume_ma_10', label: 'Vol MA(10)' },
+    { id: 'volume_ma_20', label: 'Vol MA(20)' },
+    { id: 'volume_ma_50', label: 'Vol MA(50)' },
 ];
 
 const INTERVALS = [
