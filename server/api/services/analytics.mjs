@@ -105,33 +105,60 @@ const buildTopMovers = async (table, bucket, direction, indexCode) => withClient
 });
 
 const buildIndicesFallback = async () => withClient(async (client) => {
-  const sql = `
-    SELECT idx.code,
-           idx.name,
-           perf.bucket,
-           perf.members,
-           perf.pct_change,
-           perf.turnover_sum,
-           perf.volume_sum
-    FROM index_performance_latest perf
-    JOIN indices idx ON idx.code = perf.index_code
-    ORDER BY idx.code
-  `;
-  const result = await client.query(sql);
-  return {
-    indices: result.rows.map((row) => ({
-      code: row.code,
-      name: row.name,
-      members: Number(row.members || 0),
-      latest: {
-        asOf: row.bucket,
-        level: 100 + Number(row.pct_change || 0),
-        changePct: mapNumeric(row.pct_change),
-        turnover: mapNumeric(row.turnover_sum),
-        volume: mapNumeric(row.volume_sum)
-      }
-    }))
-  };
+  try {
+    const sql = `
+      SELECT idx.code,
+             idx.name,
+             perf.bucket,
+             perf.members,
+             perf.pct_change,
+             perf.turnover_sum,
+             perf.volume_sum
+      FROM index_performance_latest perf
+      JOIN indices idx ON idx.code = perf.index_code
+      ORDER BY idx.code
+    `;
+    const result = await client.query(sql);
+    return {
+      indices: result.rows.map((row) => ({
+        code: row.code,
+        name: row.name,
+        members: Number(row.members || 0),
+        latest: {
+          asOf: row.bucket,
+          level: 100 + Number(row.pct_change || 0),
+          changePct: mapNumeric(row.pct_change),
+          turnover: mapNumeric(row.turnover_sum),
+          volume: mapNumeric(row.volume_sum)
+        }
+      }))
+    };
+  } catch (err) {
+    // index_performance_latest view doesn't exist - return basic indices from static table
+    logger.warn({ err }, 'Index performance view not available, using static indices');
+    const staticResult = await client.query(`
+      SELECT i.code, i.name, COUNT(im.symbol) as member_count
+      FROM indices i
+      LEFT JOIN index_members im ON i.code = im.index_code
+      GROUP BY i.code, i.name
+      ORDER BY i.code
+    `);
+    return {
+      indices: staticResult.rows.map((row) => ({
+        code: row.code,
+        name: row.name,
+        members: Number(row.member_count || 0),
+        latest: {
+          asOf: new Date().toISOString(),
+          level: 100,
+          changePct: 0,
+          turnover: 0,
+          volume: 0
+        }
+      })),
+      _warning: 'Index performance data not yet available'
+    };
+  }
 });
 
 export const getAnalyticsVersion = async () => redisClient.get('psx:analytics:version');
@@ -154,7 +181,32 @@ export const getMarketStats = async (interval, indexCode) => {
   if (!source) throw new Error(`Unsupported interval ${interval}`);
 
   const timer = marketStatsDuration.startTimer({ interval, index: indexCode ?? 'ALL' });
-  const bucket = await fetchBucket(source.table, indexCode);
+
+  // Try to fetch from aggregated tables - these may not exist after QuestDB migration
+  let bucket;
+  try {
+    bucket = await fetchBucket(source.table, indexCode);
+  } catch (err) {
+    // Tables don't exist (not migrated from TimescaleDB) - return empty stats
+    logger.warn({ err, table: source.table }, 'Market stats table not available');
+    timer();
+    marketStatsRequests.labels('miss', interval, indexCode ?? 'ALL').inc();
+    return {
+      interval,
+      index: indexCode ?? null,
+      asOf: new Date().toISOString(),
+      advancers: 0,
+      decliners: 0,
+      unchanged: 0,
+      volumeTotal: 0,
+      turnoverTotal: 0,
+      sectors: [],
+      topGainers: [],
+      topLosers: [],
+      _warning: 'Market stats tables not yet migrated to new database'
+    };
+  }
+
   if (!bucket) {
     timer();
     marketStatsRequests.labels('miss', interval, indexCode ?? 'ALL').inc();

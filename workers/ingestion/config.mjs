@@ -85,6 +85,7 @@ export const config = {
     symbolsList: process.env.PSX_API_SYMBOLS_LIST
       ? process.env.PSX_API_SYMBOLS_LIST.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
       : [
+        // Original 76 symbols
         'PIBTL', 'BECO', 'MLCF', 'LOTCHEM', 'KEL', 'TELE', 'PRL', 'CNERGY', 'GCIL', 'PAEL',
         'BNL', 'TREET', 'PIOC', 'TPLP', 'BFAGRO', 'TOMCL', 'FCCL', 'OBOY', 'WASL', 'EPCL',
         'GATM', 'QUICE', 'SSGC', 'DGKC', 'FFC', 'PPL', 'POWER', 'SEARL', 'ATRL', 'FFL',
@@ -92,7 +93,11 @@ export const config = {
         'CRTM', 'GWLC', 'HUBC', 'MEBL', 'OGDC', 'EMCO', 'FATIMA', 'IMAGE', 'SYS', 'CPHL',
         'BGL', 'CTM', 'BIPL', 'AVN', 'JVDC', 'TRSM', 'MARI', 'NETSOL', 'YOUW', 'SYM',
         'BFMOD', 'GHGL', 'OCTOPUS', 'BBFL', 'GAL', 'BIFO', 'GHNI', 'SAZEW', 'FLYNG', 'ISL',
-        'GGL', 'GGGL', 'PSO', 'GCWL', 'IBLHL', 'LUCK'
+        'GGL', 'GGGL', 'PSO', 'GCWL', 'IBLHL', 'LUCK',
+        // New 21 symbols (CNERGY, PRL, FFC already existed above)
+        'NRL', 'SGPL', 'FABL', 'ENGROH', 'ZAL', 'WAVES', 'AIRLINK', 'SEL', 'LOADS', 'NML',
+        'CHCC', 'LIVEN', 'KOHC', 'UCAPM', 'KSBP', 'FECTC', 'ITTEFAQ', 'ANL', 'DOL', 'FECPL',
+        'NATF'
       ]
   },
   worker: {

@@ -20,6 +20,7 @@ import { sanitizeIndexMap } from './utils/indexMap'
 import storage from './lib/storage'
 import { applyFilter } from './utils/filterUtils'
 import ScreenerDropdown from './components/ScreenerDropdown'
+import useTechnicalIndicators from './hooks/useTechnicalIndicators'
 
 function App() {
   const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp } = useOHLCV();
@@ -35,7 +36,7 @@ function App() {
   const [pillMenuOpen, setPillMenuOpen] = useState(false)
   const aggregations = null; // demo-only: no live aggregations
   const [pillAnchor, setPillAnchor] = useState(null)
-  const [pillSelections, setPillSelections] = useState({ size: 'Performance', content: 'Performance', color: 'Performance' })
+  const [pillSelections, setPillSelections] = useState({ size: 'Performance', content: ['Performance'], color: 'Performance' })
   // Note: 'Volatility' will be handled as a valid size option dynamically or we can add it to the UI menu later.
   // For now, we need to ensure the bubble chart logic handles 'Volatility' size.
   const [searchOpen, setSearchOpen] = useState(false)
@@ -271,14 +272,30 @@ function App() {
     return `rgb(${r},${g},${b})`;
   }
 
+  // Enable technical indicators calculation only when indicator-related filters are active
+  const hasIndicatorFilters = useMemo(() => {
+    if (!activeFilters || activeFilters.length === 0) return false;
+    const indicatorFields = ['rsi', 'sma_20', 'sma_50', 'sma_200', 'ema_20', 'macd', 'bb_upper', 'bb_middle', 'bb_lower', 'avg_volume', 'volume_ma'];
+    return activeFilters.some(f => {
+      if (!f.conditions) return false;
+      return Object.keys(f.conditions).some(key => indicatorFields.some(ind => key.includes(ind))) ||
+        Object.values(f.conditions).some(cond => cond.target && indicatorFields.some(ind => String(cond.target).includes(ind)));
+    });
+  }, [activeFilters]);
+
+  // Get enriched coins with indicator values when needed
+  const { enrichedCoins, loading: indicatorsLoading } = useTechnicalIndicators(coins, currentInterval, hasIndicatorFilters);
+
   const filtered = useMemo(() => {
     // compute visible coins by excluding metadata-hidden symbols
     const meta = getAllMetadata();
-    const visible = (coins || []).filter((c) => !(meta[c.symbol] && meta[c.symbol].hidden));
+    // Use enrichedCoins when indicator filters are active, otherwise use raw coins
+    const sourceCoins = hasIndicatorFilters ? (enrichedCoins || []) : (coins || []);
+    const visible = sourceCoins.filter((c) => !(meta[c.symbol] && meta[c.symbol].hidden));
     if (!query) return visible;
     const q = query.toLowerCase();
     return visible.filter((c) => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q));
-  }, [coins, query])
+  }, [coins, enrichedCoins, hasIndicatorFilters, query])
 
 
   // apply page filter if selected (pageIndex maps to 0 => 1-100, 1 => 101-200 ...)

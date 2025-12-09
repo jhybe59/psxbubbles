@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.local
+backups/
+temp_backup/
+complete-backup-*/
+*.log
+dist/
+cleaned_dist_snapshots.json
+restored_dist_snapshots.json
+restored_snapshots.json
+.gitignor

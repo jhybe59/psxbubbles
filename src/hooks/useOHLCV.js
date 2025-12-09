@@ -144,15 +144,18 @@ async function fetchLiveInterval(interval) {
       }
 
       const json = await res.json();
-      if (!json || !Array.isArray(json.symbols)) {
+      // Support both old format (json.symbols) and new format (json.data)
+      const symbols = json.symbols || json.data;
+      if (!json || !Array.isArray(symbols)) {
         return [];
       }
-      return json.symbols.map((row) => {
-        const price = Number(row.price ?? 0);
+      return symbols.map((row) => {
+        const price = Number(row.price ?? row.close ?? 0);
         const open = row.open != null ? Number(row.open) : (row.price || 0);
         const high = row.high != null ? Number(row.high) : (row.price || 0);
         const low = row.low != null ? Number(row.low) : (row.price || 0);
-        const changePct = Number(row.intervalPct ?? 0);
+        // Support both old (intervalPct) and new (pct_interval) field names
+        const changePct = Number(row.intervalPct ?? row.pct_interval ?? 0);
 
         const prevClose = price / (1 + changePct / 100);
 
@@ -187,7 +190,8 @@ async function fetchLiveInterval(interval) {
           volume: volume,
           avg_volume: avgVolume,
           price_change_percentage_24h: changePct,
-          daily_change_1d: row.dailyPct != null ? Number(row.dailyPct) : null,
+          // Support both old (dailyPct) and new (pct_24h) field names
+          daily_change_1d: row.dailyPct != null ? Number(row.dailyPct) : (row.pct_24h != null ? Number(row.pct_24h) : null),
           volatility: volatility,
           relative_volume: relative_volume,
           // Previous volatility and RVOL for momentum confirmation

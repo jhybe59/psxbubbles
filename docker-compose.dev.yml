@@ -1,18 +1,6 @@
 version: "3.9"
 
 services:
-  # PostgreSQL for static data (instruments, indices, etc.)
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: cryptobubbles
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-
   # QuestDB for time-series data (minute_bars)
   questdb:
     image: questdb/questdb:latest
@@ -45,7 +33,6 @@ services:
       - .:/app
       - /app/node_modules
     depends_on:
-      - postgres
       - questdb
       - redis
 
@@ -58,7 +45,6 @@ services:
     environment:
       NODE_ENV: development
     depends_on:
-      - postgres
       - questdb
       - redis
     ports:
@@ -68,5 +54,4 @@ services:
       - /app/node_modules
 
 volumes:
-  postgres-data:
   questdb-data:

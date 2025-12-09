@@ -30,7 +30,7 @@ function buildLatestQuery(symbols = null) {
     let sql = `
     SELECT 
       symbol,
-      ts,
+      timestamp as ts,
       open,
       high,
       low,
@@ -39,7 +39,7 @@ function buildLatestQuery(symbols = null) {
       value,
       daily_pct
     FROM minute_bars
-    LATEST ON ts PARTITION BY symbol
+    LATEST ON timestamp PARTITION BY symbol
   `;
 
     if (symbols && symbols.length > 0) {
@@ -68,7 +68,7 @@ function buildAggregatedQuery(interval, symbols = null, limit = 100) {
     let sql = `
     SELECT 
       symbol,
-      ts,
+      timestamp as ts,
       first(open) as open,
       max(high) as high,
       min(low) as low,
@@ -85,8 +85,13 @@ function buildAggregatedQuery(interval, symbols = null, limit = 100) {
     }
 
     sql += ` SAMPLE BY ${sampleBy}`;
-    sql += ` ORDER BY symbol, ts DESC`;
-    sql += ` LIMIT ${limit}`;
+    // Order by timestamp DESC first to get latest buckets, then symbol
+    sql += ` ORDER BY ts DESC, symbol`;
+
+    // If symbols are specified, we need a larger limit to ensure we get the latest bucket for ALL symbols
+    // Otherwise, standard limit applies
+    const effectiveLimit = (symbols && symbols.length > 0) ? Math.max(limit * 10, 5000) : limit * 10;
+    sql += ` LIMIT ${effectiveLimit}`;
 
     return sql;
 }
@@ -136,6 +141,8 @@ function transformResponse(result, interval) {
                 value,
                 pct_24h: dailyPct,
                 pct_interval: intervalPct,
+                // Frontend expects price_change_percentage_24h for the bubble text/color
+                price_change_percentage_24h: intervalPct,
                 interval,
                 ts: typeof ts === 'string' ? ts : new Date(ts).toISOString()
             });

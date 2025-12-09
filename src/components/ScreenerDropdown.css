@@ -77,8 +77,8 @@
 
 .screener-footer {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: 10px;
     padding-top: 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     margin-top: 4px;
@@ -87,6 +87,7 @@
 .screener-stats {
     color: #64748b;
     font-size: 11px;
+    text-align: center;
 }
 
 .screener-stats strong {
@@ -96,6 +97,7 @@
 .screener-actions {
     display: flex;
     gap: 8px;
+    justify-content: center;
 }
 
 .screener-btn {
@@ -174,4 +176,181 @@
     display: flex;
     align-items: center;
     gap: 4px;
+}
+
+/* Preset Chips - Orange/Amber theme */
+.screener-chip.preset-chip {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #fbbf24;
+}
+
+.screener-chip.preset-chip:hover {
+    background: rgba(245, 158, 11, 0.25);
+    border-color: rgba(245, 158, 11, 0.6);
+}
+
+/* Preset Modal */
+.preset-modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.preset-modal {
+    background: #1a2332;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    width: 340px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.preset-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.preset-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.preset-modal-close {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px;
+    transition: color 0.2s;
+}
+
+.preset-modal-close:hover {
+    color: #fff;
+}
+
+.preset-modal-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.preset-modal-body label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.preset-modal-body input {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: #e2e8f0;
+    font-size: 14px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.preset-modal-body input:focus {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.preset-modal-body input::placeholder {
+    color: #64748b;
+}
+
+.preset-modal-info {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.preset-modal-footer {
+    padding: 16px 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.1);
+    display: flex;
+    gap: 10px;
+    border-radius: 0 0 16px 16px;
+}
+
+.preset-modal-cancel {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 12px;
+    border-radius: 8px;
+    color: #94a3b8;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.preset-modal-cancel:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+}
+
+.preset-modal-save {
+    flex: 2;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+.preset-modal-save:hover:not(:disabled) {
+    filter: brightness(1.1);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.preset-modal-save:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }

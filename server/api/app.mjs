@@ -14,6 +14,9 @@ import indicesRoute from './routes/indices.mjs';
 import healthRoute from './routes/health.mjs';
 import marketStatsRoute from './routes/market-stats.mjs';
 import tickBubblesRoute from './routes/tick-bubbles.mjs';
+import indexMapRoute from './routes/index-map.mjs';
+import candlesRoute from './routes/candles.mjs';
+import tickCandlesRoute from './routes/tick-candles.mjs';
 
 export const buildApp = () => {
   const app = express();
@@ -71,6 +74,9 @@ export const buildApp = () => {
   app.use('/api/market-stats', marketStatsRoute);
   app.use('/api/tick-bubbles', tickBubblesRoute);  // Real-time tick-based bubbles
   app.use('/api/health', healthRoute);
+  app.use('/api/candles', candlesRoute);
+  app.use('/api/tick-candles', tickCandlesRoute);
+  app.use('/api/index_map', indexMapRoute);  // Index to symbols mapping
 
   app.use((err, req, res, _next) => { // eslint-disable-line no-unused-vars
     logger.error({ err, path: req.path }, 'Unhandled API error');

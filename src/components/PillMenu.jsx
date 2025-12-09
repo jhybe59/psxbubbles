@@ -93,21 +93,62 @@ export default function PillMenu({ anchorRect, onClose, currentInterval, setCurr
         ))}
       </div>
 
-      <div className="pill-menu-subtitle">Bubble content</div>
+      <div className="pill-menu-subtitle">Bubble content <span style={{ opacity: 0.5, fontSize: '11px', marginLeft: '4px' }}>(max 3)</span></div>
       <div className="pill-menu-section">
         {contents.map((c) => {
-          // keep the pill's semantic value equal to its label so we can
-          // distinguish 'Price' vs 'Price Change' in consumers
-          const valueToSet = c
-          const isActive = selections.content === valueToSet
+          // Normalize selections.content to array
+          const contentArray = Array.isArray(selections.content)
+            ? selections.content
+            : [selections.content || 'Performance'];
+
+          const selectionIndex = contentArray.indexOf(c);
+          const isActive = selectionIndex !== -1;
+          const isFull = contentArray.length >= 3;
+          const isDisabled = !isActive && isFull;
+
+          // Order badge: ①②③
+          const orderBadges = ['①', '②', '③'];
+          const orderBadge = isActive && selectionIndex < 3 ? orderBadges[selectionIndex] : '';
+
+          const handleClick = () => {
+            if (isActive) {
+              // Remove from selection (but keep at least 1)
+              if (contentArray.length > 1) {
+                const newContent = contentArray.filter(item => item !== c);
+                setSelections({ ...selections, content: newContent });
+              }
+              // If only 1 item, don't allow removal (keep it selected)
+            } else if (!isFull) {
+              // Add to selection
+              const newContent = [...contentArray, c];
+              setSelections({ ...selections, content: newContent });
+            }
+          };
+
           return (
             <button
               key={c}
-              className={`pill-menu-pill ${isActive ? 'active' : ''}`}
-              onClick={() => setSelections({ ...selections, content: valueToSet })}
+              className={`pill-menu-pill ${isActive ? 'active' : ''} ${isDisabled ? 'disabled' : ''}`}
+              onClick={handleClick}
               aria-pressed={isActive}
-              tabIndex={0}
+              tabIndex={isDisabled ? -1 : 0}
+              style={{
+                opacity: isDisabled ? 0.4 : 1,
+                cursor: isDisabled ? 'not-allowed' : 'pointer',
+                position: 'relative'
+              }}
             >
+              {orderBadge && (
+                <span style={{
+                  position: 'absolute',
+                  top: '-6px',
+                  right: '-6px',
+                  fontSize: '12px',
+                  color: '#4ade80',
+                  fontWeight: 700,
+                  textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+                }}>{orderBadge}</span>
+              )}
               {c}
             </button>
           )

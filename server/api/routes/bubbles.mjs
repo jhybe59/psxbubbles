@@ -56,7 +56,7 @@ function buildLatestQuery(symbols = null) {
   let sql = `
     SELECT 
       symbol,
-      ts,
+      timestamp as ts,
       open,
       high,
       low,
@@ -65,7 +65,7 @@ function buildLatestQuery(symbols = null) {
       value,
       daily_pct
     FROM minute_bars
-    LATEST ON ts PARTITION BY symbol
+    LATEST ON timestamp PARTITION BY symbol
   `;
 
   if (symbols && symbols.length > 0) {
@@ -77,40 +77,70 @@ function buildLatestQuery(symbols = null) {
 }
 
 /**
- * Build aggregated query using SAMPLE BY for longer intervals
+ * Build aggregated query for all intervals using real-time approach
+ * Uses LATEST ON for current prices (like 1m), then calculates OHLCV from lookback window
+ * This ensures all intervals get fresh data on every refresh
  */
 function buildAggregatedQuery(interval, symbols = null) {
-  const sampleByMap = {
-    '5m': '5m',
-    '15m': '15m',
-    '1h': '1h',
-    'Day': '1d'
+  // Map interval to minutes for lookback window
+  const minutesMap = {
+    '1m': 1,
+    '5m': 5,
+    '15m': 15,
+    '1h': 60,
+    'Day': 480  // ~8 hours trading session
   };
 
-  const sampleBy = sampleByMap[interval] || '5m';
+  const minutes = minutesMap[interval] || 5;
 
-  // For aggregated data, we get the latest completed bar per symbol
+  // Use subqueries to get:
+  // 1. Latest row per symbol (for current close price)
+  // 2. Aggregates (high, low, volume) from the lookback window
+  // 3. First row in window (for open price)
+  let symbolFilter = '';
+  if (symbols && symbols.length > 0) {
+    const symbolList = symbols.map(s => `'${s}'`).join(',');
+    symbolFilter = ` AND symbol IN (${symbolList})`;
+  }
+
+  // Get the latest data per symbol using LATEST ON (same as 1m - always fresh)
+  // Then also compute aggregates from the lookback window
   let sql = `
+    WITH latest AS (
+      SELECT symbol, timestamp as ts, close, daily_pct
+      FROM minute_bars
+      LATEST ON timestamp PARTITION BY symbol
+    ),
+    window_agg AS (
+      SELECT 
+        symbol,
+        first(close) as first_open,
+        max(high) as high,
+        min(low) as low,
+        sum(volume) as volume,
+        sum(value) as value
+      FROM minute_bars
+      WHERE timestamp > dateadd('m', -${minutes}, now())${symbolFilter}
+      GROUP BY symbol
+    )
     SELECT 
-      symbol,
-      ts,
-      first(open) as open,
-      max(high) as high,
-      min(low) as low,
-      last(close) as close,
-      sum(volume) as volume,
-      sum(value) as value,
-      last(daily_pct) as daily_pct
-    FROM minute_bars
+      l.symbol,
+      l.ts,
+      COALESCE(w.first_open, l.close) as open,
+      COALESCE(w.high, l.close) as high,
+      COALESCE(w.low, l.close) as low,
+      l.close,
+      COALESCE(w.volume, 0) as volume,
+      COALESCE(w.value, 0) as value,
+      l.daily_pct
+    FROM latest l
+    LEFT JOIN window_agg w ON l.symbol = w.symbol
   `;
 
   if (symbols && symbols.length > 0) {
     const symbolList = symbols.map(s => `'${s}'`).join(',');
-    sql += ` WHERE symbol IN (${symbolList})`;
+    sql += ` WHERE l.symbol IN (${symbolList})`;
   }
-
-  sql += ` SAMPLE BY ${sampleBy}`;
-  sql += ` ALIGN TO CALENDAR`;
 
   return sql;
 }
@@ -137,7 +167,7 @@ function buildTickQuery(interval, symbols = null) {
     WITH latest_ticks AS (
       SELECT 
         symbol,
-        ts,
+        timestamp,
         open,
         high,
         low,
@@ -148,12 +178,12 @@ function buildTickQuery(interval, symbols = null) {
         tick_seq,
         (tick_seq / ${tickSize}) as tick_bucket
       FROM minute_bars
-      WHERE ts > dateadd('h', -24, now())
+      WHERE timestamp > dateadd('h', -24, now())
     )
     SELECT 
       symbol,
-      max(ts) as ts,
-      first(open) as open,
+      max(timestamp) as ts,
+      first(close) as open,
       max(high) as high,
       min(low) as low,
       last(close) as close,
@@ -279,13 +309,14 @@ router.get('/', async (req, res) => {
 
     // Build and execute QuestDB query
     let sql;
-    if (interval === '1m') {
-      sql = buildLatestQuery(symbols);
-    } else if (isTickInterval(interval)) {
+    if (isTickInterval(interval)) {
       sql = buildTickQuery(interval, symbols);
     } else {
       sql = buildAggregatedQuery(interval, symbols);
     }
+
+    console.log('[DEBUG] Bubbles SQL:', sql.replace(/\s+/g, ' ').trim());
+
 
     const result = await queryQuestDB(sql);
     const payload = transformResponse(result, interval, favorites || []);

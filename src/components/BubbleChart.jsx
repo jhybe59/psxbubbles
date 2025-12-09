@@ -1,6 +1,9 @@
 
-import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import * as d3 from 'd3';
+import BubbleTooltip from './BubbleTooltip';
+import { updatePrices, getHistory, getTrend, updatePreviousValues } from '../lib/priceHistoryStore';
+
 export default forwardRef(function BubbleChart({ data, width = 900, height = 600, single = false, radiusScale = null, selections = {}, aggregations = null, onSelectCoin = null, selectedIndex = null, currentInterval = null }, ref) {
   const wrapperRef = useRef(null);
   const svgRef = useRef(null);
@@ -13,6 +16,11 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   const prevIntervalRef = useRef(null);
   const prevDataRef = useRef(null);
   const margin = { top: 20, right: 20, bottom: 20, left: 20 };
+
+  // Tooltip state
+  const [tooltipData, setTooltipData] = useState(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const tooltipRef = useRef(null);
 
   // expose fitToView to parent via ref (must be top-level Hook)
   useImperativeHandle(ref, () => ({
@@ -76,6 +84,13 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     if (rect.width && rect.height) setSize({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
     return () => obs.disconnect();
   }, []);
+
+  // Update price history store whenever data changes (for tooltip sparklines)
+  useEffect(() => {
+    if (data && Array.isArray(data) && data.length > 0) {
+      updatePrices(data);
+    }
+  }, [data]);
 
   useEffect(() => {
     const svg = d3.select(svgRef.current);
@@ -192,14 +207,30 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       return 0.36;
     }
 
-    // Main group - check if exists for smooth updates
-    let g = svg.select('g').filter(function () {
-      const transform = d3.select(this).attr('transform');
-      return transform && transform.includes(`translate(${margin.left},${margin.top})`);
-    });
+    // Main group - ensure we perform robust selection to avoid duplicate groups (artifacts)
+    // Try to select by class first
+    let g = svg.select('g.main-bubble-group');
+
+    // If not found by class, check if ANY group exists and adopt it (legacy support/cleanup)
     if (g.empty()) {
-      g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+      const legacyG = svg.select('g');
+      if (!legacyG.empty()) {
+        g = legacyG.classed('main-bubble-group', true);
+      } else {
+        g = svg.append('g').attr('class', 'main-bubble-group');
+      }
     }
+
+    // Always update transform to match current margins/size
+    g.attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Safety cleanup: Remove any other top-level 'g' elements that might have accumulated as ghosts
+    svg.selectAll(function () { return this.childNodes; })
+      .filter(function () {
+        // Remove if it's a 'g' element but NOT our current main group
+        return this.tagName === 'g' && this !== g.node();
+      })
+      .remove();
 
     // Determine inferred maxima used for sizing based on the active size selection.
     // If a custom radiusScale prop is provided prefer it; otherwise we'll build
@@ -748,7 +779,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     const labelUpdate = labelsGroup.selectAll('g.label-node').data(nodes, (d) => d.id);
     const labelExit = labelUpdate.exit();
     const labelEnter = labelUpdate.enter().append('g').attr('class', 'label-node');
-    const labelNodes = labelUpdate.merge(labelEnter);
+    const labelNodes = labelUpdate.merge(labelEnter)
+      .style('clip-path', (d) => `url(#clip-${d.id})`);
 
     // Handle exit: fade out and remove
     if (!intervalChanged) {
@@ -907,7 +939,23 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
       // sizes scale proportionally with the computed radius so text/logo feel uniform
       // across different bubble sizes. Use sensible minimums to keep tiny bubbles readable.
-      const symSize = Math.max(8, Math.round(d.r * 0.36));
+      // DYNAMIC: Reduce symbol size if text is long to prevent overflow
+      const symbolText = d.data && (d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || '')) || '';
+      const textLen = symbolText.length;
+
+      // Base symbol size
+      let symSize = Math.max(8, Math.round(d.r * 0.36));
+
+      // Safety check: reduce font size for long symbols to ensure they fit
+      // Assuming avg char aspect ratio ~0.6
+      const availableW = d.r * 1.6; // ~80% of diameter
+      if (textLen > 0) {
+        const estWidth = textLen * symSize * 0.65;
+        if (estWidth > availableW) {
+          symSize = Math.max(7, Math.floor(availableW / (textLen * 0.65)));
+        }
+      }
+
       const pctSize = Math.max(8, Math.round(d.r * 0.24));
 
       // small downward nudge so stack doesn't sit flush to the top edge of the bubble
@@ -919,16 +967,18 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       const badgeSpacing = spacing + Math.round(d.r * 0.04); // slightly larger gap above symbol
 
       // Determine whether text will fit inside the bubble. If not, prefer showing a logo
-      const symbolText = d.data && (d.data.symbol ? d.data.symbol.toUpperCase() : (d.data.name || '')) || '';
-      const approxCharWidthFactor = 0.62; // approximation: avg char width relative to font-size
+      const approxCharWidthFactor = 0.70;
       const approxTextWidth = symbolText.length * symSize * approxCharWidthFactor;
-      const availableInnerWidth = Math.max(6, (d.r * 2) * 0.82);
+      const availableInnerWidth = Math.max(6, (d.r * 2) * 0.85);
 
       // thresholds
-      const LOGO_ONLY_THRESHOLD = 16; // very small bubbles prefer logo
+      const LOGO_ONLY_THRESHOLD = 24; // reduced to 24px to show data in more bubbles
 
       // If the calculated text width won't fit inside the bubble and we have an image, render logo-only
-      if ((d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
+      // BUT: If bubble is very large (e.g. > 50px), try to show text anyway by scaling down further if needed
+      const isLargeBubble = d.r > 50;
+
+      if (!isLargeBubble && (d.r <= LOGO_ONLY_THRESHOLD || approxTextWidth > availableInnerWidth) && d.data && d.data.image) {
         // Remove any existing text/labels first
         ln.selectAll('.symbol, .pct, .price, .price-change, .logo-badge').remove();
 
@@ -1089,89 +1139,148 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }
 
       // Determine what to render in the lower stack: percent, price, or absolute price change or volume
-      let contentText = '';
-      let contentColor = '#baf3c9';
-      if (selections && selections.content === 'Price') {
-        // prefer common price fields - fallback to 0
-        const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
-        const priceNum = Number(priceRaw) || 0;
-        // formatting: 2 decimals for >=1, more precision for small prices
-        let fmt;
-        if (priceNum === 0) fmt = '0';
-        else if (Math.abs(priceNum) >= 1) fmt = priceNum.toFixed(2);
-        else if (Math.abs(priceNum) >= 0.01) fmt = priceNum.toPrecision(3);
-        else fmt = priceNum.toPrecision(4);
-        // show price without a leading currency symbol (use PKR context)
-        contentText = fmt;
-        contentColor = '#ffffff';
-      } else if (selections && selections.content === 'Price Change') {
-        // show the absolute price change amount (in PKR) computed from percent and price
-        const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
-        const priceNum = Number(priceRaw) || 0;
-        const pctVal = Number(pct) || 0; // pct is percent (e.g., 2.5)
-        const delta = (pctVal / 100) * priceNum;
-        const absDelta = Math.abs(delta);
-        let fmt;
-        if (absDelta === 0) fmt = '0';
-        else if (absDelta >= 1) fmt = delta.toFixed(2);
-        else if (absDelta >= 0.01) fmt = delta.toPrecision(3);
-        else fmt = delta.toPrecision(4);
-        // include explicit + sign for positive moves, blue for neutral
-        const isDeltaNeutral = isNeutralChange(pct);
-        contentText = `${isDeltaNeutral ? '' : (delta >= 0 ? '+' : '')}${fmt}`;
-        contentColor = isDeltaNeutral ? '#93c5fd' : (delta >= 0 ? '#baf3c9' : '#ffb6b6');
-      } else if (selections && selections.content === 'Volume') {
-        // show formatted 24h volume or known volume fields
-        const volRaw = d.data && (d.data.volume ?? d.data.total_volume ?? d.data['24h_volume'] ?? d.data.market_cap ?? 0);
-        const volNum = Number(volRaw) || 0;
-        contentText = formatLargeNumber(volNum);
-        contentColor = '#ffffff';
-      } else if (selections && selections.content === 'Volatility') {
-        // show volatility percentage
-        const volVal = (d.data && d.data.volatility != null) ? d.data.volatility : (d.volatility != null ? d.volatility : 0);
-        contentText = `${volVal.toFixed(2)}%`;
-        contentColor = '#f59e0b'; // Amber color for volatility
-      } else if (selections && selections.content === 'Relative Volume') {
-        // show relative volume (multiple of average)
-        const relVolVal = (d.data && d.data.relative_volume != null) ? d.data.relative_volume : (d.relative_volume != null ? d.relative_volume : 0);
-        contentText = `${relVolVal.toFixed(2)}x`;
-        contentColor = '#06b6d4'; // Cyan color for relative volume
-      } else {
-        contentText = `${isNeutralChange(pct) ? '' : (pct >= 0 ? '+' : '')}${(pct || 0).toFixed(1)}%`;
-        contentColor = isNeutralChange(pct) ? '#93c5fd' : (pct >= 0 ? '#baf3c9' : '#ffb6b6');
+      // MULTI-METRIC SUPPORT: Normalize selections.content to array
+      const contentSelections = Array.isArray(selections?.content)
+        ? selections.content
+        : [selections?.content || 'Performance'];
+
+      // Dynamic content fitting based on bubble radius
+      // Very small (r < 30): symbol only, no metrics
+      // Small (r < 45): 1 metric
+      // Medium (r < 65): 2 metrics
+      // Large (r >= 65): up to 3 metrics
+      let maxMetrics = 0;
+      if (d.r >= 65) maxMetrics = 3;
+      else if (d.r >= 45) maxMetrics = 2;
+      else if (d.r >= 30) maxMetrics = 1;
+      else maxMetrics = 0;
+
+      const metricsToShow = contentSelections.slice(0, Math.min(contentSelections.length, maxMetrics));
+
+      // Helper to get metric value and info
+      function getMetricInfo(metricType) {
+        let text = '';
+        let color = '#baf3c9';
+        let value = 0;
+        let metricKey = 'pct'; // for trend lookup
+
+        if (metricType === 'Price') {
+          const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
+          const priceNum = Number(priceRaw) || 0;
+          value = priceNum;
+          metricKey = 'price';
+          let fmt;
+          if (priceNum === 0) fmt = '0';
+          else if (Math.abs(priceNum) >= 1) fmt = priceNum.toFixed(2);
+          else if (Math.abs(priceNum) >= 0.01) fmt = priceNum.toPrecision(3);
+          else fmt = priceNum.toPrecision(4);
+          text = fmt;
+          color = '#ffffff';
+        } else if (metricType === 'Price Change') {
+          const priceRaw = d.data && (d.data.price ?? d.data.current_price ?? d.data.last_price ?? 0);
+          const priceNum = Number(priceRaw) || 0;
+          const pctVal = Number(pct) || 0;
+          const delta = (pctVal / 100) * priceNum;
+          value = delta;
+          metricKey = 'priceChange';
+          const absDelta = Math.abs(delta);
+          let fmt;
+          if (absDelta === 0) fmt = '0';
+          else if (absDelta >= 1) fmt = delta.toFixed(2);
+          else if (absDelta >= 0.01) fmt = delta.toPrecision(3);
+          else fmt = delta.toPrecision(4);
+          const isDeltaNeutral = isNeutralChange(pct);
+          text = `${isDeltaNeutral ? '' : (delta >= 0 ? '+' : '')}${fmt}`;
+          color = isDeltaNeutral ? '#93c5fd' : (delta >= 0 ? '#baf3c9' : '#ffb6b6');
+        } else if (metricType === 'Volume') {
+          const volRaw = d.data && (d.data.volume ?? d.data.total_volume ?? d.data['24h_volume'] ?? d.data.market_cap ?? 0);
+          const volNum = Number(volRaw) || 0;
+          value = volNum;
+          metricKey = 'volume';
+          text = formatLargeNumber(volNum);
+          color = '#ffffff';
+        } else if (metricType === 'Volatility') {
+          const volVal = (d.data && d.data.volatility != null) ? d.data.volatility : (d.volatility != null ? d.volatility : 0);
+          value = volVal;
+          metricKey = 'volatility';
+          text = `${volVal.toFixed(2)}%`;
+          color = '#f59e0b';
+        } else if (metricType === 'Relative Volume') {
+          const relVolVal = (d.data && d.data.relative_volume != null) ? d.data.relative_volume : (d.relative_volume != null ? d.relative_volume : 0);
+          value = relVolVal;
+          metricKey = 'rvol';
+          text = `${relVolVal.toFixed(2)}x`;
+          color = '#06b6d4';
+        } else {
+          // Performance (default)
+          value = pct || 0;
+          metricKey = 'pct';
+          text = `${isNeutralChange(pct) ? '' : (pct >= 0 ? '+' : '')}${(pct || 0).toFixed(1)}%`;
+          color = isNeutralChange(pct) ? '#93c5fd' : (pct >= 0 ? '#baf3c9' : '#ffb6b6');
+        }
+
+        return { text, color, value, metricKey };
       }
 
-      const pctClass = selections && selections.content === 'Price' ? 'price' : (selections && selections.content === 'Price Change' ? 'price-change' : 'pct');
+      // Helper to get trend arrow and color
+      function getTrendArrow(symbol, metricKey, currentValue) {
+        const trend = getTrend(symbol, metricKey, currentValue);
+        if (trend === 'up') return { arrow: '▲', color: '#4ade80' };
+        if (trend === 'down') return { arrow: '▼', color: '#f87171' };
+        return { arrow: '═', color: '#94a3b8' };
+      }
 
-      // Ensure only the chosen content type is visible on the bubble
-      // Remove any previous lower-line text elements that don't match the active class
-      ln.selectAll('.pct, .price, .price-change')
-        .filter(function () {
-          return !this.classList.contains(pctClass);
-        })
-        .remove();
+      // Remove old content elements and create new ones for multi-metric
+      ln.selectAll('.pct, .price, .price-change, .metric-line').remove();
 
-      let pctEl = ln.select(`.${pctClass}`);
-      if (pctEl.empty()) {
-        pctEl = ln.append('text')
-          .attr('class', pctClass)
+      // Render each metric as a separate line, stacked vertically
+      const metricLineHeight = Math.round(pctSize * 1.3);
+      const symbol = d.data?.symbol || d.id || '';
+
+      metricsToShow.forEach((metricType, idx) => {
+        const info = getMetricInfo(metricType);
+        const trendInfo = getTrendArrow(symbol, info.metricKey, info.value);
+
+        // Calculate Y position for this metric line
+        const metricY = pctCenterY + (idx * metricLineHeight);
+
+        // Create container for metric text + arrow
+        const metricText = `${info.text}${trendInfo.arrow}`;
+
+        const metricEl = ln.append('text')
+          .attr('class', 'metric-line')
           .attr('text-anchor', 'middle')
-          .attr('y', pctCenterY)
+          .attr('y', metricY)
           .attr('dominant-baseline', 'middle')
           .style('pointer-events', 'none')
-          .style('fill', contentColor)
           .style('font-family', "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif")
           .style('font-weight', 600)
           .style('font-size', isNewLabel ? '2px' : `${pctSize}px`);
-      }
-      pctEl
-        .text(contentText)
-        .attr('y', pctCenterY)
-        .transition()
-        .duration(isSmoothUpdate && !isNewLabel ? 600 : (isNewLabel ? 600 : 0))
-        .style('font-size', `${pctSize}px`)
-        .style('fill', contentColor);
-      if (pctSize >= 14) pctEl.attr('filter', 'url(#textShadow)');
+
+        // Add value text
+        const valueSpan = metricEl.append('tspan')
+          .text(info.text)
+          .style('fill', info.color);
+
+        // Add trend arrow with its own color (smaller font)
+        metricEl.append('tspan')
+          .text(trendInfo.arrow)
+          .style('fill', trendInfo.color)
+          .style('font-size', '0.7em');
+
+        // Animate if needed
+        metricEl
+          .transition()
+          .duration(isSmoothUpdate && !isNewLabel ? 600 : (isNewLabel ? 600 : 0))
+          .style('font-size', `${pctSize}px`);
+
+        if (pctSize >= 14) metricEl.attr('filter', 'url(#textShadow)');
+
+        // Also update previous values for trend tracking (on first metric only to avoid duplicates)
+        if (idx === 0 && d.data) {
+          updatePreviousValues(d.data);
+        }
+      });
     });
 
     // entry animation: grow circles/labels from small to their computed sizes for a smooth transition
@@ -1221,18 +1330,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       // ignore animation errors
     }
 
-    const tooltip = d3
-      .select('body')
-      .append('div')
-      .attr('class', 'cb-tooltip')
-      .style('position', 'absolute')
-      .style('display', 'none')
-      .style('background', '#fff')
-      .style('padding', '8px')
-      .style('border-radius', '6px')
-      .style('box-shadow', '0 2px 8px rgba(0,0,0,0.2)')
-      .style('pointer-events', 'none')
-      .style('z-index', 1000);
+    // Tooltip is now handled via React state (setTooltipData, setTooltipPos)
+    // No D3 tooltip element needed - we render BubbleTooltip component in JSX
 
     // pointer interactions for groups (chained correctly)
     circleNodes
@@ -1240,6 +1339,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       .on('mouseover', function (event, d) {
         // support older class names and the newer rim class
         d3.select(this).select('.rim, .ring, .ring-only').attr('stroke-width', Math.max(3, d.r * 0.12));
+
+        // Get percentage change
         const ttPct = (function (di) {
           if (di.overridePct != null) return di.overridePct;
           if (aggregations && selections && selections.size === 'Performance') {
@@ -1248,26 +1349,41 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           }
           return di.data && (di.data.price_change_percentage_24h || 0);
         })(d);
-        tooltip
-          .style('display', 'block')
-          .html(`<strong>${d.data.name} (${d.data.symbol.toUpperCase()})</strong><br/>${d.data.price}<br/>24h: ${ttPct.toFixed(2)}%`);
+
+        // Get price history for sparkline
+        const symbol = d.data?.symbol?.toUpperCase();
+        const history = symbol ? getHistory(symbol) : null;
+
+        // Set tooltip data
+        setTooltipData({
+          symbol: symbol || d.data?.name || '',
+          name: d.data?.name,
+          price: d.data?.price,
+          pctChange: ttPct,
+          prices: history?.prices || [],
+          volume: d.data?.volume || history?.volume || 0,
+          rvol: d.data?.relative_volume || history?.rvol,
+          volatility: d.data?.volatility || history?.volatility,
+          lastUpdate: history?.lastUpdate || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        });
       })
       .on('mousemove', function (event) {
-        const ttNode = tooltip.node();
-        const pad = 10;
+        const pad = 12;
+        const ttW = 300; // approximate tooltip width
+        const ttH = 250; // approximate tooltip height
         let x = event.clientX + pad;
         let y = event.clientY + pad;
-        if (ttNode) {
-          const ttW = ttNode.offsetWidth || 150;
-          const ttH = ttNode.offsetHeight || 60;
-          x = Math.min(x, window.innerWidth - ttW - pad);
-          y = Math.min(y, window.innerHeight - ttH - pad);
-        }
-        tooltip.style('left', x + 'px').style('top', y + 'px');
+        // Keep tooltip within viewport
+        x = Math.min(x, window.innerWidth - ttW - pad);
+        y = Math.min(y, window.innerHeight - ttH - pad);
+        // Also ensure it doesn't go negative
+        x = Math.max(pad, x);
+        y = Math.max(pad, y);
+        setTooltipPos({ x, y });
       })
       .on('mouseout', function (event, d) {
         d3.select(this).select('.rim, .ring, .ring-only').attr('stroke-width', Math.max(1, Math.min(8, d.r * 0.12)));
-        tooltip.style('display', 'none');
+        setTooltipData(null);
       })
       .on('click', function (event, d) {
         try {
@@ -1360,7 +1476,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
     return () => {
       if (simRef.current) simRef.current.stop();
-      tooltip.remove();
+      // Tooltip is managed by React state, no D3 element to remove
       svg.on('.zoom', null);
     };
   }, [data, size.width, size.height, single, radiusScale, selections, aggregations, currentInterval]);
@@ -1411,6 +1527,26 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       >
         {visibleCount} bubble{visibleCount === 1 ? '' : 's'} in view
       </div>
+
+      {/* Premium Tooltip with sparkline and price history */}
+      {tooltipData && (
+        <BubbleTooltip
+          ref={tooltipRef}
+          symbol={tooltipData.symbol}
+          name={tooltipData.name}
+          price={tooltipData.price}
+          pctChange={tooltipData.pctChange}
+          prices={tooltipData.prices}
+          volume={tooltipData.volume}
+          rvol={tooltipData.rvol}
+          volatility={tooltipData.volatility}
+          lastUpdate={tooltipData.lastUpdate}
+          style={{
+            left: tooltipPos.x,
+            top: tooltipPos.y
+          }}
+        />
+      )}
     </div>
   );
 });

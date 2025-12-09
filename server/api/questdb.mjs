@@ -26,7 +26,7 @@ export async function queryQuestDB(sql) {
 
         // Handle table not exists error gracefully (returns empty data)
         if (result.error && result.error.includes('table does not exist')) {
-            logger.warn({ table: 'minute_bars' }, 'QuestDB table not exists yet - returning empty result');
+            logger.warn({ table: 'trades' }, 'QuestDB table not exists yet - returning empty result');
             return { columns: [], dataset: [] };
         }
 
@@ -47,9 +47,9 @@ export async function queryQuestDB(sql) {
  */
 export async function getLatestBars(symbols = null) {
     let sql = `
-    SELECT symbol, ts, open, high, low, close, volume, value, daily_pct
+    SELECT symbol, timestamp as ts, open, high, low, close, volume, value, daily_pct
     FROM minute_bars
-    LATEST ON ts PARTITION BY symbol
+    LATEST ON timestamp PARTITION BY symbol
   `;
 
     if (symbols && symbols.length > 0) {
@@ -80,7 +80,7 @@ export async function getAggregatedBars(interval, symbols = null, limit = 100) {
     let sql = `
     SELECT 
       symbol,
-      ts,
+      timestamp as ts,
       first(open) as open,
       max(high) as high,
       min(low) as low,
@@ -96,8 +96,8 @@ export async function getAggregatedBars(interval, symbols = null, limit = 100) {
         sql += ` WHERE symbol IN (${symbolList})`;
     }
 
-    sql += ` SAMPLE BY ${sampleBy}`;
-    sql += ` ORDER BY ts DESC`;
+    sql += ` SAMPLE BY ${sampleBy} ALIGN TO CALENDAR`;
+    sql += ` ORDER BY timestamp DESC`;
     sql += ` LIMIT ${limit}`;
 
     return queryQuestDB(sql);

@@ -1,6 +1,5 @@
 import { config } from './config.mjs';
 import logger from './logger.mjs';
-import { closePool } from './timescale.mjs';
 import startMetricsServer from './metrics.mjs';
 import wsManager from './websocket-manager.mjs';
 
@@ -13,7 +12,6 @@ const start = async () => {
   const shutdown = async () => {
     logger.info('Shutting down ingestion worker');
     await wsManager.stop();
-    await closePool();
     process.exit(0);
   };
 

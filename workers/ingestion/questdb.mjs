@@ -91,6 +91,18 @@ export const insertMinuteBarsQuest = async (rows) => {
             // Get next tick sequence for this symbol
             const tickSeq = getNextTickSeq(String(row.symbol));
 
+            // 1. Write to 'trades' (New Scheme - pure ticks)
+            sender
+                .table('trades')
+                .symbol('symbol', String(row.symbol))
+                .floatColumn('price', parseFloat(row.close) || 0)
+                .floatColumn('volume', parseFloat(row.volume) || 0)
+                .floatColumn('value', parseFloat(row.value) || 0)
+                .floatColumn('daily_pct', parseFloat(row.daily_pct) || 0)
+                .intColumn('tick_seq', tickSeq)
+                .at(tsNanos, 'ns');
+
+            // 2. Write to 'minute_bars' (Legacy Scheme - preserves existing functionality)
             sender
                 .table('minute_bars')
                 .symbol('symbol', String(row.symbol))

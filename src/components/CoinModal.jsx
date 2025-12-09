@@ -80,10 +80,69 @@ export default function CoinModal({ coin, onClose }) {
     async function loadSeries() {
       if (!coin) return;
       try {
+        const isTick = timeframe.includes('Tick');
+
+        if (isTick) {
+          // Tick-based fetching (Bypasses storage, goes straight to API)
+          try {
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            const base = LIVE_API_BASE_URL.startsWith('http') ? LIVE_API_BASE_URL : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+            const url = new URL('tick-candles', base.endsWith('/') ? base : `${base}/`);
+
+            // Convert "100 Ticks" -> "100T"
+            const intervalCode = timeframe.replace(' Ticks', 'T').replace(' ', '');
+            url.searchParams.set('symbol', coin.symbol);
+            url.searchParams.set('interval', intervalCode);
+            url.searchParams.set('limit', '100'); // Reasonable limit for tick charts
+
+            const res = await fetch(url.toString());
+            if (!res.ok) throw new Error('Tick API failed');
+            const json = await res.json();
+
+            if (mounted && json.data) {
+              const s = json.data.map(d => ({
+                ts: new Date(d.ts).getTime(),
+                open: d.open,
+                high: d.high,
+                low: d.low,
+                close: d.close,
+                volume: d.volume
+              }));
+              // Ticks come oldest->newest from backend?
+              // tick-candles.mjs reverses them at the end: "candles.reverse()"
+              // So they are oldest -> newest. Correct for charts.
+
+              setSeries(s);
+
+              if (s.length > 0) {
+                const open = s[0].open;
+                const close = s[s.length - 1].close;
+                const low = Math.min(...s.map(i => i.low));
+                const high = Math.max(...s.map(i => i.high));
+                setOhlcSummary({ open, low, high, close });
+
+                // We don't support pillPctMap for ticks easily yet (would need many queries)
+                setPillPctMap({});
+              }
+            }
+          } catch (err) {
+            console.error('Tick fetch error', err);
+            if (mounted) setSeries([]);
+          }
+          return;
+        }
+
+        // --- Existing Time-Based Logic ---
         const tsList = await storage.getAllTimestamps();
         if (!tsList || tsList.length === 0) {
           if (mounted) {
             setSeries([]);
+            // ... (rest of old logic starts here, but I need to include it or structure this block properly)
+            // Since I am replacing the whole useEffect block, I must include the rest of the file content for this block.
+            // To avoid strict line limits and complexity, I will just return early if tick.
+            // But I need to handle the "else" (non-tick) case which is the original code.
+            // I will reproduce the original code below.
+
             setOhlcSummary(null);
             setPillPctMap({});
           }
@@ -116,6 +175,37 @@ export default function CoinModal({ coin, onClose }) {
           }
         }
         rows.sort((a, b) => a.ts - b.ts);
+
+        // Fallback: If no rows found (empty storage), fetch from live /api/candles
+        if (rows.length === 0 && ENABLE_LIVE_API) {
+          try {
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            const base = LIVE_API_BASE_URL.startsWith('http') ? LIVE_API_BASE_URL : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+            const url = new URL('candles', base.endsWith('/') ? base : `${base}/`);
+            url.searchParams.set('symbol', coin.symbol);
+            url.searchParams.set('interval', timeframe === 'Hour' ? '5m' : (timeframe === 'Day' ? '1h' : 'Day'));
+            url.searchParams.set('limit', '365');
+
+            const res = await fetch(url.toString());
+            if (res.ok) {
+              const json = await res.json();
+              if (json.data && json.data.length > 0) {
+                rows = json.data.map(d => ({
+                  ts: new Date(d.ts).getTime(),
+                  open: d.open,
+                  high: d.high,
+                  low: d.low,
+                  close: d.close,
+                  volume: d.volume,
+                  price: d.close // map close to price for compatibility
+                }));
+                rows.sort((a, b) => a.ts - b.ts);
+              }
+            }
+          } catch (e) {
+            console.warn('CoinModal: Failed to fetch live candles', e);
+          }
+        }
 
         // Choose bucket size based on selected timeframe to produce useful OHLC candles
         const BUCKET_MS = {
@@ -388,6 +478,11 @@ export default function CoinModal({ coin, onClose }) {
               }
             }
           }
+        }
+
+        // Fix "Zero Value" Issue: If value is 0 but we have volume & price, calculate it.
+        if (!stats.value && stats.volume && (stats.close || latestPrice)) {
+          stats.value = stats.volume * (stats.close || latestPrice);
         }
 
         if (mounted) {
@@ -806,7 +901,7 @@ export default function CoinModal({ coin, onClose }) {
           </div>
 
           <div className="timeframe-row">
-            {['Hour', 'Day', 'Week', 'Month', 'Year'].map((tf) => (
+            {['Hour', 'Day', 'Week', 'Month', 'Year', '100 Ticks', '1000 Ticks'].map((tf) => (
               <div key={tf} className={`time-pill ${timeframe === tf ? 'active' : ''}`} onClick={() => setTimeframe(tf)}>
                 {tf}
                 <br />

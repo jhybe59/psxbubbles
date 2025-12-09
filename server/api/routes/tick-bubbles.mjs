@@ -1,43 +1,29 @@
 /**
  * Tick-based bubbles endpoint
- * Returns bubble data for symbols using their last N ticks
+ * Returns bubble data using last N rows from QuestDB
+ * 
+ * OPTIMIZED: Single query instead of per-symbol queries
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import { getAllSymbolsOHLCV, getBufferStatus, TICK_INTERVALS } from '../../workers/ingestion/tick-buffer.mjs';
+import { queryQuestDB } from '../questdb.mjs';
 import logger from '../logger.mjs';
 
 const router = Router();
+
+const TICK_INTERVALS = [10, 100, 500, 1000];
 
 const schema = z.object({
     ticks: z.coerce.number().int().refine(val => TICK_INTERVALS.includes(val), {
         message: `ticks must be one of: ${TICK_INTERVALS.join(', ')}`
     }).optional(),
-    // If ticks not specified, returns all intervals
 });
 
 /**
  * GET /api/tick-bubbles
- * Query params:
- *   - ticks: 10, 100, 500, or 1000 (optional, returns all if not specified)
  * 
- * Response format matches bubbles endpoint:
- * [
- *   {
- *     symbol: 'LUCK',
- *     price: 100.5,
- *     open: 99.0,
- *     high: 101.0,
- *     low: 98.5,
- *     close: 100.5,
- *     volume: 50000,
- *     pct_interval: 1.52,
- *     interval: '100_ticks',
- *     timeElapsedMs: 240000,
- *     ts: '2024-01-01T12:00:00Z'
- *   },
- *   ...
- * ]
+ * Gets the last N*100 rows (for ~100 symbols), then calculates OHLCV per symbol in JS
+ * This is much faster than 100 separate queries
  */
 router.get('/', async (req, res) => {
     const start = Date.now();
@@ -52,38 +38,90 @@ router.get('/', async (req, res) => {
             });
         }
 
-        const { ticks } = parsed.data;
+        const tickCount = parsed.data.ticks || 100;
 
-        // Default to 100 ticks if not specified
-        const tickCount = ticks || 100;
+        // Get recent data - enough rows for all symbols
+        // For 100 symbols * 1000 ticks = 100,000 rows max
+        const limit = Math.min(tickCount * 150, 150000);
 
-        // Get OHLCV for all symbols using their LAST N ticks (immediate, no waiting)
-        const bubbles = getAllSymbolsOHLCV(tickCount);
+        const sql = `
+            SELECT symbol, price, volume, timestamp 
+            FROM trades 
+            ORDER BY timestamp DESC 
+            LIMIT ${limit}
+        `;
 
-        // Transform to match existing bubbles API format
-        const transformed = bubbles.map(b => ({
-            symbol: b.symbol,
-            price: b.close,
-            open: b.open,
-            high: b.high,
-            low: b.low,
-            close: b.close,
-            volume: b.volume,
-            pct_24h: 0, // Not available for tick data
-            pct_interval: b.pctChange,
-            interval: `${b.interval}_ticks`,
-            timeElapsedMs: b.timeElapsedMs,
-            ts: b.endTs ? new Date(b.endTs).toISOString() : null,
-            startTs: b.startTs ? new Date(b.startTs).toISOString() : null,
-            tickCount: b.tickCount,
-            hasEnoughTicks: b.hasEnoughTicks,
-            availableTicks: b.availableTicks
-        }));
+        const result = await queryQuestDB(sql);
+
+        if (!result || !result.dataset || result.dataset.length === 0) {
+            return res.json([]);
+        }
+
+        // Group by symbol and take last N ticks for each
+        const symbolData = new Map();
+
+        for (const row of result.dataset) {
+            const symbol = row[0];
+            const close = parseFloat(row[1]) || 0; // price is now in column 1
+            const volume = parseFloat(row[2]) || 0;
+            const ts = row[3];
+
+            if (!symbolData.has(symbol)) {
+                symbolData.set(symbol, []);
+            }
+
+            const ticks = symbolData.get(symbol);
+            if (ticks.length < tickCount) {
+                ticks.push({ close, volume, ts });
+            }
+        }
+
+        // Calculate OHLCV for each symbol
+        const bubbles = [];
+
+        for (const [symbol, ticks] of symbolData.entries()) {
+            if (ticks.length === 0) continue;
+
+            // Ticks are in DESC order (newest first)
+            const prices = ticks.map(t => t.close);
+            const volumes = ticks.map(t => t.volume);
+
+            const closePrice = prices[0]; // newest
+            const openPrice = prices[prices.length - 1]; // oldest
+            const high = Math.max(...prices);
+            const low = Math.min(...prices);
+            const volume = volumes.reduce((a, b) => a + b, 0);
+
+            const pctChange = openPrice !== 0 ? ((closePrice - openPrice) / openPrice) * 100 : 0;
+
+            const endTs = ticks[0].ts;
+            const startTs = ticks[ticks.length - 1].ts;
+            const timeElapsedMs = new Date(endTs).getTime() - new Date(startTs).getTime();
+
+            bubbles.push({
+                symbol,
+                price: closePrice,
+                open: openPrice,
+                high,
+                low,
+                close: closePrice,
+                volume,
+                pct_24h: 0,
+                pct_interval: pctChange,
+                interval: `${tickCount}_ticks`,
+                timeElapsedMs,
+                ts: endTs,
+                startTs,
+                tickCount: ticks.length,
+                hasEnoughTicks: ticks.length >= tickCount,
+                availableTicks: ticks.length
+            });
+        }
 
         const duration = Date.now() - start;
-        logger.debug({ duration, count: transformed.length, ticks: tickCount }, 'Tick bubbles query');
+        logger.info({ duration, count: bubbles.length, ticks: tickCount }, 'Tick bubbles query');
 
-        res.json(transformed);
+        res.json(bubbles);
     } catch (err) {
         logger.error({ err }, 'Tick bubbles endpoint error');
         res.status(500).json({ error: 'Failed to fetch tick bubble data' });
@@ -92,30 +130,32 @@ router.get('/', async (req, res) => {
 
 /**
  * GET /api/tick-bubbles/status
- * Returns buffer status for debugging
  */
 router.get('/status', async (req, res) => {
     try {
-        const status = getBufferStatus();
-        const symbolCount = Object.keys(status).length;
+        const countSql = `SELECT count(*) as total, count_distinct(symbol) as symbols FROM trades`;
+        const result = await queryQuestDB(countSql);
 
-        // Summary stats
-        const summary = {
-            totalSymbols: symbolCount,
-            intervals: TICK_INTERVALS,
-            symbolsWithEnoughTicks: {}
-        };
+        let totalRows = 0;
+        let totalSymbols = 0;
 
-        // Count symbols that have enough ticks for each interval
-        for (const interval of TICK_INTERVALS) {
-            const count = Object.values(status).filter(s => s.tickCount >= interval).length;
-            summary.symbolsWithEnoughTicks[`${interval}_ticks`] = count;
+        if (result && result.dataset && result.dataset[0]) {
+            totalRows = parseInt(result.dataset[0][0]) || 0;
+            totalSymbols = parseInt(result.dataset[0][1]) || 0;
         }
 
-        res.json({ summary, details: status });
+        res.json({
+            summary: {
+                source: 'QuestDB',
+                totalRows,
+                totalSymbols,
+                intervals: TICK_INTERVALS,
+                avgTicksPerSymbol: totalSymbols > 0 ? Math.round(totalRows / totalSymbols) : 0
+            }
+        });
     } catch (err) {
         logger.error({ err }, 'Tick status endpoint error');
-        res.status(500).json({ error: 'Failed to get buffer status' });
+        res.status(500).json({ error: 'Failed to get tick status' });
     }
 });
 

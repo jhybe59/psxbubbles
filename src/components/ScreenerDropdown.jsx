@@ -3,6 +3,8 @@ import './ScreenerDropdown.css';
 import StrategyEditor from './StrategyEditor';
 import AdvancedStrategyBuilder from './AdvancedStrategyBuilder';
 
+const PRESETS_KEY = 'psx_bubbles_filter_presets';
+
 const QUICK_FILTERS = [
     {
         id: 'gainers',
@@ -48,12 +50,42 @@ const QUICK_FILTERS = [
     }
 ];
 
+// Load presets from localStorage
+const loadPresetsFromStorage = () => {
+    try {
+        const saved = localStorage.getItem(PRESETS_KEY);
+        return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+        console.error('Failed to load presets:', e);
+        return [];
+    }
+};
+
+// Save presets to localStorage
+const savePresetsToStorage = (presets) => {
+    try {
+        localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+    } catch (e) {
+        console.error('Failed to save presets:', e);
+    }
+};
+
 export default function ScreenerDropdown({ activeFilters, onFilterChange, resultCount, totalCount }) {
     const [isOpen, setIsOpen] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [filterToEdit, setFilterToEdit] = useState(null);
     const dropdownRef = useRef(null);
+
+    // Presets state
+    const [savedPresets, setSavedPresets] = useState([]);
+    const [showPresetModal, setShowPresetModal] = useState(false);
+    const [presetName, setPresetName] = useState('');
+
+    // Load presets from localStorage on mount
+    useEffect(() => {
+        setSavedPresets(loadPresetsFromStorage());
+    }, []);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -65,6 +97,41 @@ export default function ScreenerDropdown({ activeFilters, onFilterChange, result
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // Save current filters as preset
+    const saveAsPreset = () => {
+        if (!presetName.trim()) return;
+
+        const newPreset = {
+            id: `preset_${Date.now()}`,
+            name: presetName.trim(),
+            filters: activeFilters,
+            createdAt: new Date().toISOString()
+        };
+
+        const updatedPresets = [...savedPresets, newPreset];
+        setSavedPresets(updatedPresets);
+        savePresetsToStorage(updatedPresets);
+
+        setPresetName('');
+        setShowPresetModal(false);
+    };
+
+    // Load a preset
+    const loadPreset = (preset) => {
+        onFilterChange(preset.filters);
+    };
+
+    // Delete a preset
+    const deletePreset = (e, presetId) => {
+        e.stopPropagation();
+        const updatedPresets = savedPresets.filter(p => p.id !== presetId);
+        setSavedPresets(updatedPresets);
+        savePresetsToStorage(updatedPresets);
+    };
+
+    // Check if current filters can be saved (has at least one custom filter)
+    const hasCustomFilters = activeFilters.some(f => !QUICK_FILTERS.find(qf => qf.id === f.id));
 
     const toggleFilter = (filter) => {
         const isActive = activeFilters.some(f => f.id === filter.id);
@@ -154,6 +221,31 @@ export default function ScreenerDropdown({ activeFilters, onFilterChange, result
                         </div>
                     </div>
 
+                    {/* My Presets Section */}
+                    {savedPresets.length > 0 && (
+                        <div className="screener-section">
+                            <div className="screener-section-title">💾 My Presets</div>
+                            <div className="screener-chips-grid">
+                                {savedPresets.map(preset => (
+                                    <button
+                                        key={preset.id}
+                                        className="screener-chip preset-chip"
+                                        onClick={() => loadPreset(preset)}
+                                        title={`Load: ${preset.name} (${preset.filters.length} filters)`}
+                                    >
+                                        {preset.name}
+                                        <span
+                                            className="screener-chip-remove"
+                                            onClick={(e) => deletePreset(e, preset.id)}
+                                        >
+                                            ✕
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {activeFilters.some(f => !QUICK_FILTERS.find(qf => qf.id === f.id)) && (
                         <div className="screener-section">
                             <div className="screener-section-title">Custom Filters</div>
@@ -182,6 +274,18 @@ export default function ScreenerDropdown({ activeFilters, onFilterChange, result
                             Matching: <strong>{resultCount}</strong> / {totalCount}
                         </div>
                         <div className="screener-actions">
+                            {hasCustomFilters && (
+                                <button
+                                    className="screener-btn screener-btn-save"
+                                    onClick={() => {
+                                        setShowPresetModal(true);
+                                        setIsOpen(false);
+                                    }}
+                                    title="Save current filters as preset"
+                                >
+                                    💾 Save
+                                </button>
+                            )}
                             <button
                                 className="screener-btn screener-btn-primary"
                                 onClick={() => {
@@ -218,6 +322,47 @@ export default function ScreenerDropdown({ activeFilters, onFilterChange, result
                     onSave={handleAddFilter}
                     onClose={handleCloseAdvanced}
                 />
+            )}
+
+            {/* Preset Name Modal */}
+            {showPresetModal && (
+                <div className="preset-modal-backdrop" onClick={() => setShowPresetModal(false)}>
+                    <div className="preset-modal" onClick={e => e.stopPropagation()}>
+                        <div className="preset-modal-header">
+                            <h3>💾 Save Preset</h3>
+                            <button className="preset-modal-close" onClick={() => setShowPresetModal(false)}>✕</button>
+                        </div>
+                        <div className="preset-modal-body">
+                            <label>Preset Name</label>
+                            <input
+                                type="text"
+                                value={presetName}
+                                onChange={(e) => setPresetName(e.target.value)}
+                                placeholder="e.g., Morning Strategy"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') saveAsPreset();
+                                    if (e.key === 'Escape') setShowPresetModal(false);
+                                }}
+                            />
+                            <div className="preset-modal-info">
+                                Saving {activeFilters.length} filter{activeFilters.length !== 1 ? 's' : ''}
+                            </div>
+                        </div>
+                        <div className="preset-modal-footer">
+                            <button className="preset-modal-cancel" onClick={() => setShowPresetModal(false)}>
+                                Cancel
+                            </button>
+                            <button
+                                className="preset-modal-save"
+                                onClick={saveAsPreset}
+                                disabled={!presetName.trim()}
+                            >
+                                Save Preset
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

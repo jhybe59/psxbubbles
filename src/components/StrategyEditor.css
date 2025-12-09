@@ -317,6 +317,24 @@ select optgroup option {
     font-weight: 500;
     font-size: 14px;
     min-width: 20px;
+    flex-shrink: 0;
+}
+
+/* Interval dropdown - compact */
+.interval-select {
+    width: 60px !important;
+    min-width: 60px !important;
+    flex-shrink: 0;
+    padding: 10px 28px 10px 8px !important;
+    font-size: 13px !important;
+    text-align: center;
+    background-position: right 6px center !important;
+}
+
+/* Field dropdown - takes remaining space */
+.field-select {
+    flex: 1;
+    min-width: 0;
 }
 
 /* Footer buttons */

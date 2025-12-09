@@ -1,0 +1,249 @@
+/* BubbleTooltip.css - Premium dark-themed tooltip styles */
+
+.bubble-tooltip {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  font-size: 13px;
+  width: 280px;
+  background: linear-gradient(180deg, rgba(15, 23, 36, 0.98), rgba(10, 16, 28, 0.96));
+  color: #e6eef8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 
+    0 8px 32px rgba(2, 6, 23, 0.7),
+    0 2px 8px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+  z-index: 10000;
+  position: fixed;
+}
+
+/* Header: Symbol + Price + Change */
+.bubble-tooltip .bt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.bubble-tooltip .bt-symbol {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.bubble-tooltip .bt-name {
+  font-size: 11px;
+  color: #8b9db5;
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+.bubble-tooltip .bt-price-block {
+  text-align: right;
+}
+
+.bubble-tooltip .bt-price {
+  font-weight: 700;
+  font-size: 16px;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+}
+
+.bubble-tooltip .bt-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.bubble-tooltip .bt-change.up {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.bubble-tooltip .bt-change.down {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.bubble-tooltip .bt-change.neutral {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.bubble-tooltip .bt-arrow {
+  font-size: 10px;
+}
+
+/* Sparkline container */
+.bubble-tooltip .bt-sparkline {
+  margin: 10px 0;
+  height: 44px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bubble-tooltip .bt-sparkline svg {
+  display: block;
+}
+
+/* Recent prices pills */
+.bubble-tooltip .bt-recent {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.bubble-tooltip .bt-recent-label {
+  font-size: 11px;
+  color: #6b7d94;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  width: 100%;
+}
+
+.bubble-tooltip .bt-pill {
+  padding: 3px 7px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 5px;
+  font-size: 11px;
+  color: #a8b8cc;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.15s ease;
+}
+
+.bubble-tooltip .bt-pill:first-of-type {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.bubble-tooltip .bt-pill.highlight-up {
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+}
+
+.bubble-tooltip .bt-pill.highlight-down {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+/* Meta row: Volume, RVOL, Volatility, Updated */
+.bubble-tooltip .bt-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: #7a8fa8;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.bubble-tooltip .bt-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bubble-tooltip .bt-meta-label {
+  color: #5a6c82;
+  font-weight: 500;
+}
+
+.bubble-tooltip .bt-meta-value {
+  color: #b4c5d9;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bubble-tooltip .bt-meta-value.high {
+  color: #fbbf24;
+}
+
+/* Badges for high RVOL / Volatility */
+.bubble-tooltip .bt-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.bubble-tooltip .bt-badge.rvol-high {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.bubble-tooltip .bt-badge.vol-high {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+/* Trend delta summary */
+.bubble-tooltip .bt-trend-delta {
+  font-size: 11px;
+  color: #6b7d94;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bubble-tooltip .bt-trend-delta .delta-value {
+  font-weight: 600;
+}
+
+.bubble-tooltip .bt-trend-delta .delta-value.up {
+  color: #10b981;
+}
+
+.bubble-tooltip .bt-trend-delta .delta-value.down {
+  color: #ef4444;
+}
+
+/* Empty state for sparkline */
+.bubble-tooltip .bt-empty {
+  color: #4a5568;
+  font-size: 11px;
+  text-align: center;
+  padding: 8px;
+}
+
+/* Animation for tooltip appearance */
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bubble-tooltip {
+  animation: tooltipFadeIn 0.15s ease-out;
+}

@@ -1,6 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import './StrategyEditor.css';
 
+// Interval options for the filter - empty means use global/chart interval
+const INTERVALS = [
+    { id: '', label: '-' },
+    { id: '1m', label: '1M' },
+    { id: '5m', label: '5M' },
+    { id: '15m', label: '15M' },
+    { id: '1h', label: '1H' },
+    { id: '1d', label: '1D' },
+    { id: '1w', label: '1W' },
+    { id: '1mo', label: '1Mo' },
+    { id: '1y', label: '1Y' },
+];
+
 // Source fields - what to compare
 const SOURCE_FIELDS = [
     { id: 'price', label: 'Price' },
@@ -100,6 +113,7 @@ const allCompareOptions = COMPARE_GROUPS.flatMap(g => g.options);
 
 export default function StrategyEditor({ initialFilter, onSave, onClose }) {
     const [field, setField] = useState('volume');
+    const [interval, setInterval] = useState(''); // Empty = use global chart interval
     const [operator, setOperator] = useState('above');
     const [targetType, setTargetType] = useState('field'); // 'value' or 'field'
     const [targetValue, setTargetValue] = useState('');
@@ -120,6 +134,7 @@ export default function StrategyEditor({ initialFilter, onSave, onClose }) {
 
                 setField(f);
                 setOperator(cond.operator || 'above');
+                setInterval(cond.interval || '');
 
                 if (cond.target === 'value') {
                     setTargetType('value');
@@ -139,7 +154,11 @@ export default function StrategyEditor({ initialFilter, onSave, onClose }) {
     }, [initialFilter]);
 
     const handleSave = () => {
+        // Only include interval if explicitly selected
         let condition = { operator };
+        if (interval) {
+            condition.interval = interval;
+        }
 
         if (targetType === 'value') {
             condition.target = 'value';
@@ -165,6 +184,7 @@ export default function StrategyEditor({ initialFilter, onSave, onClose }) {
         // Build label
         const fieldLabel = SOURCE_FIELDS.find(f => f.id === field)?.label || field;
         const opLabel = OPERATORS.find(o => o.id === operator)?.label || operator;
+        const intervalLabel = interval ? ` (${INTERVALS.find(i => i.id === interval)?.label || interval})` : '';
         let targetLabel;
 
         if (targetType === 'value') {
@@ -179,7 +199,7 @@ export default function StrategyEditor({ initialFilter, onSave, onClose }) {
 
         const filter = {
             id: initialFilter?.id || Date.now().toString(),
-            label: `${fieldLabel} ${opLabel} ${targetLabel}`,
+            label: `${fieldLabel}${intervalLabel} ${opLabel} ${targetLabel}`,
             conditions: { [field]: condition }
         };
 
@@ -196,12 +216,26 @@ export default function StrategyEditor({ initialFilter, onSave, onClose }) {
                 </div>
 
                 <div className="strategy-builder">
-                    {/* Source Field */}
+                    {/* Source Field with optional Interval on right */}
                     <div className="strategy-row">
                         <span className="strategy-label">If</span>
-                        <select value={field} onChange={e => setField(e.target.value)}>
+                        <select
+                            className="field-select"
+                            value={field}
+                            onChange={e => setField(e.target.value)}
+                        >
                             {SOURCE_FIELDS.map(f => (
                                 <option key={f.id} value={f.id}>{f.label}</option>
+                            ))}
+                        </select>
+                        <select
+                            className="interval-select"
+                            value={interval}
+                            onChange={e => setInterval(e.target.value)}
+                            title="Timeframe (- = use chart interval)"
+                        >
+                            {INTERVALS.map(i => (
+                                <option key={i.id} value={i.id}>{i.label}</option>
                             ))}
                         </select>
                     </div>
