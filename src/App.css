@@ -1200,17 +1200,6 @@ body {
   to { opacity: 1; }
 }
 
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -45%) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-}
-
 .search-modal-container {
   position: fixed;
   top: 50%;
@@ -1220,7 +1209,7 @@ body {
   width: 90%;
   max-width: 600px;
   max-height: 85vh;
-  animation: slideUp 0.25s ease-out;
+  animation: fadeIn 0.2s ease-out;
 }
 
 .search-modal-content {

@@ -18,7 +18,9 @@ const INTERVALS = [
 const SOURCE_FIELDS = [
     { id: 'price', label: 'Price' },
     { id: 'volume', label: 'Volume' },
+    { id: 'day_volume', label: 'Day Volume' },
     { id: 'changePct', label: 'Change %' },
+    { id: 'day_change', label: 'Day Change %' },
     { id: 'rsi', label: 'RSI' },
     { id: 'volatility', label: 'Volatility' },
     { id: 'relative_volume', label: 'Relative Volume' },
@@ -104,6 +106,18 @@ const COMPARE_GROUPS = [
             { id: 'prev_prev_low', label: 'Prev-Prev Low' },
             { id: 'prev_prev_close', label: 'Prev-Prev Close' },
             { id: 'prev_prev_open', label: 'Prev-Prev Open' },
+        ]
+    },
+    {
+        id: 'orb',
+        label: '🚀 ORB (Opening Range)',
+        options: [
+            { id: 'orb_high_5m', label: 'ORB High 5m' },
+            { id: 'orb_low_5m', label: 'ORB Low 5m' },
+            { id: 'orb_high_15m', label: 'ORB High 15m' },
+            { id: 'orb_low_15m', label: 'ORB Low 15m' },
+            { id: 'orb_high_30m', label: 'ORB High 30m' },
+            { id: 'orb_low_30m', label: 'ORB Low 30m' },
         ]
     }
 ];

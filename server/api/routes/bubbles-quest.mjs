@@ -65,6 +65,8 @@ function buildAggregatedQuery(interval, symbols = null, limit = 100) {
 
     // For aggregated intervals, we need a different approach
     // First get latest per symbol, then aggregate
+    // NOTE: Volume seems to be cumulative in minute_bars, so we use max() instead of sum()
+    // to avoid massive numbers. If it was incremental, sum() would be correct.
     let sql = `
     SELECT 
       symbol,
@@ -73,7 +75,7 @@ function buildAggregatedQuery(interval, symbols = null, limit = 100) {
       max(high) as high,
       min(low) as low,
       last(close) as close,
-      sum(volume) as volume,
+      max(volume) as volume,
       sum(value) as value,
       last(daily_pct) as daily_pct
     FROM minute_bars
@@ -125,7 +127,12 @@ function transformResponse(result, interval) {
             const low = parseFloat(row[colIndex['low']]) || 0;
             const volume = parseFloat(row[colIndex['volume']]) || 0;
             const value = parseFloat(row[colIndex['value']]) || 0;
-            const dailyPct = parseFloat(row[colIndex['daily_pct']]) || 0;
+            let dailyPct = parseFloat(row[colIndex['daily_pct']]) || 0;
+
+            // Fallback for dailyPct if 0 (calculate from Open)
+            if (dailyPct === 0 && open !== 0) {
+                dailyPct = ((close - open) / open) * 100;
+            }
 
             // Calculate interval percentage change
             const intervalPct = open !== 0 ? ((close - open) / open) * 100 : 0;

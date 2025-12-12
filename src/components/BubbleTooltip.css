@@ -3,24 +3,27 @@
 .bubble-tooltip {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
   font-size: 13px;
-  width: 280px;
+  width: 300px;
+  max-height: 80vh;
+  /* overflow-y: auto; -- Removed to prevent unscrollable scrollbars */
+  overflow-y: hidden;
   background: linear-gradient(180deg, rgba(15, 23, 36, 0.98), rgba(10, 16, 28, 0.96));
   color: #e6eef8;
   border-radius: 12px;
   padding: 12px 14px;
-  box-shadow: 
+  box-shadow:
     0 8px 32px rgba(2, 6, 23, 0.7),
     0 2px 8px rgba(0, 0, 0, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  pointer-events: none;
-  z-index: 10000;
   position: fixed;
+  z-index: 10000;
+  pointer-events: none;
 }
 
-/* Header: Symbol + Price + Change */
+/* Header: Symbol + Price */
 .bubble-tooltip .bt-header {
   display: flex;
   justify-content: space-between;
@@ -55,42 +58,63 @@
   letter-spacing: -0.3px;
 }
 
-.bubble-tooltip .bt-change {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-weight: 600;
-  margin-top: 4px;
+/* Day vs Interval Comparison Section */
+.bubble-tooltip .bt-comparison {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
 }
 
-.bubble-tooltip .bt-change.up {
-  background: rgba(16, 185, 129, 0.15);
+.bubble-tooltip .bt-comparison-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.bubble-tooltip .bt-comparison-row:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.bubble-tooltip .bt-comparison-label {
+  font-weight: 600;
+  color: #8b9db5;
+  min-width: 50px;
+}
+
+.bubble-tooltip .bt-comparison-pct {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bubble-tooltip .bt-comparison-amt {
+  font-size: 11px;
+  color: #6b7d94;
+}
+
+.bubble-tooltip .bt-comparison-arrow {
+  font-size: 10px;
+  margin-left: auto;
+}
+
+.bubble-tooltip .bt-comparison-row.up .bt-comparison-pct,
+.bubble-tooltip .bt-comparison-row.up .bt-comparison-arrow {
   color: #10b981;
 }
 
-.bubble-tooltip .bt-change.down {
-  background: rgba(239, 68, 68, 0.15);
+.bubble-tooltip .bt-comparison-row.down .bt-comparison-pct,
+.bubble-tooltip .bt-comparison-row.down .bt-comparison-arrow {
   color: #ef4444;
-}
-
-.bubble-tooltip .bt-change.neutral {
-  background: rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
-}
-
-.bubble-tooltip .bt-arrow {
-  font-size: 10px;
 }
 
 /* Sparkline container */
 .bubble-tooltip .bt-sparkline {
   margin: 10px 0;
   height: 44px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
   padding: 4px;
   display: flex;
   align-items: center;
@@ -101,52 +125,117 @@
   display: block;
 }
 
-/* Recent prices pills */
-.bubble-tooltip .bt-recent {
+/* Interval Volume Row */
+.bubble-tooltip .bt-interval-vol {
   display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 6px;
   margin-bottom: 10px;
+  font-size: 12px;
 }
 
-.bubble-tooltip .bt-recent-label {
+.bubble-tooltip .bt-interval-vol-label {
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.bubble-tooltip .bt-interval-vol-value {
+  color: #ffffff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Price Rows Section */
+.bubble-tooltip .bt-price-rows {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 10px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.bubble-tooltip .bt-price-rows-label {
   font-size: 11px;
   color: #6b7d94;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 6px;
-  width: 100%;
 }
 
-.bubble-tooltip .bt-pill {
-  padding: 3px 7px;
-  background: rgba(255, 255, 255, 0.04);
+.bubble-tooltip .bt-price-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  /* Reduced padding */
   border-radius: 5px;
-  font-size: 11px;
-  color: #a8b8cc;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  margin-bottom: 2px;
+  /* Reduced margin */
   transition: background 0.15s ease;
 }
 
-.bubble-tooltip .bt-pill:first-of-type {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93c5fd;
-  font-weight: 600;
+.bubble-tooltip .bt-price-row:last-child {
+  margin-bottom: 0;
 }
 
-.bubble-tooltip .bt-pill.highlight-up {
+/* Row direction styling */
+.bubble-tooltip .bt-price-row.up {
   background: rgba(16, 185, 129, 0.12);
+}
+
+.bubble-tooltip .bt-price-row.down {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.bubble-tooltip .bt-price-row.neutral {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.bubble-tooltip .bt-price-row-value {
+  font-weight: 600;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.bubble-tooltip .bt-price-row-change {
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.bubble-tooltip .bt-price-row-change.up {
   color: #6ee7b7;
 }
 
-.bubble-tooltip .bt-pill.highlight-down {
-  background: rgba(239, 68, 68, 0.12);
+.bubble-tooltip .bt-price-row-change.down {
   color: #fca5a5;
 }
 
-/* Meta row: Volume, RVOL, Volatility, Updated */
+.bubble-tooltip .bt-price-row-arrow {
+  font-size: 9px;
+}
+
+.bubble-tooltip .bt-price-row-latest {
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Meta row: Day Volume, RVOL, Volatility, Updated */
 .bubble-tooltip .bt-meta {
   display: flex;
   gap: 12px;
@@ -159,18 +248,17 @@
 }
 
 .bubble-tooltip .bt-meta-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
 .bubble-tooltip .bt-meta-label {
-  color: #5a6c82;
-  font-weight: 500;
+  color: #6b7d94;
 }
 
 .bubble-tooltip .bt-meta-value {
-  color: #b4c5d9;
+  color: #c9d6e5;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -202,28 +290,6 @@
   color: #c084fc;
 }
 
-/* Trend delta summary */
-.bubble-tooltip .bt-trend-delta {
-  font-size: 11px;
-  color: #6b7d94;
-  margin-top: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bubble-tooltip .bt-trend-delta .delta-value {
-  font-weight: 600;
-}
-
-.bubble-tooltip .bt-trend-delta .delta-value.up {
-  color: #10b981;
-}
-
-.bubble-tooltip .bt-trend-delta .delta-value.down {
-  color: #ef4444;
-}
-
 /* Empty state for sparkline */
 .bubble-tooltip .bt-empty {
   color: #4a5568;
@@ -238,6 +304,7 @@
     opacity: 0;
     transform: translateY(4px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -246,4 +313,9 @@
 
 .bubble-tooltip {
   animation: tooltipFadeIn 0.15s ease-out;
+}
+
+/* Scrollbar hidden to prevent interaction issues */
+.bubble-tooltip .bt-price-rows::-webkit-scrollbar {
+  display: none;
 }

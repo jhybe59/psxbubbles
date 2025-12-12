@@ -1354,31 +1354,87 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         const symbol = d.data?.symbol?.toUpperCase();
         const history = symbol ? getHistory(symbol) : null;
 
-        // Set tooltip data
+        // Set tooltip data with Day vs Interval comparison
+        // ttPct is the interval percentage (for current selected interval)
+        const dayPct = d.data?.daily_change_1d ?? ttPct;
+        const intPct = ttPct;
+
+        // Calculate price changes
+        const priceVal = d.data?.price || 0;
+        const dayPriceChange = priceVal * (dayPct / 100);
+        const intervalPriceChange = priceVal * (intPct / 100);
+
+        // Get volumes - interval vol from current data, day vol from raw or estimate
+        const intervalVol = d.data?.volume || history?.volume || 0;
+        const dayVol = d.data?.day_volume || d.data?.raw?.day_volume || d.data?.raw?.total_volume || d.data?.volume || intervalVol;
+
         setTooltipData({
           symbol: symbol || d.data?.name || '',
           name: d.data?.name,
           price: d.data?.price,
+          // Day data
+          dayPctChange: dayPct,
+          dayPriceChange: dayPriceChange,
+          dayVolume: dayVol,
+          // Interval data
+          intervalPctChange: intPct,
+          intervalPriceChange: intervalPriceChange,
+          intervalVolume: intervalVol,
+          currentInterval: currentInterval || 'Day',
+          // Legacy fallbacks
           pctChange: ttPct,
+          volume: intervalVol,
+          // Other data
           prices: history?.prices || [],
-          volume: d.data?.volume || history?.volume || 0,
           rvol: d.data?.relative_volume || history?.rvol,
           volatility: d.data?.volatility || history?.volatility,
           lastUpdate: history?.lastUpdate || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
         });
       })
       .on('mousemove', function (event) {
-        const pad = 12;
-        const ttW = 300; // approximate tooltip width
-        const ttH = 250; // approximate tooltip height
+        const pad = 16;
+        const ttW = 320; // approximate tooltip width (with some buffer)
+        const ttH = 460; // approximate max tooltip height
+        
+        // Default: placement to bottom-right of cursor
         let x = event.clientX + pad;
         let y = event.clientY + pad;
-        // Keep tooltip within viewport
-        x = Math.min(x, window.innerWidth - ttW - pad);
-        y = Math.min(y, window.innerHeight - ttH - pad);
-        // Also ensure it doesn't go negative
-        x = Math.max(pad, x);
-        y = Math.max(pad, y);
+
+        const winW = window.innerWidth;
+        const winH = window.innerHeight;
+
+        // X Positioning: prevent horizontal overflow
+        if (x + ttW > winW - pad) {
+          // If slightly off screen, shift left
+          x = winW - ttW - pad;
+          // If cursor is now covering tooltip (tooltip shifted under cursor), move to left side of cursor
+          if (x < event.clientX && x + ttW > event.clientX) {
+             x = event.clientX - ttW - pad;
+          }
+        }
+        
+        // Y Positioning: prevent vertical overflow (FLIP UP behavior)
+        if (y + ttH > winH - pad) {
+           // Flip to top of cursor
+           y = event.clientY - ttH - pad;
+           
+           // If flipping up goes off top, clamp to top (and let it overlap cursor if really needed, better than invisible)
+           // But better yet: shift it just enough to fit if possible
+           if (y < pad) {
+             // If fitting above is impossible, simpler clamp logic (revert to bottom-aligned but pushed up)
+             // But usually flipping is best. Let's clamp the top.
+             y = Math.max(pad, y);
+             
+             // If clamped top still means bottom is cut off (screen too small), force top-align to viewport 
+             // ensuring header is visible
+             if (y + ttH > winH) {
+                // This is a small screen case. 
+                // We prioritizing seeing the top of the tooltip.
+                y = Math.max(pad, winH - ttH - pad);
+             }
+           }
+        }
+        
         setTooltipPos({ x, y });
       })
       .on('mouseout', function (event, d) {
@@ -1535,9 +1591,20 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           symbol={tooltipData.symbol}
           name={tooltipData.name}
           price={tooltipData.price}
+          // Day data
+          dayPctChange={tooltipData.dayPctChange}
+          dayPriceChange={tooltipData.dayPriceChange}
+          dayVolume={tooltipData.dayVolume}
+          // Interval data
+          intervalPctChange={tooltipData.intervalPctChange}
+          intervalPriceChange={tooltipData.intervalPriceChange}
+          intervalVolume={tooltipData.intervalVolume}
+          currentInterval={tooltipData.currentInterval}
+          // Legacy fallbacks
           pctChange={tooltipData.pctChange}
-          prices={tooltipData.prices}
           volume={tooltipData.volume}
+          // Other data
+          prices={tooltipData.prices}
           rvol={tooltipData.rvol}
           volatility={tooltipData.volatility}
           lastUpdate={tooltipData.lastUpdate}

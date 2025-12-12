@@ -192,6 +192,8 @@ async function fetchLiveInterval(interval) {
           price_change_percentage_24h: changePct,
           // Support both old (dailyPct) and new (pct_24h) field names
           daily_change_1d: row.dailyPct != null ? Number(row.dailyPct) : (row.pct_24h != null ? Number(row.pct_24h) : null),
+          // Add 24h volume for tooltip
+          day_volume: row.day_volume != null ? Number(row.day_volume) : null,
           volatility: volatility,
           relative_volume: relative_volume,
           // Previous volatility and RVOL for momentum confirmation
@@ -273,7 +275,8 @@ async function fetchTickInterval(interval) {
         volume: Number(row.volume ?? 0),
         avg_volume: 0,
         price_change_percentage_24h: changePct,
-        daily_change_1d: null,
+        daily_change_1d: row.pct_24h != null ? Number(row.pct_24h) : null,
+        day_volume: row.day_volume != null ? Number(row.day_volume) : null,
         volatility: 0,
         relative_volume: 1,
         ts: row.ts ? new Date(row.ts).getTime() : null,

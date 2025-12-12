@@ -2,10 +2,17 @@
 export const resolveValue = (coin, field, interval) => {
     // Basic fields
     if (field === 'price') return Number(coin.price || coin.close || 0);
-    if (field === 'volume') return Number(coin.volume || 0);
-    if (field === 'changePct') return Number(coin.price_change_percentage_24h || coin.interval_pct || 0);
+    if (field === 'volume') {
+        if (interval === '1d' || interval === 'Day') return Number(coin.day_volume || coin.daily_volume || coin.volume || 0);
+        return Number(coin.volume || 0);
+    }
+    if (field === 'changePct') {
+        if (interval === '1d' || interval === 'Day') return Number(coin.daily_change_1d || coin.price_change_percentage_24h || 0);
+        return Number(coin.price_change_percentage_24h || coin.interval_pct || 0);
+    }
     if (field === 'value') return Number(coin.value || coin.daily_value || 0);
-    if (field === 'dailyVolume') return Number(coin.daily_volume || coin.volume || 0);
+    if (field === 'dailyVolume' || field === 'day_volume') return Number(coin.day_volume || coin.daily_volume || coin.volume || 0);
+    if (field === 'dailyChange' || field === 'day_change') return Number(coin.daily_change_1d || coin.pct_24h || 0);
 
     // Technical Indicators
     if (field === 'rsi') return coin.rsi != null ? Number(coin.rsi) : null;
@@ -82,6 +89,38 @@ export const resolveValue = (coin, field, interval) => {
         const period = parts[2]; // 5m, 15m, 30m, 1h
         const camelKey = agg + metric.charAt(0).toUpperCase() + metric.slice(1) + period.charAt(0).toUpperCase() + period.slice(1);
         return coin.lookback?.[camelKey] != null ? Number(coin.lookback[camelKey]) : null;
+    }
+
+    // ORB (Opening Range Breakout) fields
+    // ORB High/Low values for different windows
+    if (field === 'orb_high_5m') return (coin.orb_high_5m ?? coin.raw?.orb_high_5m) != null ? Number(coin.orb_high_5m ?? coin.raw?.orb_high_5m) : null;
+    if (field === 'orb_low_5m') return (coin.orb_low_5m ?? coin.raw?.orb_low_5m) != null ? Number(coin.orb_low_5m ?? coin.raw?.orb_low_5m) : null;
+    if (field === 'orb_high_15m') return (coin.orb_high_15m ?? coin.raw?.orb_high_15m) != null ? Number(coin.orb_high_15m ?? coin.raw?.orb_high_15m) : null;
+    if (field === 'orb_low_15m') return (coin.orb_low_15m ?? coin.raw?.orb_low_15m) != null ? Number(coin.orb_low_15m ?? coin.raw?.orb_low_15m) : null;
+    if (field === 'orb_high_30m') return (coin.orb_high_30m ?? coin.raw?.orb_high_30m) != null ? Number(coin.orb_high_30m ?? coin.raw?.orb_high_30m) : null;
+    if (field === 'orb_low_30m') return (coin.orb_low_30m ?? coin.raw?.orb_low_30m) != null ? Number(coin.orb_low_30m ?? coin.raw?.orb_low_30m) : null;
+
+    // ORB Breakout status: 1 = above (breakout), -1 = below (breakdown), 0 = inside range
+    // Check both top-level and raw
+    const getOrbStatus = (key) => coin[key] || coin.raw?.[key];
+
+    if (field === 'orb_breakout_5m') {
+        const val = getOrbStatus('orb_breakout_5m');
+        if (val === 'above') return 1;
+        if (val === 'below') return -1;
+        return 0;
+    }
+    if (field === 'orb_breakout_15m') {
+        const val = getOrbStatus('orb_breakout_15m');
+        if (val === 'above') return 1;
+        if (val === 'below') return -1;
+        return 0;
+    }
+    if (field === 'orb_breakout_30m') {
+        const val = getOrbStatus('orb_breakout_30m');
+        if (val === 'above') return 1;
+        if (val === 'below') return -1;
+        return 0;
     }
 
     // OHLC fields - try to get from raw data if available, or top-level props

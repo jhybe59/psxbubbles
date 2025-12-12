@@ -22,6 +22,8 @@ class WebSocketConnection {
         this.id = id;
         this.symbols = symbols;
         this.ws = null;
+        this.lastVolumeMap = new Map();
+        this.lastValueMap = new Map();
         this.pingInterval = null;
         this.reconnectTimeout = null;
         this.isAlive = false;
@@ -144,15 +146,62 @@ class WebSocketConnection {
                 ts *= 1000;
             }
 
+            const symbol = tick.s || tick.symbol;
+
+            // Volume Handling: Convert Cumulative to Incremental
+            // PSX feed sends 'v' as Total Daily Volume. We need Tick Volume.
+            const currentCumulativeVol = Number(tick.v || tick.volume || 0);
+            let tradeVolume = 0;
+
+            if (this.lastVolumeMap.has(symbol)) {
+                const lastVol = this.lastVolumeMap.get(symbol);
+                if (currentCumulativeVol >= lastVol) {
+                    tradeVolume = currentCumulativeVol - lastVol;
+                } else {
+                    // Volume reset (new day or bad data), assume current is new volume
+                    tradeVolume = currentCumulativeVol;
+                }
+            } else {
+                // First tick seen this session. 
+                // If volume is huge (>10000), it's likely mid-day cumulative. Don't record it as single tick.
+                // If it's small, maybe it's fresh. 
+                // Safe bet: record 0 for this exact tick to avoid massive spike, but track for next.
+                if (currentCumulativeVol > 0) {
+                    // Logic: If we just started, we can't claim the entire daily volume happened in this one millisecond.
+                    tradeVolume = 0;
+                }
+            }
+
+            // Update map
+            this.lastVolumeMap.set(symbol, currentCumulativeVol);
+
+            // Value/Turnover Handling: Convert Cumulative to Incremental
+            const currentCumulativeValue = Number(tick.val || tick.turnover || 0);
+            let tradeValue = 0;
+
+            if (this.lastValueMap.has(symbol)) {
+                const lastVal = this.lastValueMap.get(symbol);
+                if (currentCumulativeValue >= lastVal) {
+                    tradeValue = currentCumulativeValue - lastVal;
+                } else {
+                    tradeValue = currentCumulativeValue;
+                }
+            } else {
+                if (currentCumulativeValue > 0) {
+                    tradeValue = 0;
+                }
+            }
+            this.lastValueMap.set(symbol, currentCumulativeValue);
+
             return {
-                symbol: tick.s || tick.symbol,
+                symbol: symbol,
                 ts: ts,
                 open: Number(tick.o || tick.open || tick.c || tick.close), // Fallback to close if open missing in update
                 high: Number(tick.h || tick.high || tick.c || tick.close),
                 low: Number(tick.l || tick.low || tick.c || tick.close),
                 close: Number(tick.c || tick.close),
-                volume: Number(tick.v || tick.volume || 0),
-                turnover: Number(tick.val || tick.turnover || 0),
+                volume: tradeVolume,
+                value: tradeValue,
                 intervalPct: null, // Calculate if needed
                 dailyPct: Number(tick.pch || 0) * 100,
                 raw: tick

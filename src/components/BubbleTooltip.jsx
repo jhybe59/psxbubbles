@@ -2,10 +2,10 @@
  * BubbleTooltip - Premium dark-themed tooltip for bubble chart
  * 
  * Features:
- * - Symbol + Price + % Change header
+ * - Symbol + Price + Day vs Interval % Change comparison
  * - Sparkline SVG (last 10 prices)
- * - Recent prices as inline pills
- * - Volume, RVOL, Volatility, Update time
+ * - Recent prices as ROWS with direction highlighting
+ * - Day Volume, Interval Volume, RVOL, Volatility, Update time
  */
 
 import React from 'react';
@@ -27,6 +27,15 @@ function formatPercent(pct) {
     if (pct == null || isNaN(pct)) return '0.00%';
     const sign = pct > 0 ? '+' : '';
     return `${sign}${Number(pct).toFixed(2)}%`;
+}
+
+// Format price change amount
+function formatPriceChange(change) {
+    if (change == null || isNaN(change)) return '0.00';
+    const sign = change >= 0 ? '+' : '';
+    const num = Number(change);
+    if (Math.abs(num) >= 1000) return `${sign}${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `${sign}${num.toFixed(2)}`;
 }
 
 // Abbreviate large numbers (volume)
@@ -108,64 +117,86 @@ function renderSparkline(prices, isPositive) {
     );
 }
 
-// Render recent price pills
-function renderRecentPills(prices) {
+// Render recent prices as ROWS (not pills)
+function renderPriceRows(prices) {
     if (!prices || prices.length === 0) return null;
 
-    // Reverse to show most recent first
-    const recent = [...prices].reverse();
+    // We want most recent first, so reverse
+    const recent = [...prices].slice(-5).reverse();
 
-    // Find biggest price jump for highlighting
-    let maxJumpIdx = -1;
-    let maxJump = 0;
-    for (let i = 1; i < prices.length; i++) {
-        const jump = Math.abs(prices[i] - prices[i - 1]);
-        if (jump > maxJump) {
-            maxJump = jump;
-            maxJumpIdx = prices.length - 1 - i; // Convert to reversed index
-        }
-    }
+    return (
+        <div className="bt-price-rows">
+            <div className="bt-price-rows-label">Recent Prices</div>
+            {recent.map((price, idx) => {
+                // Compare with next item (which is previous in time) to determine direction
+                const prevPrice = idx < recent.length - 1 ? recent[idx + 1] : null;
+                let direction = 'neutral';
+                let change = null;
 
-    return recent.map((price, idx) => {
-        let pillClass = 'bt-pill';
-        // Highlight the most recent one (idx === 0) is handled by CSS
-        // Highlight biggest jump
-        if (idx === maxJumpIdx && maxJump > 0) {
-            const direction = idx > 0 && recent[idx - 1] ? (price > recent[idx - 1] ? 'up' : 'down') : null;
-            if (direction) pillClass += ` highlight-${direction}`;
-        }
-        return (
-            <span key={idx} className={pillClass}>
-                {formatPrice(price)}
-            </span>
-        );
-    });
+                if (prevPrice != null) {
+                    if (price > prevPrice) {
+                        direction = 'up';
+                        change = price - prevPrice;
+                    } else if (price < prevPrice) {
+                        direction = 'down';
+                        change = price - prevPrice;
+                    }
+                }
+
+                return (
+                    <div key={idx} className={`bt-price-row ${direction}`}>
+                        <span className="bt-price-row-value">{formatPrice(price)}</span>
+                        {change != null && (
+                            <span className={`bt-price-row-change ${direction}`}>
+                                {change >= 0 ? '+' : ''}{formatPrice(Math.abs(change))}
+                                <span className="bt-price-row-arrow">
+                                    {direction === 'up' ? '▲' : direction === 'down' ? '▼' : ''}
+                                </span>
+                            </span>
+                        )}
+                        {idx === 0 && <span className="bt-price-row-latest">Latest</span>}
+                    </div>
+                );
+            })}
+        </div>
+    );
 }
 
 export default function BubbleTooltip({
     symbol,
     name,
     price,
-    pctChange,
+    // Day data
+    dayPctChange,
+    dayPriceChange,
+    // Interval data
+    intervalPctChange,
+    intervalPriceChange,
+    currentInterval = 'Day',
+    // Legacy support - if new props not provided, use old ones
+    pctChange, // fallback for intervalPctChange
     prices = [],
-    volume,
+    // Volume
+    dayVolume,
+    intervalVolume,
+    volume, // fallback for intervalVolume
+    // Other metrics
     rvol,
     volatility,
     lastUpdate,
     style = {}
 }) {
-    const isPositive = pctChange >= 0;
-    const isNeutral = Math.abs(pctChange) < 0.005;
+    // Use new props if available, fallback to old ones
+    const intPct = intervalPctChange ?? pctChange ?? 0;
+    const intVol = intervalVolume ?? volume ?? 0;
+    const dayPct = dayPctChange ?? pctChange ?? 0;
+    const dayVol = dayVolume ?? volume ?? 0;
 
-    // Calculate trend delta (difference between first and last in prices array)
-    let trendDelta = null;
-    let trendDeltaPct = null;
-    if (prices.length >= 2) {
-        const first = prices[0];
-        const last = prices[prices.length - 1];
-        trendDelta = last - first;
-        trendDeltaPct = first !== 0 ? ((last - first) / first) * 100 : 0;
-    }
+    // Calculate price changes if not provided
+    const intPriceChg = intervalPriceChange ?? (price != null && intPct != null ? (price * intPct / 100) : 0);
+    const dayPriceChg = dayPriceChange ?? (price != null && dayPct != null ? (price * dayPct / 100) : 0);
+
+    const isPositive = intPct >= 0;
 
     return (
         <div
@@ -174,7 +205,7 @@ export default function BubbleTooltip({
             role="tooltip"
             aria-live="polite"
         >
-            {/* Header */}
+            {/* Header with Symbol and Price */}
             <div className="bt-header">
                 <div>
                     <div className="bt-symbol">{symbol || '—'}</div>
@@ -184,11 +215,28 @@ export default function BubbleTooltip({
                 </div>
                 <div className="bt-price-block">
                     <div className="bt-price">{formatPrice(price)}</div>
-                    <div className={`bt-change ${isNeutral ? 'neutral' : (isPositive ? 'up' : 'down')}`}>
-                        {formatPercent(pctChange)}
-                        <span className="bt-arrow">{isNeutral ? '●' : (isPositive ? '▲' : '▼')}</span>
-                    </div>
                 </div>
+            </div>
+
+            {/* Day vs Interval Comparison */}
+            <div className="bt-comparison">
+                {/* Day Change Row */}
+                <div className={`bt-comparison-row ${dayPct >= 0 ? 'up' : 'down'}`}>
+                    <span className="bt-comparison-label">Day:</span>
+                    <span className="bt-comparison-pct">{formatPercent(dayPct)}</span>
+                    <span className="bt-comparison-amt">({formatPriceChange(dayPriceChg)})</span>
+                    <span className="bt-comparison-arrow">{dayPct >= 0 ? '▲' : '▼'}</span>
+                </div>
+
+                {/* Interval Change Row - only show if different from Day */}
+                {currentInterval !== 'Day' && (
+                    <div className={`bt-comparison-row ${intPct >= 0 ? 'up' : 'down'}`}>
+                        <span className="bt-comparison-label">{currentInterval}:</span>
+                        <span className="bt-comparison-pct">{formatPercent(intPct)}</span>
+                        <span className="bt-comparison-amt">({formatPriceChange(intPriceChg)})</span>
+                        <span className="bt-comparison-arrow">{intPct >= 0 ? '▲' : '▼'}</span>
+                    </div>
+                )}
             </div>
 
             {/* Sparkline */}
@@ -196,29 +244,22 @@ export default function BubbleTooltip({
                 {renderSparkline(prices, isPositive)}
             </div>
 
-            {/* Recent prices */}
-            {prices.length > 0 && (
-                <div className="bt-recent">
-                    <div className="bt-recent-label">Recent ({prices.length})</div>
-                    {renderRecentPills(prices)}
+            {/* Interval Volume Row */}
+            {currentInterval !== 'Day' && intVol > 0 && (
+                <div className="bt-interval-vol">
+                    <span className="bt-interval-vol-label">{currentInterval} Vol:</span>
+                    <span className="bt-interval-vol-value">{abbrevNumber(intVol)}</span>
                 </div>
             )}
 
-            {/* Trend delta summary */}
-            {trendDelta !== null && (
-                <div className="bt-trend-delta">
-                    <span>Trend:</span>
-                    <span className={`delta-value ${trendDelta >= 0 ? 'up' : 'down'}`}>
-                        {trendDelta >= 0 ? '+' : ''}{formatPrice(Math.abs(trendDelta))} ({trendDeltaPct >= 0 ? '+' : ''}{trendDeltaPct.toFixed(2)}%)
-                    </span>
-                </div>
-            )}
+            {/* Recent prices as ROWS */}
+            {prices.length > 0 && renderPriceRows(prices)}
 
             {/* Meta row */}
             <div className="bt-meta">
                 <div className="bt-meta-item">
-                    <span className="bt-meta-label">Vol:</span>
-                    <span className="bt-meta-value">{abbrevNumber(volume)}</span>
+                    <span className="bt-meta-label">Day Vol:</span>
+                    <span className="bt-meta-value">{abbrevNumber(dayVol)}</span>
                 </div>
 
                 {rvol != null && (

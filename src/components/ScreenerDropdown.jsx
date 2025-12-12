@@ -47,6 +47,30 @@ const QUICK_FILTERS = [
         conditions: {
             price: { operator: 'above', target: 'high', interval: '1y', multiplier: 0.95 }
         }
+    },
+    {
+        id: 'orb_5m',
+        label: '🚀 ORB Breakout 5m',
+        description: 'Price above 5-minute Opening Range High',
+        conditions: {
+            price: { operator: 'above', target: 'orb_high_5m' }
+        }
+    },
+    {
+        id: 'orb_15m',
+        label: '🎯 ORB Breakout 15m',
+        description: 'Price above 15-minute Opening Range High',
+        conditions: {
+            price: { operator: 'above', target: 'orb_high_15m' }
+        }
+    },
+    {
+        id: 'orb_30m',
+        label: '💎 ORB Breakout 30m',
+        description: 'Price above 30-minute Opening Range High',
+        conditions: {
+            price: { operator: 'above', target: 'orb_high_30m' }
+        }
     }
 ];
 

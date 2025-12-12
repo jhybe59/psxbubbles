@@ -50,6 +50,81 @@ async function getIndexSymbols(indexCodes) {
 }
 
 /**
+ * Get ORB (Opening Range Breakout) data for all symbols
+ * Uses market-wide first tick as ORB start time
+ * Returns ORB high/low for 5m, 15m, 30m windows
+ */
+async function getORBData() {
+  try {
+    // Step 1: Get market-wide first tick of the trading day
+    // Pakistan trading day starts at 09:00 PKT = 04:00 UTC
+    // We find today's first tick after 04:00 UTC
+    const marketOpenSql = `
+      SELECT MIN(timestamp) as first_tick
+      FROM trades
+      WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+    `;
+
+    const marketOpenResult = await queryQuestDB(marketOpenSql);
+
+    if (!marketOpenResult || !marketOpenResult.dataset ||
+      marketOpenResult.dataset.length === 0 || !marketOpenResult.dataset[0][0]) {
+      return new Map(); // No trades today
+    }
+
+    const firstTick = marketOpenResult.dataset[0][0];
+
+    // Step 2: Calculate ORB for all windows (5m, 15m, 30m) in one query
+    const orbSql = `
+      SELECT 
+        symbol,
+        MAX(CASE WHEN timestamp < dateadd('m', 5, '${firstTick}') THEN price END) as orb_high_5m,
+        MIN(CASE WHEN timestamp < dateadd('m', 5, '${firstTick}') THEN price END) as orb_low_5m,
+        MAX(CASE WHEN timestamp < dateadd('m', 15, '${firstTick}') THEN price END) as orb_high_15m,
+        MIN(CASE WHEN timestamp < dateadd('m', 15, '${firstTick}') THEN price END) as orb_low_15m,
+        MAX(CASE WHEN timestamp < dateadd('m', 30, '${firstTick}') THEN price END) as orb_high_30m,
+        MIN(CASE WHEN timestamp < dateadd('m', 30, '${firstTick}') THEN price END) as orb_low_30m
+      FROM trades
+      WHERE timestamp >= '${firstTick}'
+        AND timestamp < dateadd('m', 30, '${firstTick}')
+      GROUP BY symbol
+    `;
+
+    const orbResult = await queryQuestDB(orbSql);
+
+    if (!orbResult || !orbResult.dataset) {
+      return new Map();
+    }
+
+    // Build ORB map by symbol
+    const orbMap = new Map();
+    const columns = orbResult.columns || [];
+    const colIndex = {};
+    columns.forEach((col, idx) => {
+      colIndex[col.name] = idx;
+    });
+
+    for (const row of orbResult.dataset) {
+      const symbol = row[colIndex['symbol']];
+      orbMap.set(symbol, {
+        orb_high_5m: parseFloat(row[colIndex['orb_high_5m']]) || null,
+        orb_low_5m: parseFloat(row[colIndex['orb_low_5m']]) || null,
+        orb_high_15m: parseFloat(row[colIndex['orb_high_15m']]) || null,
+        orb_low_15m: parseFloat(row[colIndex['orb_low_15m']]) || null,
+        orb_high_30m: parseFloat(row[colIndex['orb_high_30m']]) || null,
+        orb_low_30m: parseFloat(row[colIndex['orb_low_30m']]) || null
+      });
+    }
+
+    logger.debug({ count: orbMap.size, firstTick }, 'ORB data calculated');
+    return orbMap;
+  } catch (err) {
+    logger.warn({ err }, 'Failed to calculate ORB data');
+    return new Map();
+  }
+}
+
+/**
  * Build LATEST ON query for real-time data (1m interval)
  */
 function buildLatestQuery(symbols = null) {
@@ -88,10 +163,11 @@ function buildAggregatedQuery(interval, symbols = null) {
     '5m': 5,
     '15m': 15,
     '1h': 60,
-    'Day': 480  // ~8 hours trading session
+    // 'Day' is handled specially now
   };
 
   const minutes = minutesMap[interval] || 5;
+  const isDay = interval === 'Day';
 
   // Use subqueries to get:
   // 1. Latest row per symbol (for current close price)
@@ -103,6 +179,11 @@ function buildAggregatedQuery(interval, symbols = null) {
     symbolFilter = ` AND symbol IN (${symbolList})`;
   }
 
+  // Determine time window condition
+  const timeCondition = isDay
+    ? `timestamp >= date_trunc('day', now())`
+    : `timestamp > dateadd('m', -${minutes}, now())`;
+
   // Get the latest data per symbol using LATEST ON (same as 1m - always fresh)
   // Then also compute aggregates from the lookback window
   let sql = `
@@ -111,30 +192,38 @@ function buildAggregatedQuery(interval, symbols = null) {
       FROM minute_bars
       LATEST ON timestamp PARTITION BY symbol
     ),
+    day_vols AS (
+      SELECT symbol, sum(volume) as day_volume
+      FROM trades
+      WHERE timestamp >= date_trunc('day', now())
+      GROUP BY symbol
+    ),
     window_agg AS (
       SELECT 
         symbol,
-        first(close) as first_open,
+        first(open) as first_open,
         max(high) as high,
         min(low) as low,
         sum(volume) as volume,
         sum(value) as value
       FROM minute_bars
-      WHERE timestamp > dateadd('m', -${minutes}, now())${symbolFilter}
+      WHERE ${timeCondition}${symbolFilter}
       GROUP BY symbol
     )
     SELECT 
       l.symbol,
       l.ts,
       COALESCE(w.first_open, l.close) as open,
-      COALESCE(w.high, l.close) as high,
-      COALESCE(w.low, l.close) as low,
+      GREATEST(COALESCE(w.high, l.close), l.close) as high,
+      LEAST(COALESCE(w.low, l.close), l.close) as low,
       l.close,
       COALESCE(w.volume, 0) as volume,
       COALESCE(w.value, 0) as value,
-      l.daily_pct
+      l.daily_pct,
+      COALESCE(dv.day_volume, 0) as day_volume
     FROM latest l
     LEFT JOIN window_agg w ON l.symbol = w.symbol
+    LEFT JOIN day_vols dv ON l.symbol = dv.symbol
   `;
 
   if (symbols && symbols.length > 0) {
@@ -190,7 +279,8 @@ function buildTickQuery(interval, symbols = null) {
       sum(volume) as volume,
       sum(value) as value,
       last(daily_pct) as daily_pct,
-      max(tick_seq) as tick_seq
+      max(tick_seq) as tick_seq,
+      sum(volume) as day_volume 
     FROM latest_ticks
   `;
 
@@ -236,9 +326,23 @@ function transformResponse(result, interval, favorites = []) {
       const volume = parseFloat(row[colIndex['volume']]) || 0;
       const value = parseFloat(row[colIndex['value']]) || 0;
       const dailyPct = parseFloat(row[colIndex['daily_pct']]) || 0;
+      let dayVolume = parseFloat(row[colIndex['day_volume']]) || 0;
 
       // Calculate interval percentage change
-      const intervalPct = open !== 0 ? ((close - open) / open) * 100 : 0;
+      let intervalPct = open !== 0 ? ((close - open) / open) * 100 : 0;
+
+      // Fallback for daily_pct: if 0 but we have valid open/close movement, use calculated
+      let finalDailyPct = dailyPct;
+      if (finalDailyPct === 0 && open !== 0 && close !== open && interval === 'Day') {
+        finalDailyPct = intervalPct;
+      } else if (finalDailyPct === 0 && interval !== 'Day') {
+        // Even for other intervals, if daily_pct is missing but we assume 'open' is somewhat representative of day open (depends on interval),
+        // actually we can't extrapolate for non-Day intervals easily without Day Open.
+        // But bubbles query returns 'daily_pct' from LATEST row.
+        // If LATEST row has 0, we can't easily fix it unless we know Day Open.
+        // But for 'Day' interval, 'open' IS Day Open.
+        // So the fix block above covers 'Day' interval correctly.
+      }
 
       symbolMap.set(symbol, {
         symbol,
@@ -249,9 +353,10 @@ function transformResponse(result, interval, favorites = []) {
         close,
         volume,
         value,
-        pct_24h: dailyPct,
+        pct_24h: finalDailyPct,
         pct_interval: intervalPct,
         interval,
+        day_volume: dayVolume,
         ts: typeof ts === 'string' ? ts : new Date(ts).toISOString(),
         isFavorite: favorites.includes(symbol)
       });
@@ -320,6 +425,59 @@ router.get('/', async (req, res) => {
 
     const result = await queryQuestDB(sql);
     const payload = transformResponse(result, interval, favorites || []);
+
+    // Fetch ORB data and merge with bubbles
+    try {
+      const orbMap = await getORBData();
+
+      if (orbMap.size > 0) {
+        for (const bubble of payload.data) {
+          const orbData = orbMap.get(bubble.symbol);
+          if (orbData) {
+            // Add ORB values
+            bubble.orb_high_5m = orbData.orb_high_5m;
+            bubble.orb_low_5m = orbData.orb_low_5m;
+            bubble.orb_high_15m = orbData.orb_high_15m;
+            bubble.orb_low_15m = orbData.orb_low_15m;
+            bubble.orb_high_30m = orbData.orb_high_30m;
+            bubble.orb_low_30m = orbData.orb_low_30m;
+
+            // Calculate breakout status for each window
+            const price = bubble.price;
+
+            // 5m breakout
+            if (orbData.orb_high_5m && price > orbData.orb_high_5m) {
+              bubble.orb_breakout_5m = 'above';
+            } else if (orbData.orb_low_5m && price < orbData.orb_low_5m) {
+              bubble.orb_breakout_5m = 'below';
+            } else {
+              bubble.orb_breakout_5m = 'inside';
+            }
+
+            // 15m breakout
+            if (orbData.orb_high_15m && price > orbData.orb_high_15m) {
+              bubble.orb_breakout_15m = 'above';
+            } else if (orbData.orb_low_15m && price < orbData.orb_low_15m) {
+              bubble.orb_breakout_15m = 'below';
+            } else {
+              bubble.orb_breakout_15m = 'inside';
+            }
+
+            // 30m breakout
+            if (orbData.orb_high_30m && price > orbData.orb_high_30m) {
+              bubble.orb_breakout_30m = 'above';
+            } else if (orbData.orb_low_30m && price < orbData.orb_low_30m) {
+              bubble.orb_breakout_30m = 'below';
+            } else {
+              bubble.orb_breakout_30m = 'inside';
+            }
+          }
+        }
+        payload.meta.hasORB = true;
+      }
+    } catch (orbErr) {
+      logger.warn({ err: orbErr }, 'Failed to merge ORB data (non-fatal)');
+    }
 
     // Apply limit
     if (payload.data.length > limit) {

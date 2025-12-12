@@ -20,6 +20,81 @@ const schema = z.object({
 });
 
 /**
+ * Get ORB (Opening Range Breakout) data for all symbols
+ * Uses market-wide first tick as ORB start time
+ * Returns ORB high/low for 5m, 15m, 30m windows
+ */
+async function getORBData() {
+    try {
+        // Step 1: Get market-wide first tick of the trading day
+        // Pakistan trading day starts at 09:00 PKT = 04:00 UTC
+        // We find today's first tick after 04:00 UTC
+        const marketOpenSql = `
+            SELECT MIN(timestamp) as first_tick
+            FROM trades
+            WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+        `;
+
+        const marketOpenResult = await queryQuestDB(marketOpenSql);
+
+        if (!marketOpenResult || !marketOpenResult.dataset ||
+            marketOpenResult.dataset.length === 0 || !marketOpenResult.dataset[0][0]) {
+            return new Map(); // No trades today
+        }
+
+        const firstTick = marketOpenResult.dataset[0][0];
+
+        // Step 2: Calculate ORB for all windows (5m, 15m, 30m) in one query
+        const orbSql = `
+            SELECT 
+                symbol,
+                MAX(CASE WHEN timestamp < dateadd('m', 5, '${firstTick}') THEN price END) as orb_high_5m,
+                MIN(CASE WHEN timestamp < dateadd('m', 5, '${firstTick}') THEN price END) as orb_low_5m,
+                MAX(CASE WHEN timestamp < dateadd('m', 15, '${firstTick}') THEN price END) as orb_high_15m,
+                MIN(CASE WHEN timestamp < dateadd('m', 15, '${firstTick}') THEN price END) as orb_low_15m,
+                MAX(CASE WHEN timestamp < dateadd('m', 30, '${firstTick}') THEN price END) as orb_high_30m,
+                MIN(CASE WHEN timestamp < dateadd('m', 30, '${firstTick}') THEN price END) as orb_low_30m
+            FROM trades
+            WHERE timestamp >= '${firstTick}'
+                AND timestamp < dateadd('m', 30, '${firstTick}')
+            GROUP BY symbol
+        `;
+
+        const orbResult = await queryQuestDB(orbSql);
+
+        if (!orbResult || !orbResult.dataset) {
+            return new Map();
+        }
+
+        // Build ORB map by symbol
+        const orbMap = new Map();
+        const columns = orbResult.columns || [];
+        const colIndex = {};
+        columns.forEach((col, idx) => {
+            colIndex[col.name] = idx;
+        });
+
+        for (const row of orbResult.dataset) {
+            const symbol = row[colIndex['symbol']];
+            orbMap.set(symbol, {
+                orb_high_5m: parseFloat(row[colIndex['orb_high_5m']]) || null,
+                orb_low_5m: parseFloat(row[colIndex['orb_low_5m']]) || null,
+                orb_high_15m: parseFloat(row[colIndex['orb_high_15m']]) || null,
+                orb_low_15m: parseFloat(row[colIndex['orb_low_15m']]) || null,
+                orb_high_30m: parseFloat(row[colIndex['orb_high_30m']]) || null,
+                orb_low_30m: parseFloat(row[colIndex['orb_low_30m']]) || null
+            });
+        }
+
+        logger.debug({ count: orbMap.size, firstTick }, 'ORB data calculated for tick-bubbles');
+        return orbMap;
+    } catch (err) {
+        logger.warn({ err }, 'Failed to calculate ORB data for tick-bubbles');
+        return new Map();
+    }
+}
+
+/**
  * GET /api/tick-bubbles
  * 
  * Gets the last N*100 rows (for ~100 symbols), then calculates OHLCV per symbol in JS
@@ -79,6 +154,47 @@ router.get('/', async (req, res) => {
         // Calculate OHLCV for each symbol
         const bubbles = [];
 
+        // Fetch 24h stats for all symbols
+        // daily_pct comes from minute_bars (efficient LATEST ON)
+        // day_volume comes from trades (SUM from start of day) per user request
+        let dayStats = new Map();
+        try {
+            // Get daily_pct from minute_bars
+            const pctSql = `
+                SELECT symbol, daily_pct
+                FROM minute_bars
+                LATEST ON timestamp PARTITION BY symbol
+            `;
+            const pctResult = await queryQuestDB(pctSql);
+            if (pctResult && pctResult.dataset) {
+                for (const row of pctResult.dataset) {
+                    const sym = row[0];
+                    const pct = parseFloat(row[1]) || 0;
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0 });
+                    dayStats.get(sym).pct_24h = pct;
+                }
+            }
+
+            // Get day_volume from trades (Start of Day)
+            const volSql = `
+                SELECT symbol, sum(volume)
+                FROM trades
+                WHERE timestamp >= date_trunc('day', now())
+                GROUP BY symbol
+            `;
+            const volResult = await queryQuestDB(volSql);
+            if (volResult && volResult.dataset) {
+                for (const row of volResult.dataset) {
+                    const sym = row[0];
+                    const vol = parseFloat(row[1]) || 0;
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0 });
+                    dayStats.get(sym).day_volume = vol;
+                }
+            }
+        } catch (e) {
+            logger.warn({ err: e }, 'Failed to fetch day stats for tick bubbles');
+        }
+
         for (const [symbol, ticks] of symbolData.entries()) {
             if (ticks.length === 0) continue;
 
@@ -98,6 +214,9 @@ router.get('/', async (req, res) => {
             const startTs = ticks[ticks.length - 1].ts;
             const timeElapsedMs = new Date(endTs).getTime() - new Date(startTs).getTime();
 
+            // Get day stats
+            const ds = dayStats.get(symbol) || { pct_24h: 0, day_volume: 0 };
+
             bubbles.push({
                 symbol,
                 price: closePrice,
@@ -106,7 +225,8 @@ router.get('/', async (req, res) => {
                 low,
                 close: closePrice,
                 volume,
-                pct_24h: 0,
+                pct_24h: ds.pct_24h,
+                day_volume: ds.day_volume,
                 pct_interval: pctChange,
                 interval: `${tickCount}_ticks`,
                 timeElapsedMs,
@@ -116,6 +236,58 @@ router.get('/', async (req, res) => {
                 hasEnoughTicks: ticks.length >= tickCount,
                 availableTicks: ticks.length
             });
+        }
+
+        // Fetch ORB data and merge with tick bubbles
+        try {
+            const orbMap = await getORBData();
+
+            if (orbMap.size > 0) {
+                for (const bubble of bubbles) {
+                    const orbData = orbMap.get(bubble.symbol);
+                    if (orbData) {
+                        // Add ORB values
+                        bubble.orb_high_5m = orbData.orb_high_5m;
+                        bubble.orb_low_5m = orbData.orb_low_5m;
+                        bubble.orb_high_15m = orbData.orb_high_15m;
+                        bubble.orb_low_15m = orbData.orb_low_15m;
+                        bubble.orb_high_30m = orbData.orb_high_30m;
+                        bubble.orb_low_30m = orbData.orb_low_30m;
+
+                        // Calculate breakout status for each window
+                        const price = bubble.price;
+
+                        // 5m breakout
+                        if (orbData.orb_high_5m && price > orbData.orb_high_5m) {
+                            bubble.orb_breakout_5m = 'above';
+                        } else if (orbData.orb_low_5m && price < orbData.orb_low_5m) {
+                            bubble.orb_breakout_5m = 'below';
+                        } else {
+                            bubble.orb_breakout_5m = 'inside';
+                        }
+
+                        // 15m breakout
+                        if (orbData.orb_high_15m && price > orbData.orb_high_15m) {
+                            bubble.orb_breakout_15m = 'above';
+                        } else if (orbData.orb_low_15m && price < orbData.orb_low_15m) {
+                            bubble.orb_breakout_15m = 'below';
+                        } else {
+                            bubble.orb_breakout_15m = 'inside';
+                        }
+
+                        // 30m breakout
+                        if (orbData.orb_high_30m && price > orbData.orb_high_30m) {
+                            bubble.orb_breakout_30m = 'above';
+                        } else if (orbData.orb_low_30m && price < orbData.orb_low_30m) {
+                            bubble.orb_breakout_30m = 'below';
+                        } else {
+                            bubble.orb_breakout_30m = 'inside';
+                        }
+                    }
+                }
+            }
+        } catch (orbErr) {
+            logger.warn({ err: orbErr }, 'Failed to merge ORB data into tick bubbles (non-fatal)');
         }
 
         const duration = Date.now() - start;
