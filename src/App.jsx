@@ -1511,7 +1511,7 @@ function App() {
 
       {/* Debug control removed in demo-only reset */}
       {/* Selected coin modal */}
-      {selectedCoin && <CoinModal coin={selectedCoin} onClose={() => setSelectedCoin(null)} />}
+      {selectedCoin && <CoinModal coin={selectedCoin} onClose={() => setSelectedCoin(null)} bubbleInterval={currentInterval} />}
       {/* Debug HUD removed in demo-only reset */}
       {/* Debug Panel removed in demo-only reset */}
 

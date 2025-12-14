@@ -1,12 +1,37 @@
 import React, { useEffect, useState, useRef } from 'react';
 import storage from '../lib/storage';
 import { ENABLE_REPO_SNAPSHOTS, ENABLE_LIVE_API, LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
-import InteractiveChart from './InteractiveChart';
+import EmbeddedChart from './EmbeddedChart';
+import { IndicatorButton } from './indicators';
 import { buildCandlesFromSnapshots } from '../lib/chartUtils';
+import { getCandleType, setCandleType } from '../lib/indicators';
 
 // Icon/trade buttons removed for stock-focused UI
 
-export default function CoinModal({ coin, onClose }) {
+// Lazy load the fullscreen chart component
+const AdvancedChart = React.lazy(() => import('./AdvancedChart'));
+
+export default function CoinModal({ coin, onClose, bubbleInterval }) {
+  // Map bubble interval names to chart interval names
+  const mapBubbleToChartInterval = (bubbleInt) => {
+    const mapping = {
+      '1 Min': '1m',
+      '5 Min': '5m',
+      '15 Min': '15m',
+      'Hour': '1h',
+      'Day': 'Day',
+      'Week': 'Week',
+      'Month': 'Month',
+      'Year': 'Year',
+      // Tick intervals - use actual tick format
+      '10 Ticks': '10 Ticks',
+      '100 Ticks': '100 Ticks',
+      '500 Ticks': '500 Ticks',
+      '1000 Ticks': '1000 Ticks'
+    };
+    return mapping[bubbleInt] || '15m';
+  };
+
   useEffect(() => {
     function onKey(e) {
       if (e.key === 'Escape') onClose();
@@ -18,14 +43,27 @@ export default function CoinModal({ coin, onClose }) {
   if (!coin) return null;
 
   const [timeframe, setTimeframe] = useState('Day');
+  const [candleInterval, setCandleInterval] = useState(() => mapBubbleToChartInterval(bubbleInterval)); // Use bubble interval as default
+  const [showAdvancedChart, setShowAdvancedChart] = useState(false);
   const [series, setSeries] = useState([]);
   const [ohlcSummary, setOhlcSummary] = useState(null);
   const [pillPctMap, setPillPctMap] = useState({});
   const [latestSnapshot, setLatestSnapshot] = useState(null);
   const [daily24hStats, setDaily24hStats] = useState(null);
   const [currentCoin, setCurrentCoin] = useState(coin);
-  // only area chart is used now
-  const [chartType, setChartType] = useState('area');
+  const [chartType, setChartType] = useState('Candles'); // 'Candles' or 'Area'
+  const [candleType, setCandleTypeState] = useState(() => getCandleType()); // 'Candles' or 'Heikin-Ashi'
+
+  // Persist candleType changes
+  const handleCandleTypeChange = (type) => {
+    setCandleTypeState(type);
+    setCandleType(type);
+  };
+
+  // Indicators state for external control
+  const embeddedChartRef = useRef(null);
+  const [indicatorCount, setIndicatorCount] = useState(0);
+  const CANDLE_INTERVALS = ['1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'];
   const INTERVAL_LOOKUP = { Hour: 1, Day: 1, Week: 5, Month: 22, Year: 252 };
 
   // Format large numbers with K/M abbreviations
@@ -79,8 +117,12 @@ export default function CoinModal({ coin, onClose }) {
     let mounted = true;
     async function loadSeries() {
       if (!coin) return;
+      console.log('[CoinModal] loadSeries called for', coin.symbol, 'timeframe:', timeframe, 'candleInterval:', candleInterval);
       try {
-        const isTick = timeframe.includes('Tick');
+        const isCandleMode = chartType === 'Candles';
+        // Effective timeframe for data fetching logic
+        const effectiveTf = isCandleMode ? candleInterval : timeframe;
+        const isTick = effectiveTf.includes('Tick');
 
         if (isTick) {
           // Tick-based fetching (Bypasses storage, goes straight to API)
@@ -90,12 +132,15 @@ export default function CoinModal({ coin, onClose }) {
             const url = new URL('tick-candles', base.endsWith('/') ? base : `${base}/`);
 
             // Convert "100 Ticks" -> "100T"
-            const intervalCode = timeframe.replace(' Ticks', 'T').replace(' ', '');
+            const intervalCode = effectiveTf.replace(' Ticks', 'T').replace(' ', '');
             url.searchParams.set('symbol', coin.symbol);
             url.searchParams.set('interval', intervalCode);
             url.searchParams.set('limit', '100'); // Reasonable limit for tick charts
 
-            const res = await fetch(url.toString());
+            const headers = { 'Content-Type': 'application/json' };
+            if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
+
+            const res = await fetch(url.toString(), { headers });
             if (!res.ok) throw new Error('Tick API failed');
             const json = await res.json();
 
@@ -132,97 +177,90 @@ export default function CoinModal({ coin, onClose }) {
           return;
         }
 
-        // --- Existing Time-Based Logic ---
-        const tsList = await storage.getAllTimestamps();
-        if (!tsList || tsList.length === 0) {
-          if (mounted) {
-            setSeries([]);
-            // ... (rest of old logic starts here, but I need to include it or structure this block properly)
-            // Since I am replacing the whole useEffect block, I must include the rest of the file content for this block.
-            // To avoid strict line limits and complexity, I will just return early if tick.
-            // But I need to handle the "else" (non-tick) case which is the original code.
-            // I will reproduce the original code below.
-
-            setOhlcSummary(null);
-            setPillPctMap({});
-          }
-          return;
-        }
-        const latestTs = tsList[tsList.length - 1];
-        const latestIdx = tsList.length - 1;
-        const lookback = INTERVAL_LOOKUP[timeframe] || 1;
-        const targetIdx = Math.max(0, latestIdx - lookback);
-        const earlierTs = tsList[targetIdx];
-        // fetch the latest snapshot for this symbol (to obtain fields like volume from CSV)
+        // --- Time-Based Logic: Use Live API as primary source ---
+        // Fetch candles from live API first (has proper historical data)
+        let rows = [];
         try {
-          const latestSnap = await storage.getSnapshotAtOrBefore(coin.symbol, latestTs);
-          if (mounted) setLatestSnapshot(latestSnap);
+          const origin = typeof window !== 'undefined' ? window.location.origin : '';
+          const base = LIVE_API_BASE_URL.startsWith('http') ? LIVE_API_BASE_URL : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+          const url = new URL('candles', base.endsWith('/') ? base : `${base}/`);
+          url.searchParams.set('symbol', coin.symbol);
+
+          // Map timeframe to API interval
+          let apiInterval = '1h';
+          if (isCandleMode) {
+            apiInterval = effectiveTf; // e.g. 1m, 15m, 1h, 4h, Day, Week, Month, Year
+          } else {
+            // Legacy Area mapping
+            const intervalMap = {
+              'Hour': '1h',
+              'Day': 'Day',
+              'Week': 'Day',
+              'Month': 'Day',
+              'Year': 'Day'
+            };
+            apiInterval = intervalMap[timeframe] || '1h';
+          }
+
+          url.searchParams.set('interval', apiInterval);
+          url.searchParams.set('limit', '500');
+
+          console.log('[CoinModal] Fetching candles from:', url.toString());
+          const headers = { 'Content-Type': 'application/json' };
+          if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
+
+          const res = await fetch(url.toString(), { headers });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.data && json.data.length > 0) {
+              rows = json.data.map(d => ({
+                ts: new Date(d.ts).getTime(),
+                open: Number(d.open),
+                high: Number(d.high),
+                low: Number(d.low),
+                close: Number(d.close),
+                volume: Number(d.volume) || 0
+              })).filter(d => d.close > 0);
+              rows.sort((a, b) => a.ts - b.ts);
+            }
+          }
         } catch (e) {
-          if (mounted) setLatestSnapshot(null);
+          console.warn('CoinModal: Failed to fetch live candles', e);
         }
-        let rows = await storage.getRange(coin.symbol, earlierTs, latestTs);
-        // If DB is empty for this symbol (snapshots not imported), optionally fall back to the public JSON
-        if ((!rows || rows.length === 0) && ENABLE_REPO_SNAPSHOTS) {
-          try {
-            const res = await fetch('/psx_snapshots.json');
-            if (res && res.ok) {
-              const list = await res.json();
-              const filtered = (list || []).filter((r) => (r && (r.symbol === coin.symbol) && (r.ts >= earlierTs) && (r.ts <= latestTs))).map((r) => ({ symbol: r.symbol, ts: r.ts, price: r.price, volume: r.volume, raw: r }));
-              rows = filtered;
-            }
-          } catch (e) {
-            // ignore fetch fallback errors
-          }
-        }
-        rows.sort((a, b) => a.ts - b.ts);
 
-        // Fallback: If no rows found (empty storage), fetch from live /api/candles
-        if (rows.length === 0 && ENABLE_LIVE_API) {
-          try {
-            const origin = typeof window !== 'undefined' ? window.location.origin : '';
-            const base = LIVE_API_BASE_URL.startsWith('http') ? LIVE_API_BASE_URL : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
-            const url = new URL('candles', base.endsWith('/') ? base : `${base}/`);
-            url.searchParams.set('symbol', coin.symbol);
-            url.searchParams.set('interval', timeframe === 'Hour' ? '5m' : (timeframe === 'Day' ? '1h' : 'Day'));
-            url.searchParams.set('limit', '365');
-
-            const res = await fetch(url.toString());
-            if (res.ok) {
-              const json = await res.json();
-              if (json.data && json.data.length > 0) {
-                rows = json.data.map(d => ({
-                  ts: new Date(d.ts).getTime(),
-                  open: d.open,
-                  high: d.high,
-                  low: d.low,
-                  close: d.close,
-                  volume: d.volume,
-                  price: d.close // map close to price for compatibility
-                }));
-                rows.sort((a, b) => a.ts - b.ts);
-              }
-            }
-          } catch (e) {
-            console.warn('CoinModal: Failed to fetch live candles', e);
+        // If API failed, fall back to storage
+        if (rows.length === 0) {
+          console.log('[CoinModal] API returned no data, falling back to storage');
+          const tsList = await storage.getAllTimestamps();
+          if (tsList && tsList.length > 0) {
+            const latestTs = tsList[tsList.length - 1];
+            const latestIdx = tsList.length - 1;
+            const lookback = INTERVAL_LOOKUP[timeframe] || 1;
+            const targetIdx = Math.max(0, latestIdx - lookback);
+            const earlierTs = tsList[targetIdx];
+            rows = await storage.getRange(coin.symbol, earlierTs, latestTs);
           }
         }
 
-        // Choose bucket size based on selected timeframe to produce useful OHLC candles
-        const BUCKET_MS = {
-          Hour: 5 * 60 * 1000, // 5 minutes
-          Day: 60 * 60 * 1000, // 1 hour
-          Week: 6 * 60 * 60 * 1000, // 6 hours
-          Month: 24 * 60 * 60 * 1000, // 1 day
-          Year: 7 * 24 * 60 * 60 * 1000 // 7 days
-        };
+        // If data already has OHLC (from API), use directly; otherwise build from snapshots
+        let s = [];
+        if (rows.length > 0 && rows[0].open !== undefined) {
+          // Data already has OHLC
+          s = rows.map(r => ({ ts: r.ts, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume }));
+        } else if (rows.length > 0) {
+          // Build candles from price snapshots
+          const BUCKET_MS = {
+            Hour: 5 * 60 * 1000,
+            Day: 60 * 60 * 1000,
+            Week: 6 * 60 * 60 * 1000,
+            Month: 24 * 60 * 60 * 1000,
+            Year: 7 * 24 * 60 * 60 * 1000
+          };
+          const bucketMs = BUCKET_MS[timeframe] || 60 * 60 * 1000;
+          let candles = buildCandlesFromSnapshots(rows.map(r => ({ ts: r.ts, price: r.price, volume: r.volume })), bucketMs);
+          s = candles.map((c) => ({ ts: Number(c.time) * 1000, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })).filter((x) => x.close != null);
+        }
 
-        const bucketMs = BUCKET_MS[timeframe] || 60 * 60 * 1000;
-
-        // If raw OHLC are missing, build candles from price samples using buckets
-        let candles = buildCandlesFromSnapshots(rows.map(r => ({ ts: r.ts, price: r.price, volume: r.volume })), bucketMs);
-
-        // buildCandlesFromSnapshots returns time in seconds; convert to ms for our UI
-        const s = candles.map((c) => ({ ts: Number(c.time) * 1000, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })).filter((x) => x.close != null);
         if (mounted) {
           setSeries(s);
           if (s && s.length) {
@@ -231,24 +269,18 @@ export default function CoinModal({ coin, onClose }) {
             const low = Math.min(...s.map((z) => (z.low != null ? z.low : z.close)));
             const high = Math.max(...s.map((z) => (z.high != null ? z.high : z.close)));
             setOhlcSummary({ open, low, high, close });
-            // compute percent for each pill (based on latest vs earlier snapshot for that lookback)
+
+            // Compute percentage from first to last candle in current series
             const pctMap = {};
-            await Promise.all(Object.keys(INTERVAL_LOOKUP).map(async (tf) => {
-              try {
-                const lb = INTERVAL_LOOKUP[tf] || 1;
-                const tgt = Math.max(0, latestIdx - lb);
-                const ets = tsList[tgt];
-                const prev = await storage.getSnapshotAtOrBefore(coin.symbol, ets);
-                const latestRow = await storage.getSnapshotAtOrBefore(coin.symbol, latestTs);
-                if (prev && prev.price != null && prev.price !== 0 && latestRow && latestRow.price != null) {
-                  const p = ((latestRow.price - prev.price) / prev.price) * 100;
-                  pctMap[tf] = `${p >= 0 ? '+' : ''}${p.toFixed(1)}%`;
-                } else pctMap[tf] = '-';
-              } catch (e) {
-                pctMap[tf] = '-';
+            if (s.length >= 2) {
+              const pct = ((close - open) / open) * 100;
+              // For candle mode, we don't have a pill map for the new intervals yet, 
+              // or we can just store it in state if needed, but the pills are hidden in candle mode.
+              if (!isCandleMode) {
+                pctMap[timeframe] = `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
               }
-            }));
-            setPillPctMap(pctMap);
+            }
+            if (!isCandleMode) setPillPctMap(pctMap);
           } else setOhlcSummary(null);
         }
       } catch (err) {
@@ -261,7 +293,7 @@ export default function CoinModal({ coin, onClose }) {
     }
     loadSeries();
     return () => { mounted = false; };
-  }, [coin, timeframe]);
+  }, [coin, timeframe, candleInterval, chartType]);
 
   // Update currentCoin when coin prop changes (real-time updates)
   useEffect(() => {
@@ -878,42 +910,139 @@ export default function CoinModal({ coin, onClose }) {
             </div>
           </div>
         </div>
+
         <div className="chart-area">
-          <div className="chart-header">
-            <div className="chart-controls">
-              <button
-                className={`chart-type-btn ${chartType === 'area' ? 'active' : ''}`}
-                onClick={() => setChartType('area')}
-              >
-                Area
-              </button>
-              <button
-                className={`chart-type-btn ${chartType === 'candle' ? 'active' : ''}`}
-                onClick={() => setChartType('candle')}
-              >
-                Candles
-              </button>
+          {/* Header row for Timeframe pills + Chart Type */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '0 8px' }}>
+            {/* Type Toggle - includes candle type option */}
+            <div style={{ display: 'flex', background: '#334155', borderRadius: '4px', padding: '2px' }}>
+              {['Candles', 'Heikin-Ashi', 'Area'].map(type => {
+                // Candles and Heikin-Ashi both use candlestick rendering
+                const isActive = type === 'Area'
+                  ? chartType === 'Area'
+                  : (chartType === 'Candles' && candleType === type);
+                return (
+                  <button
+                    key={type}
+                    onClick={() => {
+                      if (type === 'Area') {
+                        setChartType('Area');
+                      } else {
+                        setChartType('Candles');
+                        handleCandleTypeChange(type);
+                      }
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      background: isActive ? '#1e293b' : 'transparent',
+                      color: isActive ? '#fff' : '#94a3b8',
+                      border: 'none',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    {type}
+                  </button>
+                );
+              })}
             </div>
-          </div>
 
-          <div className="sparkline">
-            <InteractiveChart series={series} pct={pct} height={320} type={chartType} />
-          </div>
+            {/* Candle Interval & Indicators (Visible only when Type == Candles) */}
+            {chartType === 'Candles' && (
+              <div style={{ marginLeft: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {/* Interval Dropdown */}
+                <div className="custom-select-wrapper" style={{ display: 'inline-block', position: 'relative' }}>
+                  <select
+                    value={candleInterval}
+                    onChange={(e) => setCandleInterval(e.target.value)}
+                    style={{
+                      background: '#334155',
+                      color: '#e2e8f0',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '4px 24px 4px 8px',
+                      fontSize: '13px',
+                      appearance: 'none',
+                      cursor: 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    {['10 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks', '1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'].map(int => (
+                      <option key={int} value={int}>{int}</option>
+                    ))}
+                  </select>
+                  <span style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    pointerEvents: 'none',
+                    color: '#94a3b8',
+                    fontSize: '10px'
+                  }}>▼</span>
+                </div>
 
-          <div className="timeframe-row">
-            {['Hour', 'Day', 'Week', 'Month', 'Year', '100 Ticks', '1000 Ticks'].map((tf) => (
-              <div key={tf} className={`time-pill ${timeframe === tf ? 'active' : ''}`} onClick={() => setTimeframe(tf)}>
-                {tf}
-                <br />
-                <span className="pill-pct">{pillPctMap && pillPctMap[tf] != null ? pillPctMap[tf] : '-'}</span>
+                {/* Indicators Button */}
+                <IndicatorButton
+                  onClick={() => embeddedChartRef.current?.openIndicators()}
+                  activeCount={indicatorCount}
+                />
               </div>
-            ))}
+            )}
+
+            {/* Timeframes for Area Chart (Hidden if Candles) */}
+            {chartType !== 'Candles' && (
+              <div className="timeframe-row" style={{ marginTop: 0 }}>
+                {['Hour', 'Day', 'Week', 'Month', 'Year', '100 Ticks', '1000 Ticks'].map((tf) => (
+                  <div key={tf} className={`time-pill ${timeframe === tf ? 'active' : ''}`} onClick={() => setTimeframe(tf)}>
+                    {tf}
+                    <br />
+                    <span className="pill-pct">{pillPctMap && pillPctMap[tf] != null ? pillPctMap[tf] : '-'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Chart */}
+          <EmbeddedChart
+            ref={embeddedChartRef}
+            data={series}
+            symbol={coin.symbol}
+            height={320}
+            chartType={chartType}
+            candleType={candleType}
+            onFullscreen={() => {
+              const interval = chartType === 'Candles' ? candleInterval : timeframe;
+              window.open(`/chart/${coin.symbol}?interval=${encodeURIComponent(interval)}&type=${chartType}&candleType=${candleType}`, '_blank');
+            }}
+            onActiveCountChange={setIndicatorCount}
+          />
         </div>
 
 
         {/* close button removed per request (backdrop click and Escape still close the modal) */}
+
+        {/* Advanced Chart Overlay */}
+        {showAdvancedChart && (
+          <React.Suspense fallback={<div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center text-white">Loading Chart...</div>}>
+            <AdvancedChart
+              data={series}
+              symbol={coin.symbol}
+              timeframe={chartType === 'Candles' ? candleInterval : timeframe}
+              onTimeframeChange={chartType === 'Candles' ? setCandleInterval : setTimeframe}
+              chartType={chartType}
+              setChartType={setChartType}
+              candleType={candleType}
+              setCandleType={handleCandleTypeChange}
+              onClose={() => setShowAdvancedChart(false)}
+            />
+          </React.Suspense>
+        )}
       </div>
-    </div>
+    </div >
   );
 }
+
