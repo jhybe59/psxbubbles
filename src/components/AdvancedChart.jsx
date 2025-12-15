@@ -5,6 +5,17 @@ import { IndicatorButton, IndicatorSelector, ActiveIndicatorsDropdown, Indicator
 import { getIndicator, getActiveIndicators, setActiveIndicators, addIndicator, removeIndicator, toggleIndicatorVisibility, updateIndicator, getCandleType, setCandleType } from '../lib/indicators';
 import { toHeikinAshi } from '../lib/heikinAshi';
 import ChartControls from './ChartControls';
+import SearchPopover from './SearchPopover';
+import ChartPanel from './ChartPanel';
+import { LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
+
+// Layout configurations for split screen
+const LAYOUTS = {
+    '1x1': { rows: 1, cols: 1, panels: 1, label: 'Single', icon: '⊙' },
+    '1x2': { rows: 1, cols: 2, panels: 2, label: '1×2', icon: '⊟' },
+    '2x1': { rows: 2, cols: 1, panels: 2, label: '2×1', icon: '⊞' },
+    '2x2': { rows: 2, cols: 2, panels: 4, label: '2×2', icon: '⊠' },
+};
 
 const THEME_DARK = {
     layout: {
@@ -46,7 +57,7 @@ const AREA_TIMEFRAMES = ['Hour', 'Day', 'Week', 'Month', 'Year', '100 Ticks', '1
 const CANDLE_INTERVALS = ['10 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks', '1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'];
 const CHART_TYPES = ['Candles', 'Heikin-Ashi', 'Area'];
 
-export default function AdvancedChart({ data = [], symbol, onClose, timeframe, onTimeframeChange, chartType, setChartType, candleType, setCandleType }) {
+export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChange, timeframe, onTimeframeChange, chartType, setChartType, candleType, setCandleType }) {
     const chartContainerRef = useRef(null);
     const chartRef = useRef(null);
     const [chartInstance, setChartInstance] = useState(null);
@@ -63,6 +74,168 @@ export default function AdvancedChart({ data = [], symbol, onClose, timeframe, o
     const handleSetCandleType = setCandleType || setLocalCandleType;
     const [legend, setLegend] = useState(null);
 
+    // Search state
+    const [showSearch, setShowSearch] = useState(false);
+    const [searchQuery, setSearchQuery] = useState(''); // For keyboard quick search
+    const [availableCoins, setAvailableCoins] = useState([]);
+
+    // Split screen state - Load from localStorage for persistence
+    const [layout, setLayout] = useState(() => {
+        try {
+            const saved = localStorage.getItem('advancedChart_layout');
+            return saved || '1x1';
+        } catch { return '1x1'; }
+    });
+    const [showLayoutMenu, setShowLayoutMenu] = useState(false);
+    const [syncEnabled, setSyncEnabled] = useState(() => {
+        try {
+            return localStorage.getItem('advancedChart_syncEnabled') === 'true';
+        } catch { return false; }
+    });
+    const [activePanelId, setActivePanelId] = useState(0);
+
+    // Load saved panel settings (intervals, candleTypes) but use current symbol
+    const [panels, setPanels] = useState(() => {
+        try {
+            const savedPanels = localStorage.getItem('advancedChart_panels');
+            if (savedPanels) {
+                const parsed = JSON.parse(savedPanels);
+                // Replace all symbols with current symbol
+                return parsed.map((p, i) => ({
+                    ...p,
+                    id: i,
+                    symbol: symbol
+                }));
+            }
+        } catch { }
+        return [{
+            id: 0,
+            symbol: symbol,
+            interval: timeframe || '15m',
+            candleType: 'Candles'
+        }];
+    });
+
+    // Save settings to localStorage when they change
+    useEffect(() => {
+        try {
+            localStorage.setItem('advancedChart_layout', layout);
+            localStorage.setItem('advancedChart_syncEnabled', String(syncEnabled));
+            // Save panels without symbols (symbols will be replaced on next open)
+            const panelsToSave = panels.map(p => ({
+                interval: p.interval,
+                candleType: p.candleType
+            }));
+            localStorage.setItem('advancedChart_panels', JSON.stringify(panelsToSave));
+        } catch (e) {
+            console.warn('Failed to save chart settings:', e);
+        }
+    }, [layout, syncEnabled, panels]);
+
+    // Update panels when layout changes
+    const handleLayoutChange = useCallback((newLayout) => {
+        const layoutConfig = LAYOUTS[newLayout];
+        const neededPanels = layoutConfig.panels;
+
+        setPanels(prev => {
+            if (prev.length >= neededPanels) {
+                return prev.slice(0, neededPanels);
+            }
+            // Add new panels with same symbol as first panel
+            const newPanels = [...prev];
+            const baseSymbol = prev[0]?.symbol || symbol;
+            const intervals = ['15m', '1h', '4h', 'Day'];
+            for (let i = prev.length; i < neededPanels; i++) {
+                newPanels.push({
+                    id: i,
+                    symbol: baseSymbol,
+                    interval: intervals[i % intervals.length],
+                    candleType: 'Candles'
+                });
+            }
+            return newPanels;
+        });
+
+        setLayout(newLayout);
+        setShowLayoutMenu(false);
+    }, [symbol]);
+
+    // Update panel settings
+    const updatePanel = useCallback((panelId, updates) => {
+        setPanels(prev => prev.map(p =>
+            p.id === panelId ? { ...p, ...updates } : p
+        ));
+
+        // If sync is enabled, propagate settings to all panels (except symbol)
+        if (syncEnabled && (updates.interval || updates.candleType)) {
+            const syncUpdates = {};
+            if (updates.interval) syncUpdates.interval = updates.interval;
+            if (updates.candleType) syncUpdates.candleType = updates.candleType;
+
+            setPanels(prev => prev.map(p => ({ ...p, ...syncUpdates })));
+        }
+    }, [syncEnabled]);
+
+    // Get sync settings if sync is enabled
+    const getSyncSettings = useCallback(() => {
+        if (!syncEnabled) return null;
+        const activePanel = panels.find(p => p.id === activePanelId) || panels[0];
+        return {
+            interval: activePanel?.interval,
+            candleType: activePanel?.candleType
+        };
+    }, [syncEnabled, panels, activePanelId]);
+
+    // Fetch available symbols for search
+    useEffect(() => {
+        async function fetchSymbols() {
+            try {
+                const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                const base = LIVE_API_BASE_URL.startsWith('http')
+                    ? LIVE_API_BASE_URL
+                    : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+                const url = new URL('bubbles', base.endsWith('/') ? base : `${base}/`);
+                url.searchParams.set('interval', 'Day');
+
+                const headers = { 'Content-Type': 'application/json' };
+                if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
+
+                const res = await fetch(url.toString(), { headers });
+                if (res.ok) {
+                    const json = await res.json();
+                    const coins = (json.data || json.symbols || []).map(d => ({
+                        symbol: d.symbol,
+                        name: d.name || d.symbol,
+                        price: d.close || d.price
+                    }));
+                    setAvailableCoins(coins);
+                }
+            } catch (err) {
+                console.warn('Failed to fetch symbols for search:', err);
+            }
+        }
+        fetchSymbols();
+    }, []);
+
+    // Keyboard search - open search dialog when typing letters
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Ignore if already in search, or typing in input, or modifier keys
+            if (showSearch) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+            // Check if it's a letter or number key
+            if (/^[a-zA-Z0-9]$/.test(e.key)) {
+                e.preventDefault();
+                setSearchQuery(e.key);
+                setShowSearch(true);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [showSearch]);
 
     // Indicators state
     const [activeIndicators, setActiveIndicatorsState] = useState([]);
@@ -198,7 +371,7 @@ export default function AdvancedChart({ data = [], symbol, onClose, timeframe, o
             console.error('Failed to init AdvancedChart:', e);
             return () => { };
         }
-    }, [effectiveChartType]); // Re-init chart when type changes
+    }, [effectiveChartType, layout]); // Re-init chart when type or layout changes
 
     // Reset fit flag when timeframe changes so chart refits once on new data
     useEffect(() => {
@@ -502,18 +675,26 @@ export default function AdvancedChart({ data = [], symbol, onClose, timeframe, o
                 padding: '0 12px',
                 gap: '8px'
             }}>
-                {/* Symbol */}
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    background: '#334155',
-                    borderRadius: '4px',
-                    cursor: 'default'
-                }}>
+                {/* Symbol - Click to search */}
+                <div
+                    onClick={() => setShowSearch(true)}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        background: '#334155',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#475569'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#334155'}
+                    title="Click to search symbols"
+                >
                     <span style={{ color: '#64748b', fontSize: '14px' }}>🔍</span>
                     <span style={{ color: 'white', fontWeight: 'bold', fontSize: '14px' }}>{symbol}</span>
+                    <span style={{ color: '#64748b', fontSize: '10px', marginLeft: '4px' }}>▼</span>
                 </div>
 
                 {/* Interval Dropdown */}
@@ -634,6 +815,89 @@ export default function AdvancedChart({ data = [], symbol, onClose, timeframe, o
                 )}
                 <div style={{ flex: 1 }} />
 
+                {/* Layout Selector */}
+                <div style={{ position: 'relative' }}>
+                    <button
+                        onClick={() => setShowLayoutMenu(!showLayoutMenu)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '6px 12px',
+                            background: layout !== '1x1' ? 'rgba(59,130,246,0.2)' : '#334155',
+                            border: layout !== '1x1' ? '1px solid rgba(59,130,246,0.4)' : 'none',
+                            borderRadius: '4px',
+                            color: layout !== '1x1' ? '#3b82f6' : 'white',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            fontWeight: 500
+                        }}
+                        title="Split Screen Layout"
+                    >
+                        {LAYOUTS[layout].icon} {LAYOUTS[layout].label}
+                    </button>
+                    {showLayoutMenu && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            right: 0,
+                            marginTop: '4px',
+                            background: '#1e293b',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            padding: '8px',
+                            zIndex: 200,
+                            minWidth: '150px'
+                        }}>
+                            <div style={{ padding: '4px 8px', fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>LAYOUT</div>
+                            {Object.entries(LAYOUTS).map(([key, cfg]) => (
+                                <button
+                                    key={key}
+                                    onClick={() => handleLayoutChange(key)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        background: layout === key ? 'rgba(59,130,246,0.2)' : 'transparent',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        color: layout === key ? '#3b82f6' : '#94a3b8',
+                                        cursor: 'pointer',
+                                        fontSize: '13px',
+                                        textAlign: 'left'
+                                    }}
+                                >
+                                    <span style={{ fontSize: '16px' }}>{cfg.icon}</span>
+                                    {cfg.label}
+                                </button>
+                            ))}
+                            <div style={{ borderTop: '1px solid #334155', margin: '8px 0' }} />
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px 12px',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                color: syncEnabled ? '#3b82f6' : '#94a3b8'
+                            }}>
+                                <input
+                                    type="checkbox"
+                                    checked={syncEnabled}
+                                    onChange={(e) => setSyncEnabled(e.target.checked)}
+                                    style={{ cursor: 'pointer' }}
+                                />
+                                🔗 Sync Settings
+                            </label>
+                            <div style={{ padding: '4px 12px', fontSize: '10px', color: '#64748b' }}>
+                                Syncs interval & candle type
+                            </div>
+                        </div>
+                    )}
+                </div>
+
                 {/* Close Button */}
                 <button
                     onClick={onClose}
@@ -654,30 +918,60 @@ export default function AdvancedChart({ data = [], symbol, onClose, timeframe, o
 
             {/* ======= MAIN CONTENT ======= */}
             <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-                {/* CHART CONTAINER - Now takes full width since sidebar is removed */}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#111827' }}>
-                    <div
-                        style={{ flex: 1, minHeight: 0, position: 'relative' }}
-                        ref={chartContainerRef}
-                    >
-                        {/* Active Indicators Dropdown - Right corner */}
-                        {activeIndicators.length > 0 && (
-                            <ActiveIndicatorsDropdown
-                                indicators={activeIndicators}
-                                indicatorValues={indicatorValues}
-                                onToggleVisibility={handleToggleVisibility}
-                                onRemove={handleRemoveIndicator}
-                                onSettings={setEditingIndicator}
-                                placement="left"
+                {/* Split Screen Mode */}
+                {layout !== '1x1' ? (
+                    <div style={{
+                        flex: 1,
+                        display: 'grid',
+                        gridTemplateRows: `repeat(${LAYOUTS[layout].rows}, 1fr)`,
+                        gridTemplateColumns: `repeat(${LAYOUTS[layout].cols}, 1fr)`,
+                        gap: '4px',
+                        padding: '4px',
+                        background: '#0f172a'
+                    }}>
+                        {panels.map(panel => (
+                            <ChartPanel
+                                key={panel.id}
+                                id={panel.id}
+                                symbol={panel.symbol}
+                                interval={panel.interval}
+                                candleType={panel.candleType}
+                                isActive={panel.id === activePanelId}
+                                onActivate={setActivePanelId}
+                                onSymbolChange={(sym) => updatePanel(panel.id, { symbol: sym })}
+                                onIntervalChange={(int) => updatePanel(panel.id, { interval: int })}
+                                onCandleTypeChange={(ct) => updatePanel(panel.id, { candleType: ct })}
+                                syncSettings={getSyncSettings()}
+                                inheritedIndicators={activeIndicators}
                             />
-                        )}
-
-                        {/* Chart Controls - Floating Bottom Center */}
-                        {chartInstance && (
-                            <ChartControls chart={chartInstance} />
-                        )}
+                        ))}
                     </div>
-                </div>
+                ) : (
+                    /* Single Chart Mode - Original Layout */
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#111827' }}>
+                        <div
+                            style={{ flex: 1, minHeight: 0, position: 'relative' }}
+                            ref={chartContainerRef}
+                        >
+                            {/* Active Indicators Dropdown - Right corner */}
+                            {activeIndicators.length > 0 && (
+                                <ActiveIndicatorsDropdown
+                                    indicators={activeIndicators}
+                                    indicatorValues={indicatorValues}
+                                    onToggleVisibility={handleToggleVisibility}
+                                    onRemove={handleRemoveIndicator}
+                                    onSettings={setEditingIndicator}
+                                    placement="left"
+                                />
+                            )}
+
+                            {/* Chart Controls - Floating Bottom Center */}
+                            {chartInstance && (
+                                <ChartControls chart={chartInstance} />
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Indicator Selector Popup */}
@@ -694,6 +988,25 @@ export default function AdvancedChart({ data = [], symbol, onClose, timeframe, o
                 indicator={editingIndicator}
                 onSave={handleUpdateIndicator}
             />
+
+            {/* Symbol Search Popover */}
+            {showSearch && (
+                <SearchPopover
+                    coins={availableCoins}
+                    initialQuery={searchQuery}
+                    onSelect={(c) => {
+                        if (onSymbolChange) {
+                            onSymbolChange(c.symbol);
+                        }
+                        setShowSearch(false);
+                        setSearchQuery('');
+                    }}
+                    onClose={() => {
+                        setShowSearch(false);
+                        setSearchQuery('');
+                    }}
+                />
+            )}
         </div>
     );
 

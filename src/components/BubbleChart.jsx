@@ -1366,7 +1366,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
 
         // Get volumes - interval vol from current data, day vol from raw or estimate
         const intervalVol = d.data?.volume || history?.volume || 0;
-        const dayVol = d.data?.day_volume || d.data?.raw?.day_volume || d.data?.raw?.total_volume || d.data?.volume || intervalVol;
+        const dayVol = d.data?.day_volume ?? d.data?.raw?.day_volume ?? d.data?.raw?.total_volume ?? d.data?.volume ?? intervalVol;
 
         setTooltipData({
           symbol: symbol || d.data?.name || '',
@@ -1395,7 +1395,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         const pad = 16;
         const ttW = 320; // approximate tooltip width (with some buffer)
         const ttH = 460; // approximate max tooltip height
-        
+
         // Default: placement to bottom-right of cursor
         let x = event.clientX + pad;
         let y = event.clientY + pad;
@@ -1409,32 +1409,32 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           x = winW - ttW - pad;
           // If cursor is now covering tooltip (tooltip shifted under cursor), move to left side of cursor
           if (x < event.clientX && x + ttW > event.clientX) {
-             x = event.clientX - ttW - pad;
+            x = event.clientX - ttW - pad;
           }
         }
-        
+
         // Y Positioning: prevent vertical overflow (FLIP UP behavior)
         if (y + ttH > winH - pad) {
-           // Flip to top of cursor
-           y = event.clientY - ttH - pad;
-           
-           // If flipping up goes off top, clamp to top (and let it overlap cursor if really needed, better than invisible)
-           // But better yet: shift it just enough to fit if possible
-           if (y < pad) {
-             // If fitting above is impossible, simpler clamp logic (revert to bottom-aligned but pushed up)
-             // But usually flipping is best. Let's clamp the top.
-             y = Math.max(pad, y);
-             
-             // If clamped top still means bottom is cut off (screen too small), force top-align to viewport 
-             // ensuring header is visible
-             if (y + ttH > winH) {
-                // This is a small screen case. 
-                // We prioritizing seeing the top of the tooltip.
-                y = Math.max(pad, winH - ttH - pad);
-             }
-           }
+          // Flip to top of cursor
+          y = event.clientY - ttH - pad;
+
+          // If flipping up goes off top, clamp to top (and let it overlap cursor if really needed, better than invisible)
+          // But better yet: shift it just enough to fit if possible
+          if (y < pad) {
+            // If fitting above is impossible, simpler clamp logic (revert to bottom-aligned but pushed up)
+            // But usually flipping is best. Let's clamp the top.
+            y = Math.max(pad, y);
+
+            // If clamped top still means bottom is cut off (screen too small), force top-align to viewport 
+            // ensuring header is visible
+            if (y + ttH > winH) {
+              // This is a small screen case. 
+              // We prioritizing seeing the top of the tooltip.
+              y = Math.max(pad, winH - ttH - pad);
+            }
+          }
         }
-        
+
         setTooltipPos({ x, y });
       })
       .on('mouseout', function (event, d) {

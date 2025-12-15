@@ -102,6 +102,14 @@ export default function StandaloneChart() {
         };
     }, [symbol, timeframe]);
 
+    // Handle symbol change - update state and URL
+    const handleSymbolChange = (newSymbol) => {
+        setSymbol(newSymbol);
+        // Update URL without reloading page
+        const newUrl = `/chart/${encodeURIComponent(newSymbol)}?interval=${encodeURIComponent(timeframe)}&type=${chartType}&candleType=${candleType}`;
+        window.history.replaceState({}, '', newUrl);
+    };
+
     if (!symbol) return <div style={{ color: '#fff', padding: 20 }}>Loading or Invalid Symbol...</div>;
 
     return (
@@ -116,6 +124,7 @@ export default function StandaloneChart() {
                 candleType={candleType}
                 setCandleType={setCandleType}
                 onClose={() => window.close()} // Close tab
+                onSymbolChange={handleSymbolChange}
             />
         </div>
     );

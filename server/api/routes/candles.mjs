@@ -8,7 +8,7 @@ const router = Router();
 // Validation schema
 const schema = z.object({
     symbol: z.string().transform(s => s.toUpperCase()),
-    interval: z.enum(['5m', '15m', '1h', 'Day']).default('Day'),
+    interval: z.enum(['1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year']).default('Day'),
     limit: z.coerce.number().int().min(1).max(5000).default(336) // Default ~2 weeks of hourly data
 });
 
@@ -17,10 +17,15 @@ const schema = z.object({
  */
 function buildCandleQuery(symbol, interval, limit) {
     const sampleByMap = {
+        '1m': '1m',
         '5m': '5m',
         '15m': '15m',
         '1h': '1h',
-        'Day': '1d'
+        '4h': '4h',
+        'Day': '1d',
+        'Week': '1w',
+        'Month': '1M',
+        'Year': '12M'
     };
 
     const sampleBy = sampleByMap[interval] || '1h';
@@ -30,28 +35,36 @@ function buildCandleQuery(symbol, interval, limit) {
     let sql = `
     SELECT 
       timestamp as ts,
-      first(open) as open,
-      max(high) as high,
-      min(low) as low,
+      first(close) as open,
+      max(close) as high,
+      min(close) as low,
       last(close) as close,
-      sum(volume) as volume,
-      sum(value) as value
+      (max(volume) - min(volume)) as volume,
+      (max(value) - min(value)) as value
     FROM minute_bars
     WHERE symbol = '${symbol}'
   `;
 
     // Optimization: Pre-filter by roughly the time range needed to avoid scanning entire table
     // Assuming worst case (sparse data), we might grab more, but 'limit' at the end clips it.
-    // For 'Day' limit 365, we need 1 year. For '1h', 336 = 2 weeks.
 
     let hoursBack = 24;
-    if (interval === 'Day') hoursBack = limit * 24;
-    else if (interval === '1h') hoursBack = limit;
-    else if (interval === '15m') hoursBack = Math.ceil(limit / 4);
-    else if (interval === '5m') hoursBack = Math.ceil(limit / 12);
+    switch (interval) {
+        case '1m': hoursBack = Math.ceil(limit / 60); break;
+        case '5m': hoursBack = Math.ceil(limit / 12); break;
+        case '15m': hoursBack = Math.ceil(limit / 4); break;
+        case '1h': hoursBack = limit; break;
+        case '4h': hoursBack = limit * 4; break;
+        case 'Day': hoursBack = limit * 24; break;
+        case 'Week': hoursBack = limit * 24 * 7; break;
+        case 'Month': hoursBack = limit * 24 * 30; break;
+        case 'Year': hoursBack = limit * 24 * 365; break;
+        default: hoursBack = 24;
+    }
 
-    // Add a buffer
-    hoursBack = Math.ceil(hoursBack * 1.5);
+    // Add a buffer - Ensure at least 1 week of data is scanned to cover weekends/holidays
+    // especially for small intervals like 1m/5m which might otherwise only look back a few hours
+    hoursBack = Math.max(Math.ceil(hoursBack * 1.5), 168);
 
     sql += ` AND timestamp > dateadd('h', -${hoursBack}, now())`;
 

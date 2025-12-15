@@ -54,6 +54,9 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
   const [chartType, setChartType] = useState('Candles'); // 'Candles' or 'Area'
   const [candleType, setCandleTypeState] = useState(() => getCandleType()); // 'Candles' or 'Heikin-Ashi'
 
+  // Advanced chart can have different symbol than modal
+  const [advancedChartSymbol, setAdvancedChartSymbol] = useState(coin?.symbol);
+
   // Persist candleType changes
   const handleCandleTypeChange = (type) => {
     setCandleTypeState(type);
@@ -339,7 +342,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
                   const stats = {
                     high: dayData.high,
                     low: dayData.low,
-                    volume: dayData.volume,
+                    volume: dayData.day_volume ?? dayData.volume,
                     value: dayData.value,
                     open: dayData.open,
                     pctChange: dayData.pct_24h || dayData.percentage || dayData.daily_change_1d,
@@ -583,13 +586,20 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
       raw['Price Change %'] != null ? Number(raw['Price Change %']) :
         raw['daily_pct'] != null ? Number(raw['daily_pct']) : null;
 
-  const pct = rawDailyPct != null
+  // Calculate % change from ohlcSummary (chart data) as fallback
+  const ohlcPctChange = (ohlcSummary?.open && ohlcSummary?.close && ohlcSummary.open !== 0)
+    ? ((ohlcSummary.close - ohlcSummary.open) / ohlcSummary.open) * 100
+    : null;
+
+  const pct = rawDailyPct != null && rawDailyPct !== 0
     ? rawDailyPct
-    : (daily24hStats?.pctChange != null
+    : (daily24hStats?.pctChange != null && daily24hStats.pctChange !== 0
       ? daily24hStats.pctChange
-      : (displayCoin.daily_change_1d != null
-        ? displayCoin.daily_change_1d
-        : (displayCoin.price_change_percentage_24h || 0)));
+      : (ohlcPctChange != null
+        ? ohlcPctChange
+        : (displayCoin.daily_change_1d != null
+          ? displayCoin.daily_change_1d
+          : (displayCoin.price_change_percentage_24h || 0))));
   const pctColor = pct >= 0 ? '#24c55e' : '#ff4d4d';
 
   // pctToColor function to match bubble colors (same as in App.jsx)
@@ -626,8 +636,8 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
   };
 
   // ALL STATS BELOW ARE FOR TODAY (ENTIRE DAY) ONLY - NOT AFFECTED BY TIMEFRAME SELECTION
-  // Use daily24hStats for all today's calculations, prefer raw data values
-  const displayPrice = displayCoin?.price || daily24hStats?.close || coin?.price || '-';
+  // PRIORITY: Use fresh API data (daily24hStats) first, then fallback to displayCoin/coin
+  const displayPrice = daily24hStats?.close ?? displayCoin?.price ?? coin?.price ?? '-';
 
   // Price delta - ONLY use daily24hStats (today's data), NEVER use ohlcSummary (timeframe-dependent)
   const displayPriceDelta = daily24hStats?.priceDelta != null
@@ -635,24 +645,37 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
     : (() => {
       // Try to calculate from today's open price if available
       if (daily24hStats?.open != null && displayPrice != null && typeof displayPrice === 'number') {
-        return displayPrice - daily24hStats.open;
+        const delta = displayPrice - daily24hStats.open;
+        if (delta !== 0) return delta;
       }
       // Try to calculate from percentage if we have it
-      const pct = daily24hStats?.pctChange != null ? daily24hStats.pctChange : (displayCoin?.daily_change_1d != null ? displayCoin.daily_change_1d : displayCoin?.price_change_percentage_24h);
-      if (pct != null && displayPrice != null && typeof displayPrice === 'number') {
-        const openPrice = displayPrice / (1 + pct / 100);
+      const pctVal = daily24hStats?.pctChange != null ? daily24hStats.pctChange : (displayCoin?.daily_change_1d != null ? displayCoin.daily_change_1d : displayCoin?.price_change_percentage_24h);
+      if (pctVal != null && pctVal !== 0 && displayPrice != null && typeof displayPrice === 'number') {
+        const openPrice = displayPrice / (1 + pctVal / 100);
         return displayPrice - openPrice;
       }
-      // Fallback to price_change if available (should be today's change)
+      // Fallback to ohlcSummary (chart data) when API is stale
+      if (ohlcSummary?.open != null && ohlcSummary?.close != null) {
+        const delta = ohlcSummary.close - ohlcSummary.open;
+        if (delta !== 0) return delta;
+      }
+      // Fallback to price_change if available
       if (displayCoin?.price_change != null && !Number.isNaN(Number(displayCoin.price_change))) {
         return Number(displayCoin.price_change);
       }
       return null;
     })();
 
-  // Today's High/Low - ONLY use daily24hStats (today's data), NEVER fallback to ohlcSummary (which is timeframe-dependent)
-  const display24hHigh = daily24hStats?.high != null ? daily24hStats.high : '-';
-  const display24hLow = daily24hStats?.low != null ? daily24hStats.low : '-';
+  // Detect stale data: if high = low = close, it means no real trading data for today (weekend/holiday)
+  const isStaleHighLow = daily24hStats?.high === daily24hStats?.close && daily24hStats?.low === daily24hStats?.close;
+
+  // Today's High/Low - prefer daily24hStats, fallback to ohlcSummary (chart data) if stale
+  const display24hHigh = (!isStaleHighLow && daily24hStats?.high != null)
+    ? daily24hStats.high
+    : (ohlcSummary?.high ?? daily24hStats?.high ?? '-');
+  const display24hLow = (!isStaleHighLow && daily24hStats?.low != null)
+    ? daily24hStats.low
+    : (ohlcSummary?.low ?? daily24hStats?.low ?? '-');
 
   // Today's Volume - prefer raw data which is already today's volume, don't sum snapshots
   const display24hVolume = daily24hStats?.volume != null
@@ -663,8 +686,8 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
         ? latestSnapshot.volume
         : coin?.volume || null));
 
-  // Today's Value - prefer raw turnover value, fallback to volume * price
-  const display24hValue = daily24hStats?.value != null
+  // Today's Value - prefer raw turnover value IF > 0, otherwise calculate from volume * price
+  const display24hValue = (daily24hStats?.value != null && daily24hStats.value > 0)
     ? daily24hStats.value
     : (display24hVolume != null && displayPrice != null && typeof displayPrice === 'number'
       ? display24hVolume * displayPrice
@@ -1030,7 +1053,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
           <React.Suspense fallback={<div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center text-white">Loading Chart...</div>}>
             <AdvancedChart
               data={series}
-              symbol={coin.symbol}
+              symbol={advancedChartSymbol || coin.symbol}
               timeframe={chartType === 'Candles' ? candleInterval : timeframe}
               onTimeframeChange={chartType === 'Candles' ? setCandleInterval : setTimeframe}
               chartType={chartType}
@@ -1038,6 +1061,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
               candleType={candleType}
               setCandleType={handleCandleTypeChange}
               onClose={() => setShowAdvancedChart(false)}
+              onSymbolChange={setAdvancedChartSymbol}
             />
           </React.Suspense>
         )}

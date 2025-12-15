@@ -175,12 +175,11 @@ router.get('/', async (req, res) => {
                 }
             }
 
-            // Get day_volume from trades (Start of Day)
+            // Get day_volume from trades (Last known value - works on weekends too)
             const volSql = `
-                SELECT symbol, sum(volume)
+                SELECT symbol, volume as day_volume
                 FROM trades
-                WHERE timestamp >= date_trunc('day', now())
-                GROUP BY symbol
+                LATEST ON timestamp PARTITION BY symbol
             `;
             const volResult = await queryQuestDB(volSql);
             if (volResult && volResult.dataset) {
@@ -206,7 +205,7 @@ router.get('/', async (req, res) => {
             const openPrice = prices[prices.length - 1]; // oldest
             const high = Math.max(...prices);
             const low = Math.min(...prices);
-            const volume = volumes.reduce((a, b) => a + b, 0);
+            const volume = Math.max(...volumes) - Math.min(...volumes);
 
             const pctChange = openPrice !== 0 ? ((closePrice - openPrice) / openPrice) * 100 : 0;
 

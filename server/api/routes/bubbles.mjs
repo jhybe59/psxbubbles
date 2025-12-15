@@ -180,8 +180,9 @@ function buildAggregatedQuery(interval, symbols = null) {
   }
 
   // Determine time window condition
+  // Pakistan trading day starts at 09:00 PKT = 04:00 UTC
   const timeCondition = isDay
-    ? `timestamp >= date_trunc('day', now())`
+    ? `timestamp >= dateadd('h', 4, date_trunc('day', now()))`
     : `timestamp > dateadd('m', -${minutes}, now())`;
 
   // Get the latest data per symbol using LATEST ON (same as 1m - always fresh)
@@ -193,10 +194,10 @@ function buildAggregatedQuery(interval, symbols = null) {
       LATEST ON timestamp PARTITION BY symbol
     ),
     day_vols AS (
-      SELECT symbol, sum(volume) as day_volume
+      -- Get last known day volume per symbol (works on weekends too)
+      SELECT symbol, volume as day_volume
       FROM trades
-      WHERE timestamp >= date_trunc('day', now())
-      GROUP BY symbol
+      LATEST ON timestamp PARTITION BY symbol
     ),
     window_agg AS (
       SELECT 
@@ -204,8 +205,8 @@ function buildAggregatedQuery(interval, symbols = null) {
         first(open) as first_open,
         max(high) as high,
         min(low) as low,
-        sum(volume) as volume,
-        sum(value) as value
+        max(volume) - min(volume) as volume,
+        max(value) - min(value) as value
       FROM minute_bars
       WHERE ${timeCondition}${symbolFilter}
       GROUP BY symbol
