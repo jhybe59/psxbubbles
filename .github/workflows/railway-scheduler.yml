@@ -6,8 +6,17 @@ on:
     - cron: '0 4 * * 1-5'
     # 5:00 PM PKT = 12:00 UTC (Monday to Friday)
     - cron: '0 12 * * 1-5'
-  # Allow manual trigger for testing
+  # Allow manual trigger for testing and manual control
   workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'stop'
+        type: choice
+        options:
+        - start
+        - stop
 
 jobs:
   manage-worker:
@@ -17,26 +26,20 @@ jobs:
         id: action
         run: |
           current_hour=$(date -u +%H)
-          # If current hour is close to 4 (04:00 UTC), start.
-          # If current hour is close to 12 (12:00 UTC), stop.
-          # For manual trigger, we check input or default to status check? 
-          # Simpler logic based on cron schedule event:
           
           if [ "${{ github.event_name }}" == "schedule" ]; then
             if [ "$current_hour" -eq 4 ]; then
-              echo "action=start" >> $GITHUB_OUTPUT
+              echo "mode=start" >> $GITHUB_OUTPUT
             else
-              echo "action=stop" >> $GITHUB_OUTPUT
+              echo "mode=stop" >> $GITHUB_OUTPUT
             fi
           else
-            # Manual trigger defaults to start for safety, or we could add inputs.
-            # For now let's just log.
-            echo "Manual run - please specify logic if needed. Defaulting to no-op or check logs."
-            echo "action=none" >> $GITHUB_OUTPUT
+            # Manual trigger
+            echo "mode=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Start Worker Service
-        if: github.event.schedule == '0 4 * * 1-5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'start')
+        if: steps.action.outputs.mode == 'start'
         run: |
           echo "Starting Railway Service..."
           curl -X POST https://backboard.railway.app/graphql/v2 \
@@ -45,7 +48,7 @@ jobs:
           -d "{\"query\":\"mutation { serviceInstanceScale(serviceId:\\\"${{ secrets.RAILWAY_SERVICE_ID }}\\\", replicas:1) { id } }\"}"
 
       - name: Stop Worker Service
-        if: github.event.schedule == '0 12 * * 1-5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'stop')
+        if: steps.action.outputs.mode == 'stop'
         run: |
           echo "Stopping Railway Service..."
           curl -X POST https://backboard.railway.app/graphql/v2 \
