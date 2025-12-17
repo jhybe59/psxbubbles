@@ -81,14 +81,13 @@ body {
 }
 
 .logo-mark {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: inline-block;
   margin-right: 12px;
   vertical-align: middle;
   border-radius: 6px;
-  background: radial-gradient(circle at 30% 30%, #3ddc84 0%, #1f9b4a 40%, #0b6b34 100%);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  object-fit: contain;
 }
 
 .header-left {

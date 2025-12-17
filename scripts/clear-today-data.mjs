@@ -35,7 +35,7 @@ async function executeQuery(sql) {
     }
 }
 
-async function main() {
+export async function clearTodayData() {
     console.log('='.repeat(50));
     console.log('CLEAR TODAY\'S DATA FROM QUESTDB');
     console.log('='.repeat(50));
@@ -71,6 +71,11 @@ async function main() {
     console.log('DONE! Today\'s data has been cleared.');
     console.log('Fresh data will start collecting tomorrow.');
     console.log('='.repeat(50));
+    return true;
 }
 
-main().catch(console.error);
+// Check if file is being run directly
+import { fileURLToPath } from 'url';
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    clearTodayData().catch(console.error);
+}

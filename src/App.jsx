@@ -628,7 +628,7 @@ function App() {
     <div className="app">
       <header className="header">
         <div className="header-left">
-          <span className="logo-mark" aria-hidden="true"></span>
+          <img src="/logo.png" alt="Logo" className="logo-mark" />
           <h1>PSX BUBBLES</h1>
         </div>
 
