@@ -184,6 +184,9 @@ export default function BubbleTooltip({
     rvol,
     volatility,
     lastUpdate,
+    // New Props for Sidebar
+    raw = {},
+    orb = {},
     style = {}
 }) {
     // Use new props if available, fallback to old ones
@@ -198,6 +201,17 @@ export default function BubbleTooltip({
 
     const isPositive = intPct >= 0;
 
+    // Extract Today's stats
+    // Try raw first (most accurate), then orb/data props
+    const todayOpen = raw['Open 1 day'] ?? raw['Open'] ?? raw['open'] ?? orb?.open;
+    const todayHigh = raw['High 1 day'] ?? raw['High'] ?? raw['high'] ?? orb?.high;
+    const todayLow = raw['Low 1 day'] ?? raw['Low'] ?? raw['low'] ?? orb?.low;
+
+    // Extract ORB stats
+    const orbHigh5m = orb?.orb_high_5m ?? raw?.orb_high_5m;
+    const orbHigh15m = orb?.orb_high_15m ?? raw?.orb_high_15m;
+    const orbHigh30m = orb?.orb_high_30m ?? raw?.orb_high_30m;
+
     return (
         <div
             className="bubble-tooltip"
@@ -205,85 +219,160 @@ export default function BubbleTooltip({
             role="tooltip"
             aria-live="polite"
         >
-            {/* Header with Symbol and Price */}
-            <div className="bt-header">
-                <div>
-                    <div className="bt-symbol">{symbol || '—'}</div>
-                    {name && name !== symbol && (
-                        <div className="bt-name">{name}</div>
+            <div className="bt-container">
+                {/* Main Content (Left Side) */}
+                <div className="bt-main">
+                    {/* Header with Symbol and Price */}
+                    <div className="bt-header">
+                        <div>
+                            <div className="bt-symbol">{symbol || '—'}</div>
+                            {name && name !== symbol && (
+                                <div className="bt-name">{name}</div>
+                            )}
+                        </div>
+                        <div className="bt-price-block">
+                            <div className="bt-price">{formatPrice(price)}</div>
+                        </div>
+                    </div>
+
+                    {/* Day vs Interval Comparison */}
+                    <div className="bt-comparison">
+                        {/* Day Change Row */}
+                        <div className={`bt-comparison-row ${dayPct >= 0 ? 'up' : 'down'}`}>
+                            <span className="bt-comparison-label">Day:</span>
+                            <span className="bt-comparison-pct">{formatPercent(dayPct)}</span>
+                            <span className="bt-comparison-amt">({formatPriceChange(dayPriceChg)})</span>
+                            <span className="bt-comparison-arrow">{dayPct >= 0 ? '▲' : '▼'}</span>
+                        </div>
+
+                        {/* Interval Change Row - only show if different from Day */}
+                        {currentInterval !== 'Day' && (
+                            <div className={`bt-comparison-row ${intPct >= 0 ? 'up' : 'down'}`}>
+                                <span className="bt-comparison-label">{currentInterval}:</span>
+                                <span className="bt-comparison-pct">{formatPercent(intPct)}</span>
+                                <span className="bt-comparison-amt">({formatPriceChange(intPriceChg)})</span>
+                                <span className="bt-comparison-arrow">{intPct >= 0 ? '▲' : '▼'}</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Sparkline */}
+                    <div className="bt-sparkline">
+                        {renderSparkline(prices, isPositive)}
+                    </div>
+
+                    {/* Interval Volume Row */}
+                    {currentInterval !== 'Day' && intVol > 0 && (
+                        <div className="bt-interval-vol">
+                            <span className="bt-interval-vol-label">{currentInterval} Vol:</span>
+                            <span className="bt-interval-vol-value">{abbrevNumber(intVol)}</span>
+                        </div>
                     )}
-                </div>
-                <div className="bt-price-block">
-                    <div className="bt-price">{formatPrice(price)}</div>
-                </div>
-            </div>
 
-            {/* Day vs Interval Comparison */}
-            <div className="bt-comparison">
-                {/* Day Change Row */}
-                <div className={`bt-comparison-row ${dayPct >= 0 ? 'up' : 'down'}`}>
-                    <span className="bt-comparison-label">Day:</span>
-                    <span className="bt-comparison-pct">{formatPercent(dayPct)}</span>
-                    <span className="bt-comparison-amt">({formatPriceChange(dayPriceChg)})</span>
-                    <span className="bt-comparison-arrow">{dayPct >= 0 ? '▲' : '▼'}</span>
-                </div>
+                    {/* Recent prices as ROWS */}
+                    {prices.length > 0 && renderPriceRows(prices)}
 
-                {/* Interval Change Row - only show if different from Day */}
-                {currentInterval !== 'Day' && (
-                    <div className={`bt-comparison-row ${intPct >= 0 ? 'up' : 'down'}`}>
-                        <span className="bt-comparison-label">{currentInterval}:</span>
-                        <span className="bt-comparison-pct">{formatPercent(intPct)}</span>
-                        <span className="bt-comparison-amt">({formatPriceChange(intPriceChg)})</span>
-                        <span className="bt-comparison-arrow">{intPct >= 0 ? '▲' : '▼'}</span>
+                    {/* Meta row */}
+                    <div className="bt-meta">
+                        <div className="bt-meta-item">
+                            <span className="bt-meta-label">Day Vol:</span>
+                            <span className="bt-meta-value">{abbrevNumber(dayVol)}</span>
+                        </div>
+
+                        {rvol != null && (
+                            <div className="bt-meta-item">
+                                <span className="bt-meta-label">RVOL:</span>
+                                <span className={`bt-meta-value ${rvol >= 2 ? 'high' : ''}`}>
+                                    {Number(rvol).toFixed(2)}x
+                                </span>
+                                {rvol >= 2 && <span className="bt-badge rvol-high">🔥</span>}
+                            </div>
+                        )}
+
+                        {volatility != null && volatility > 0 && (
+                            <div className="bt-meta-item">
+                                <span className="bt-meta-label">Vol%:</span>
+                                <span className={`bt-meta-value ${volatility >= 5 ? 'high' : ''}`}>
+                                    {Number(volatility).toFixed(2)}%
+                                </span>
+                            </div>
+                        )}
+
+                        <div className="bt-meta-item" style={{ marginLeft: 'auto' }}>
+                            <span className="bt-meta-label">Updated:</span>
+                            <span className="bt-meta-value">{lastUpdate || '—'}</span>
+                        </div>
                     </div>
-                )}
-            </div>
-
-            {/* Sparkline */}
-            <div className="bt-sparkline">
-                {renderSparkline(prices, isPositive)}
-            </div>
-
-            {/* Interval Volume Row */}
-            {currentInterval !== 'Day' && intVol > 0 && (
-                <div className="bt-interval-vol">
-                    <span className="bt-interval-vol-label">{currentInterval} Vol:</span>
-                    <span className="bt-interval-vol-value">{abbrevNumber(intVol)}</span>
-                </div>
-            )}
-
-            {/* Recent prices as ROWS */}
-            {prices.length > 0 && renderPriceRows(prices)}
-
-            {/* Meta row */}
-            <div className="bt-meta">
-                <div className="bt-meta-item">
-                    <span className="bt-meta-label">Day Vol:</span>
-                    <span className="bt-meta-value">{abbrevNumber(dayVol)}</span>
                 </div>
 
-                {rvol != null && (
-                    <div className="bt-meta-item">
-                        <span className="bt-meta-label">RVOL:</span>
-                        <span className={`bt-meta-value ${rvol >= 2 ? 'high' : ''}`}>
-                            {Number(rvol).toFixed(2)}x
-                        </span>
-                        {rvol >= 2 && <span className="bt-badge rvol-high">🔥</span>}
-                    </div>
-                )}
+                {/* Sidebar (Right Side) */}
+                <div className="bt-sidebar">
+                    {/* Today's Range Section */}
+                    <div className="bt-sidebar-section">
+                        <div className="bt-sidebar-header">Today</div>
 
-                {volatility != null && volatility > 0 && (
-                    <div className="bt-meta-item">
-                        <span className="bt-meta-label">Vol%:</span>
-                        <span className={`bt-meta-value ${volatility >= 5 ? 'high' : ''}`}>
-                            {Number(volatility).toFixed(2)}%
-                        </span>
+                        <div className="bt-stat-row">
+                            <span className="bt-stat-label">Open</span>
+                            <span className="bt-stat-value">{formatPrice(todayOpen)}</span>
+                        </div>
+                        <div className="bt-stat-row">
+                            <span className="bt-stat-label">High</span>
+                            <span className="bt-stat-value">{formatPrice(todayHigh)}</span>
+                        </div>
+                        <div className="bt-stat-row">
+                            <span className="bt-stat-label">Low</span>
+                            <span className="bt-stat-value">{formatPrice(todayLow)}</span>
+                        </div>
                     </div>
-                )}
 
-                <div className="bt-meta-item" style={{ marginLeft: 'auto' }}>
-                    <span className="bt-meta-label">Updated:</span>
-                    <span className="bt-meta-value">{lastUpdate || '—'}</span>
+                    <div className="bt-sidebar-separator"></div>
+
+                    {/* ORB Levels Section */}
+                    <div className="bt-sidebar-section">
+                        <div className="bt-sidebar-header">ORB High</div>
+
+                        {orbHigh5m != null && (
+                            <div className="bt-stat-row">
+                                <span className="bt-stat-label">5m</span>
+                                <span className="bt-stat-value">{formatPrice(orbHigh5m)}</span>
+                            </div>
+                        )}
+                        {orbHigh15m != null && (
+                            <div className="bt-stat-row">
+                                <span className="bt-stat-label">15m</span>
+                                <span className="bt-stat-value">{formatPrice(orbHigh15m)}</span>
+                            </div>
+                        )}
+                        {orbHigh30m != null && (
+                            <div className="bt-stat-row">
+                                <span className="bt-stat-label">30m</span>
+                                <span className="bt-stat-value">{formatPrice(orbHigh30m)}</span>
+                            </div>
+                        )}
+
+                        {/* Fallback if no ORB data */}
+                        {orbHigh5m == null && orbHigh15m == null && orbHigh30m == null && (
+                            <div style={{ fontSize: '10px', color: '#4a5568', fontStyle: 'italic' }}>
+                                No ORB data
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="bt-sidebar-separator"></div>
+
+                    {/* Previous Day Section */}
+                    <div className="bt-sidebar-section">
+                        <div className="bt-sidebar-header">Previous Day</div>
+
+                        <div className="bt-stat-row">
+                            <span className="bt-stat-label">High</span>
+                            <span className="bt-stat-value">{formatPrice(orb?.prev_high ?? raw?.prev_high ?? raw?.['Previous High'])}</span>
+                        </div>
+                        <div className="bt-stat-row">
+                            <span className="bt-stat-label">Close</span>
+                            <span className="bt-stat-value">{formatPrice(orb?.prev_close ?? raw?.prev_close ?? raw?.['Previous Close'])}</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

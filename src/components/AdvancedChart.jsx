@@ -36,6 +36,7 @@ const THEME_DARK = {
         borderColor: '#363a45',
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 12, // Default padding from right edge
         tickMarkFormatter: (time, tickMarkType, locale) => {
             const date = new Date(time * 1000);
             const options = { timeZone: 'Asia/Karachi' };

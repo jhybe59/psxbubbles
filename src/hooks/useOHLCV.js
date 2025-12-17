@@ -201,11 +201,11 @@ async function fetchLiveInterval(interval) {
           prev_rvol: prevCandle?.rvol ?? null,
           ts: row.ts ? Number(new Date(row.ts).getTime()) : null,
           // Previous bar data for breakout detection
-          prev_close: row.prevClose != null ? Number(row.prevClose) : null,
-          prev_open: row.prevOpen != null ? Number(row.prevOpen) : null,
-          prev_high: row.prevHigh != null ? Number(row.prevHigh) : null,
-          prev_low: row.prevLow != null ? Number(row.prevLow) : null,
-          prev_volume: row.prevVolume != null ? Number(row.prevVolume) : null,
+          prev_close: row.prevClose != null ? Number(row.prevClose) : (row.prev_close != null ? Number(row.prev_close) : null),
+          prev_open: row.prevOpen != null ? Number(row.prevOpen) : (row.prev_open != null ? Number(row.prev_open) : null),
+          prev_high: row.prevHigh != null ? Number(row.prevHigh) : (row.prev_high != null ? Number(row.prev_high) : null),
+          prev_low: row.prevLow != null ? Number(row.prevLow) : (row.prev_low != null ? Number(row.prev_low) : null),
+          prev_volume: row.prevVolume != null ? Number(row.prevVolume) : (row.prev_volume != null ? Number(row.prev_volume) : null),
           // 2-candles back for strong breakout confirmation
           prev_prev_high: prevPrevCandle?.high ?? null,
           prev_prev_low: prevPrevCandle?.low ?? null,

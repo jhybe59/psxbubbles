@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import * as d3 from 'd3';
 import BubbleTooltip from './BubbleTooltip';
+import QuickChart from './QuickChart';
 import { updatePrices, getHistory, getTrend, updatePreviousValues } from '../lib/priceHistoryStore';
 
 export default forwardRef(function BubbleChart({ data, width = 900, height = 600, single = false, radiusScale = null, selections = {}, aggregations = null, onSelectCoin = null, selectedIndex = null, currentInterval = null }, ref) {
@@ -21,6 +22,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   const [tooltipData, setTooltipData] = useState(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const tooltipRef = useRef(null);
+  const [quickChart, setQuickChart] = useState(null);
 
   // expose fitToView to parent via ref (must be top-level Hook)
   useImperativeHandle(ref, () => ({
@@ -1431,7 +1433,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           prices: history?.prices || [],
           rvol: d.data?.relative_volume || history?.rvol,
           volatility: d.data?.volatility || history?.volatility,
-          lastUpdate: history?.lastUpdate || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          lastUpdate: history?.lastUpdate || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          // New Data for Sidebar
+          raw: d.data?.raw || {},
+          orb: d.data || {}
         });
       })
       .on('mousemove', function (event) {
@@ -1483,6 +1488,16 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       .on('mouseout', function (event, d) {
         d3.select(this).select('.rim, .ring, .ring-only').attr('stroke-width', Math.max(1, Math.min(8, d.r * 0.12)));
         setTooltipData(null);
+      })
+      .on('contextmenu', function (event, d) {
+        event.preventDefault();
+        setTooltipData(null); // Hide tooltip when opening chart
+        setQuickChart({
+          symbol: d.data.name,
+          x: event.clientX,
+          y: event.clientY,
+          interval: currentInterval
+        });
       })
       .on('click', function (event, d) {
         try {
@@ -1628,7 +1643,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       </div>
 
       {/* Premium Tooltip with sparkline and price history */}
-      {tooltipData && (
+      {tooltipData && !quickChart && (
         <BubbleTooltip
           ref={tooltipRef}
           symbol={tooltipData.symbol}
@@ -1651,10 +1666,26 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           rvol={tooltipData.rvol}
           volatility={tooltipData.volatility}
           lastUpdate={tooltipData.lastUpdate}
+          // New Sidebar props
+          raw={tooltipData.raw}
+          orb={tooltipData.orb}
           style={{
             left: tooltipPos.x,
             top: tooltipPos.y
           }}
+        />
+      )}
+
+      {/* Quick Chart Context Menu */}
+      {quickChart && (
+        <QuickChart
+          symbol={quickChart.symbol}
+          interval={quickChart.interval}
+          x={quickChart.x}
+          y={quickChart.y}
+          onClose={() => setQuickChart(null)}
+          // Pass live price for real-time updates
+          currentPrice={data?.find(d => d.name === quickChart.symbol || d.symbol === quickChart.symbol)?.price}
         />
       )}
     </div>

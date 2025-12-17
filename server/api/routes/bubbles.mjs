@@ -201,6 +201,16 @@ function buildAggregatedQuery(interval, symbols = null) {
       WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
       GROUP BY symbol
     ),
+    prev_day_stats AS (
+      SELECT 
+        symbol,
+        max(high) as prev_high,
+        last(close) as prev_close
+      FROM minute_bars
+      WHERE timestamp >= dateadd('d', -1, dateadd('h', 4, date_trunc('day', now())))
+        AND timestamp < dateadd('h', 4, date_trunc('day', now()))
+      GROUP BY symbol
+    ),
     window_agg AS (
       SELECT 
         symbol,
@@ -223,10 +233,13 @@ function buildAggregatedQuery(interval, symbols = null) {
       COALESCE(w.volume, 0) as volume,
       COALESCE(w.value, 0) as value,
       l.daily_pct,
-      COALESCE(dv.day_volume, 0) as day_volume
+      COALESCE(dv.day_volume, 0) as day_volume,
+      pds.prev_high,
+      pds.prev_close
     FROM latest l
     LEFT JOIN window_agg w ON l.symbol = w.symbol
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
+    LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
   `;
 
   if (symbols && symbols.length > 0) {
@@ -280,6 +293,16 @@ function buildTickQuery(interval, symbols = null) {
       WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
       GROUP BY symbol
     ),
+    prev_day_stats AS (
+      SELECT 
+        symbol,
+        max(high) as prev_high,
+        last(close) as prev_close
+      FROM minute_bars
+      WHERE timestamp >= dateadd('d', -1, dateadd('h', 4, date_trunc('day', now())))
+        AND timestamp < dateadd('h', 4, date_trunc('day', now()))
+      GROUP BY symbol
+    ),
     SELECT 
       l.symbol,
       max(l.timestamp) as ts,
@@ -291,9 +314,12 @@ function buildTickQuery(interval, symbols = null) {
       sum(l.value) as value,
       last(l.daily_pct) as daily_pct,
       max(l.tick_seq) as tick_seq,
-      COALESCE(first(dv.day_volume), 0) as day_volume
+      COALESCE(first(dv.day_volume), 0) as day_volume,
+      first(pds.prev_high) as prev_high,
+      first(pds.prev_close) as prev_close
     FROM latest_ticks l
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
+    LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
     GROUP BY l.symbol, l.tick_bucket
     ORDER BY l.symbol, l.tick_bucket DESC
   `;
@@ -333,6 +359,8 @@ function transformResponse(result, interval, favorites = []) {
       const value = parseFloat(row[colIndex['value']]) || 0;
       const dailyPct = parseFloat(row[colIndex['daily_pct']]) || 0;
       let dayVolume = parseFloat(row[colIndex['day_volume']]) || 0;
+      const prevHigh = parseFloat(row[colIndex['prev_high']]) || null;
+      const prevClose = parseFloat(row[colIndex['prev_close']]) || null;
 
       // Calculate interval percentage change
       let intervalPct = open !== 0 ? ((close - open) / open) * 100 : 0;
@@ -363,6 +391,8 @@ function transformResponse(result, interval, favorites = []) {
         pct_interval: intervalPct,
         interval,
         day_volume: dayVolume,
+        prev_high: prevHigh,
+        prev_close: prevClose,
         ts: typeof ts === 'string' ? ts : new Date(ts).toISOString(),
         isFavorite: favorites.includes(symbol)
       });

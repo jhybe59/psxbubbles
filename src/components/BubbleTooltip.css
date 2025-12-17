@@ -3,7 +3,7 @@
 .bubble-tooltip {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
   font-size: 13px;
-  width: 300px;
+  width: 420px;
   max-height: 80vh;
   /* overflow-y: auto; -- Removed to prevent unscrollable scrollbars */
   overflow-y: hidden;
@@ -318,4 +318,67 @@
 /* Scrollbar hidden to prevent interaction issues */
 .bubble-tooltip .bt-price-rows::-webkit-scrollbar {
   display: none;
+}
+
+/* --- Sidebar Layout --- */
+
+.bubble-tooltip .bt-container {
+  display: flex;
+  gap: 12px;
+}
+
+.bubble-tooltip .bt-main {
+  flex: 1;
+  min-width: 0;
+  /* Prevent flex overflow */
+}
+
+/* Sidebar styling */
+.bubble-tooltip .bt-sidebar {
+  width: 100px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bubble-tooltip .bt-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bubble-tooltip .bt-sidebar-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b7d94;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.bubble-tooltip .bt-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.bubble-tooltip .bt-stat-label {
+  color: #8b9db5;
+}
+
+.bubble-tooltip .bt-stat-value {
+  color: #e6eef8;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.bubble-tooltip .bt-sidebar-separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  width: 100%;
 }
