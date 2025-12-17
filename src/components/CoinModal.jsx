@@ -303,6 +303,47 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
     setCurrentCoin(coin);
   }, [coin]);
 
+  // REAL-TIME CHART UPDATE
+  // When currentCoin updates (price changes), update the LATEST candle in the series
+  useEffect(() => {
+    if (series && series.length > 0 && currentCoin && currentCoin.price) {
+      const price = Number(currentCoin.price);
+      if (!Number.isFinite(price)) return;
+
+      setSeries(prevSeries => {
+        if (!prevSeries || prevSeries.length === 0) return prevSeries;
+
+        // Clone the series to avoid mutation issues
+        const newSeries = [...prevSeries];
+        const lastIdx = newSeries.length - 1;
+        const lastCandle = { ...newSeries[lastIdx] };
+
+        // Update close
+        lastCandle.close = price;
+
+        // Update High/Low
+        if (price > lastCandle.high) lastCandle.high = price;
+        if (price < lastCandle.low) lastCandle.low = price;
+
+        // Do not change Open or TS
+
+        newSeries[lastIdx] = lastCandle;
+        return newSeries;
+      });
+
+      // Also update OHLC summary so stats valid
+      setOhlcSummary(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          close: price,
+          high: Math.max(prev.high, price),
+          low: Math.min(prev.low, price)
+        };
+      });
+    }
+  }, [currentCoin]);
+
   // Define displayCoin BEFORE it's used in useEffect
   const displayCoin = currentCoin || coin;
 
@@ -532,7 +573,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
     load24hStats();
 
     // Refresh 24h stats periodically when modal is open (every 30 seconds)
-    const interval = setInterval(load24hStats, 30000);
+    const interval = setInterval(load24hStats, 3000);
 
     return () => {
       mounted = false;
@@ -571,7 +612,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
     refreshCoinData();
 
     // Refresh every 10 seconds when modal is open
-    const interval = setInterval(refreshCoinData, 10000);
+    const interval = setInterval(refreshCoinData, 2000);
 
     return () => {
       mounted = false;

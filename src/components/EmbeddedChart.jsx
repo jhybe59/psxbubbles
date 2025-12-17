@@ -15,13 +15,29 @@ const THEME_DARK = {
         horzLines: { color: '#363a45', style: 1 },
     },
     crosshair: {
-        mode: 1,
+        mode: 0, // Normal (free) mode
     },
     rightPriceScale: {
         borderColor: '#363a45',
     },
     timeScale: {
         borderColor: '#363a45',
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time, tickMarkType, locale) => {
+            const date = new Date(time * 1000);
+            const options = { timeZone: 'Asia/Karachi' };
+            return date.toLocaleDateString('en-PK', { ...options, month: 'short', day: 'numeric' }) + ' ' +
+                date.toLocaleTimeString('en-PK', { ...options, hour: '2-digit', minute: '2-digit', hour12: false });
+        },
+    },
+    localization: {
+        timeFormatter: (time) => {
+            const date = new Date(time * 1000);
+            const options = { timeZone: 'Asia/Karachi' };
+            return date.toLocaleDateString('en-PK', { ...options, month: 'short', day: 'numeric' }) + ' ' +
+                date.toLocaleTimeString('en-PK', { ...options, hour: '2-digit', minute: '2-digit', hour12: false });
+        },
     },
 };
 
