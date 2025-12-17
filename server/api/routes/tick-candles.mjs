@@ -46,7 +46,7 @@ router.get('/', async (req, res) => {
             FROM trades
             WHERE symbol = '${symbol}'
             ORDER BY timestamp DESC
-            LIMIT ${fetchLimit}
+            LIMIT ${neededRows}
         `;
 
         const result = await queryQuestDB(sql);
@@ -67,45 +67,21 @@ router.get('/', async (req, res) => {
 
         let currentBatch = [];
 
-        // We iterate and form batches.
-        // Batch i uses rows[i] to rows[i+tickCount-1]
-        // Volume for batch = rows[i].volume - rows[i+tickCount].volume (baseline)
-
         for (let i = 0; i < rawRows.length; i++) {
-            // If we don't have enough rows left to fill a batch, we stop
-            // unless we want partial? usually charts prefer consistent bars.
-            // With +1 fetch, we might have an extra row at the end purely for volume calc.
-
             if (currentBatch.length < tickCount) {
                 const row = rawRows[i];
                 // QuestDB column indices: 0:timestamp, 1:price, 2:volume
 
+                // Ensure we parse numbers correctly
                 const price = parseFloat(row[1]);
-                const vol = parseFloat(row[2]);
+                const vol = parseFloat(row[2]) || 0; // Handle nulls as 0
                 const ts = row[0];
 
                 currentBatch.push({ price, vol, ts });
 
                 if (currentBatch.length === tickCount) {
-                    // Look ahead for baseline volume
-                    // The baseline is the volume of the tick *immediately preceding* this batch chronologically.
-                    // Since we iterate DESC, that is rawRows[i+1].
-
-                    let baselineVol = 0;
-                    if (i + 1 < rawRows.length) {
-                        baselineVol = parseFloat(rawRows[i + 1][2]) || 0;
-                    } else {
-                        // We are at the end of the fetched data.
-                        // We can't perfectly calc volume for the oldest item in this batch.
-                        // Approx: subtract nothing? or subtract the volume of the oldest item itself (approx 0 for that tick)?
-                        // Safest: Use the oldest item's volume as its own baseline (yielding 0 for that last tick)?
-                        // Better: Just use 0 if we assume start of day, but we might be mid-day.
-                        // Fallback: use oldest item's volume - 0? No, that gives huge volume.
-                        // Fallback: use oldest item's volume as baseline (so volume for that tick is 0).
-                        baselineVol = currentBatch[currentBatch.length - 1].vol;
-                    }
-
-                    candles.push(createCandleFromBatch(currentBatch, baselineVol));
+                    // Create candle from batch
+                    candles.push(createCandleFromBatch(currentBatch));
                     currentBatch = [];
                 }
             }
@@ -116,7 +92,7 @@ router.get('/', async (req, res) => {
 
         const duration = Date.now() - start;
         res.set('X-Response-Time', `${duration}ms`);
-        res.set('X-Debug-Version', 'v2');
+        res.set('X-Debug-Version', 'v2-msg-vol-sum');
 
         res.json({
             symbol,
@@ -131,31 +107,24 @@ router.get('/', async (req, res) => {
     }
 });
 
-function createCandleFromBatch(batch, baselineVol) {
+function createCandleFromBatch(batch) {
     // batch is [newest, ..., oldest]
+    // Timestamps are ISO strings or numbers? QuestDB returns strings typically, but we should check.
+    // If we assume standard array order from push:
+
+    // Logic:
+    // Open = Oldest Price
+    // Close = Newest Price
+    // High = Max Price in batch
+    // Low = Min Price in batch
+    // Volume = Sum of all individual trade volumes
 
     const newest = batch[0];
     const oldest = batch[batch.length - 1];
     const prices = batch.map(b => b.price);
 
-    // Calculate Volume
-    // Cumulative Volume at End (Newest) = newest.vol
-    // Cumulative Volume at Start (Oldest's prev) = baselineVol
-
-    const endVol = newest.vol;
-
-    let volume = 0;
-    if (endVol >= baselineVol) {
-        volume = endVol - baselineVol;
-    } else {
-        // Reset occurred? e.g. endVol much smaller than baseline. 
-        // e.g. New Day started.
-        // Assume endVol is the total volume since reset.
-        volume = endVol;
-    }
-
-    // Sanity check: if volume < 0, set 0
-    if (volume < 0) volume = 0;
+    // Sum volume
+    const volume = batch.reduce((sum, item) => sum + item.vol, 0);
 
     return {
         ts: oldest.ts,

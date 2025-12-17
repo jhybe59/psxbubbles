@@ -284,6 +284,31 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
               }
             }
             if (!isCandleMode) setPillPctMap(pctMap);
+
+            // FORCE SYNC: If we have a live coin price that is newer/different than the API tail,
+            // update the last candle to match the header immediately.
+            if (s.length > 0 && coin && coin.price) {
+              const lastCandle = s[s.length - 1];
+              const headerPrice = Number(coin.price);
+              if (Number.isFinite(headerPrice)) {
+
+                // Only update if substantially different or just to be safe
+                lastCandle.close = headerPrice;
+
+                // Adjust high/low if the current price is outside current bounds
+                if (headerPrice > lastCandle.high) lastCandle.high = headerPrice;
+                if (headerPrice < lastCandle.low) lastCandle.low = headerPrice;
+
+                // Update OHLC summary as well
+                setOhlcSummary(prev => ({
+                  open: s[0].open,
+                  low: Math.min(...s.map(z => z.low)),
+                  high: Math.max(...s.map(z => z.high)),
+                  close: headerPrice
+                }));
+              }
+            }
+
           } else setOhlcSummary(null);
         }
       } catch (err) {

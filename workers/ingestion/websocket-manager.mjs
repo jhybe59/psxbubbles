@@ -196,10 +196,14 @@ class WebSocketConnection {
             return {
                 symbol: symbol,
                 ts: ts,
-                open: Number(tick.o || tick.open || tick.c || tick.close), // Fallback to close if open missing in update
-                high: Number(tick.h || tick.high || tick.c || tick.close),
-                low: Number(tick.l || tick.low || tick.c || tick.close),
-                close: Number(tick.c || tick.close),
+                // CRITICAL: For minute_bars (tick history), we want the INSTANTANEOUS price state.
+                // We do NOT want Day Open/High/Low from the feed, as that makes every row identical for the day.
+                // By setting O=H=L=C = Current Price, we record the price at this exact moment.
+                // QuestDB aggregation queries will then correctly calculate First(Open), Max(High), Min(Low) over time windows.
+                open: Number(tick.c || tick.close || tick.ltp),
+                high: Number(tick.c || tick.close || tick.ltp),
+                low: Number(tick.c || tick.close || tick.ltp),
+                close: Number(tick.c || tick.close || tick.ltp),
                 volume: tradeVolume,
                 value: tradeValue,
                 intervalPct: null, // Calculate if needed
