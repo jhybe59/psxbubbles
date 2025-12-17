@@ -899,12 +899,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
             </div>
           </div>
 
-          <div className="coin-stats-row">
-            <div className="coin-stats-left" />
-            <div className="coin-stats-right">
-              <div className="stat">Market Cap<br /><strong>{coin.market_cap?.toLocaleString?.() ?? '-'}</strong></div>
-            </div>
-          </div>
+
 
           {/* Share calculator: exactly two boxes with '=' between them. Editing either box updates the other immediately. */}
           <div className="share-calc">
