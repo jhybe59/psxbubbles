@@ -16,6 +16,7 @@
     "start:api:auto-migrate": "node ./scripts/start-api-with-migrations.mjs",
     "worker:ingest": "node ./workers/ingestion/index.mjs",
     "db:migrate": "node ./scripts/apply-migrations.js",
+    "db:create-questdb": "node ./scripts/create-questdb-table.mjs",
     "db:seed": "node ./scripts/seed-dev.js",
     "dev:stack": "docker compose -f docker-compose.dev.yml --env-file config/dev.env up --build -d",
     "dev:stack:down": "docker compose -f docker-compose.dev.yml down -v",

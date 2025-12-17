@@ -77,6 +77,20 @@ const runMigrations = () => {
   }
 };
 
+const syncSymbols = () => {
+  console.log('[start-api] Syncing symbols to database...');
+  try {
+    execSync('npm run sync:symbols', { 
+      stdio: 'inherit',
+      env: process.env 
+    });
+    console.log('[start-api] Symbols synced successfully');
+  } catch (err) {
+    // Don't exit on symbol sync failure - API can still work
+    console.warn('[start-api] Symbol sync failed (non-fatal):', err.message);
+  }
+};
+
 const startAPI = async () => {
   console.log('[start-api] Starting API service...');
   // Start the API service
@@ -96,6 +110,9 @@ const startAPI = async () => {
     if (needsMigrations) {
       runMigrations();
     }
+    
+    // Always try to sync symbols (ensures instruments table is populated)
+    syncSymbols();
     
     await startAPI();
   } catch (err) {
