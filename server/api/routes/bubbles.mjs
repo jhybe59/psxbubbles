@@ -194,10 +194,12 @@ function buildAggregatedQuery(interval, symbols = null) {
       LATEST ON timestamp PARTITION BY symbol
     ),
     day_vols AS (
-      -- Get last known day volume per symbol (works on weekends too)
-      SELECT symbol, volume as day_volume
+      -- Get total SESSION volume from trades (raw tick data)
+      -- Session starts at 09:00 PKT = 04:00 UTC
+      SELECT symbol, sum(volume) as day_volume
       FROM trades
-      LATEST ON timestamp PARTITION BY symbol
+      WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+      GROUP BY symbol
     ),
     window_agg AS (
       SELECT 
@@ -205,8 +207,8 @@ function buildAggregatedQuery(interval, symbols = null) {
         first(open) as first_open,
         max(high) as high,
         min(low) as low,
-        max(volume) - min(volume) as volume,
-        max(value) - min(value) as value
+        sum(volume) as volume,
+        sum(value) as value
       FROM minute_bars
       WHERE ${timeCondition}${symbolFilter}
       GROUP BY symbol
@@ -269,29 +271,32 @@ function buildTickQuery(interval, symbols = null) {
         (tick_seq / ${tickSize}) as tick_bucket
       FROM minute_bars
       WHERE timestamp > dateadd('h', -24, now())
-    )
+    ),
+    day_vols AS (
+      -- Get total SESSION volume from trades (raw tick data)
+      -- Session starts at 09:00 PKT = 04:00 UTC
+      SELECT symbol, sum(volume) as day_volume
+      FROM trades
+      WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+      GROUP BY symbol
+    ),
     SELECT 
-      symbol,
-      max(timestamp) as ts,
-      first(close) as open,
-      max(high) as high,
-      min(low) as low,
-      last(close) as close,
-      sum(volume) as volume,
-      sum(value) as value,
-      last(daily_pct) as daily_pct,
-      max(tick_seq) as tick_seq,
-      sum(volume) as day_volume 
-    FROM latest_ticks
+      l.symbol,
+      max(l.timestamp) as ts,
+      first(l.close) as open,
+      max(l.high) as high,
+      min(l.low) as low,
+      last(l.close) as close,
+      sum(l.volume) as volume,
+      sum(l.value) as value,
+      last(l.daily_pct) as daily_pct,
+      max(l.tick_seq) as tick_seq,
+      COALESCE(first(dv.day_volume), 0) as day_volume
+    FROM latest_ticks l
+    LEFT JOIN day_vols dv ON l.symbol = dv.symbol
+    GROUP BY l.symbol, l.tick_bucket
+    ORDER BY l.symbol, l.tick_bucket DESC
   `;
-
-  if (symbols && symbols.length > 0) {
-    const symbolList = symbols.map(s => `'${s}'`).join(',');
-    sql += ` WHERE symbol IN (${symbolList})`;
-  }
-
-  sql += ` GROUP BY symbol, tick_bucket`;
-  sql += ` ORDER BY symbol, tick_bucket DESC`;
 
   return sql;
 }

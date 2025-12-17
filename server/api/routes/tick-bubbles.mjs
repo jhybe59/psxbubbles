@@ -175,11 +175,12 @@ router.get('/', async (req, res) => {
                 }
             }
 
-            // Get day_volume from trades (Last known value - works on weekends too)
+            // Get day_volume from trades (SUM from session start - 09:00 PKT = 04:00 UTC)
             const volSql = `
-                SELECT symbol, volume as day_volume
+                SELECT symbol, sum(volume) as day_volume
                 FROM trades
-                LATEST ON timestamp PARTITION BY symbol
+                WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+                GROUP BY symbol
             `;
             const volResult = await queryQuestDB(volSql);
             if (volResult && volResult.dataset) {
