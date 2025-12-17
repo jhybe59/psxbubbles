@@ -103,8 +103,8 @@ body {
   display: inline-block;
   margin-right: 12px;
   vertical-align: middle;
-  border-radius: 6px;
-  object-fit: contain;
+  border-radius: 50%;
+  object-fit: scale-down;
 }
 
 .header-left {
