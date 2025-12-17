@@ -795,6 +795,49 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     circleEnter.attr('transform', (d) => `translate(${d.x || 0},${d.y || 0})`).style('opacity', intervalChanged ? 1 : 0);
     labelEnter.attr('transform', (d) => `translate(${d.x || 0},${d.y || 0})`).style('opacity', intervalChanged ? 1 : 0);
 
+    // CRITICAL: New Bubble Highlight (Ripple Effect)
+    // Only trigger if this is NOT a full interval refresh (start up or time frame switch)
+    if (!intervalChanged) {
+      circleEnter.each(function (d) {
+        const g = d3.select(this);
+        const nodeR = d.r;
+
+        // Recursive pulse function for prolonged visibility (~15s)
+        // This ensures the user notices the new bubble even if they look away briefly.
+        // Recursive pulse function for prolonged visibility (~15s)
+        function pulse(count) {
+          if (count <= 0) return;
+
+          g.append('circle')
+            .attr('class', 'ripple-pulse')
+            .attr('r', nodeR) // Start at the edge
+            .attr('fill', 'none')
+            .attr('stroke', '#ffffff')
+            .attr('stroke-width', 2.5) // Slightly thinner for cleaner look
+            .style('opacity', 0.9)
+            .style('pointer-events', 'none') // Ensure it doesn't block interactions
+            .transition()
+            .duration(2000) // Slow inward contraction
+            .ease(d3.easeQuadIn) // Accelerate slightly towards center
+            .attr('r', 0) // Shrink to center
+            .style('opacity', 0)
+            .attr('stroke-width', 0.5) // Thin out as it shrinks
+            .remove()
+            .on('end', () => {
+              // Repeat with a short pause
+              setTimeout(() => pulse(count - 1), 600);
+            });
+        }
+
+        // Pulse 5 times -> approx 2.6s * 5 = ~13 seconds
+        pulse(5);
+      });
+
+      // Also fade the bubble itself in nicely
+      circleEnter.transition().duration(800).style('opacity', 1);
+      labelEnter.transition().duration(800).style('opacity', 1);
+    }
+
     circleSelRef.current = circleNodes;
     labelSelRef.current = labelNodes;
 
