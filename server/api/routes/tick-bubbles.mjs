@@ -170,25 +170,51 @@ router.get('/', async (req, res) => {
                 for (const row of pctResult.dataset) {
                     const sym = row[0];
                     const pct = parseFloat(row[1]) || 0;
-                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0 });
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null });
                     dayStats.get(sym).pct_24h = pct;
                 }
             }
 
-            // Get day_volume from trades (SUM from session start - 09:00 PKT = 04:00 UTC)
-            const volSql = `
-                SELECT symbol, sum(volume) as day_volume
+            // Get prev_close from minute_bars (last close before today's session)
+            const prevCloseSql = `
+                SELECT symbol, last(close) as prev_close
+                FROM minute_bars
+                WHERE timestamp < dateadd('h', 4, date_trunc('day', now()))
+                GROUP BY symbol
+            `;
+            const prevCloseResult = await queryQuestDB(prevCloseSql);
+            if (prevCloseResult && prevCloseResult.dataset) {
+                for (const row of prevCloseResult.dataset) {
+                    const sym = row[0];
+                    const pc = parseFloat(row[1]) || null;
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null });
+                    dayStats.get(sym).prev_close = pc;
+                }
+            }
+
+            // Get day_volume, day_high, day_low from trades (raw session data)
+            const volHighLowSql = `
+                SELECT 
+                    symbol, 
+                    sum(volume) as day_volume,
+                    max(price) as day_high,
+                    min(price) as day_low
                 FROM trades
                 WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
                 GROUP BY symbol
             `;
-            const volResult = await queryQuestDB(volSql);
+            const volResult = await queryQuestDB(volHighLowSql);
             if (volResult && volResult.dataset) {
                 for (const row of volResult.dataset) {
                     const sym = row[0];
                     const vol = parseFloat(row[1]) || 0;
-                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0 });
-                    dayStats.get(sym).day_volume = vol;
+                    const high = parseFloat(row[2]) || 0;
+                    const low = parseFloat(row[3]) || 0;
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null, day_high: 0, day_low: 0 });
+                    const ds = dayStats.get(sym);
+                    ds.day_volume = vol;
+                    ds.day_high = high;
+                    ds.day_low = low;
                 }
             }
         } catch (e) {
@@ -215,7 +241,13 @@ router.get('/', async (req, res) => {
             const timeElapsedMs = new Date(endTs).getTime() - new Date(startTs).getTime();
 
             // Get day stats
-            const ds = dayStats.get(symbol) || { pct_24h: 0, day_volume: 0 };
+            const ds = dayStats.get(symbol) || { pct_24h: 0, day_volume: 0, prev_close: null };
+
+            // For pct_24h, if we have prev_close, calculate it more accurately to match terminal
+            let finalPct24h = ds.pct_24h;
+            if (ds.prev_close) {
+                finalPct24h = ((closePrice - ds.prev_close) / ds.prev_close) * 100;
+            }
 
             bubbles.push({
                 symbol,
@@ -225,7 +257,7 @@ router.get('/', async (req, res) => {
                 low,
                 close: closePrice,
                 volume,
-                pct_24h: ds.pct_24h,
+                pct_24h: finalPct24h,
                 day_volume: ds.day_volume,
                 pct_interval: pctChange,
                 interval: `${tickCount}_ticks`,
@@ -234,7 +266,10 @@ router.get('/', async (req, res) => {
                 startTs,
                 tickCount: ticks.length,
                 hasEnoughTicks: ticks.length >= tickCount,
-                availableTicks: ticks.length
+                availableTicks: ticks.length,
+                prev_close: ds.prev_close,
+                day_high: ds.day_high,
+                day_low: ds.day_low
             });
         }
 

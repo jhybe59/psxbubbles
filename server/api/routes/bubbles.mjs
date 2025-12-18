@@ -211,6 +211,16 @@ function buildAggregatedQuery(interval, symbols = null) {
         AND timestamp < dateadd('h', 4, date_trunc('day', now()))
       GROUP BY symbol
     ),
+    day_agg AS (
+      -- Get session high/low from trades (raw data) to ensure accuracy
+      SELECT 
+        symbol,
+        max(price) as day_high,
+        min(price) as day_low
+      FROM trades
+      WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+      GROUP BY symbol
+    ),
     window_agg AS (
       SELECT 
         symbol,
@@ -235,11 +245,14 @@ function buildAggregatedQuery(interval, symbols = null) {
       l.daily_pct,
       COALESCE(dv.day_volume, 0) as day_volume,
       pds.prev_high,
-      pds.prev_close
+      pds.prev_close,
+      da.day_high,
+      da.day_low
     FROM latest l
     LEFT JOIN window_agg w ON l.symbol = w.symbol
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
     LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
+    LEFT JOIN day_agg da ON l.symbol = da.symbol
   `;
 
   if (symbols && symbols.length > 0) {
@@ -361,21 +374,23 @@ function transformResponse(result, interval, favorites = []) {
       let dayVolume = parseFloat(row[colIndex['day_volume']]) || 0;
       const prevHigh = parseFloat(row[colIndex['prev_high']]) || null;
       const prevClose = parseFloat(row[colIndex['prev_close']]) || null;
+      const dayHigh = parseFloat(row[colIndex['day_high']]) || null;
+      const dayLow = parseFloat(row[colIndex['day_low']]) || null;
 
       // Calculate interval percentage change
-      let intervalPct = open !== 0 ? ((close - open) / open) * 100 : 0;
+      let intervalPct = 0;
+      if (interval === 'Day' && prevClose) {
+        // PSX Terminal standard: (Close - PrevDayClose) / PrevDayClose
+        intervalPct = ((close - prevClose) / prevClose) * 100;
+      } else {
+        // Other intervals or fallback if no prevClose
+        intervalPct = open !== 0 ? ((close - open) / open) * 100 : 0;
+      }
 
       // Fallback for daily_pct: if 0 but we have valid open/close movement, use calculated
       let finalDailyPct = dailyPct;
-      if (finalDailyPct === 0 && open !== 0 && close !== open && interval === 'Day') {
+      if (finalDailyPct === 0 && interval === 'Day') {
         finalDailyPct = intervalPct;
-      } else if (finalDailyPct === 0 && interval !== 'Day') {
-        // Even for other intervals, if daily_pct is missing but we assume 'open' is somewhat representative of day open (depends on interval),
-        // actually we can't extrapolate for non-Day intervals easily without Day Open.
-        // But bubbles query returns 'daily_pct' from LATEST row.
-        // If LATEST row has 0, we can't easily fix it unless we know Day Open.
-        // But for 'Day' interval, 'open' IS Day Open.
-        // So the fix block above covers 'Day' interval correctly.
       }
 
       symbolMap.set(symbol, {
@@ -393,6 +408,8 @@ function transformResponse(result, interval, favorites = []) {
         day_volume: dayVolume,
         prev_high: prevHigh,
         prev_close: prevClose,
+        day_high: dayHigh,
+        day_low: dayLow,
         ts: typeof ts === 'string' ? ts : new Date(ts).toISOString(),
         isFavorite: favorites.includes(symbol)
       });

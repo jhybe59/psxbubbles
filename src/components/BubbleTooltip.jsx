@@ -157,73 +157,79 @@ function renderPriceRows(prices) {
     );
 }
 
-// Helper: Generate logical logs based on current state
+// Helper: Generate logical logs based on current state (Hybrid Model)
 function getLogicalLogs(props) {
     const { price, prices, raw = {}, orb = {}, rvol, volatility } = props;
-    const logs = [];
+    const session = [];
+    const interval = [];
     const p = Number(price);
-    if (!p) return logs;
+    const currentTime = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    if (!p) return { session, interval };
 
-    // 1. Trend Analysis (Last 10 prices)
+    // --- 1. SESSION CONTEXT (Always Visible) ---
+    // Use day_high / day_low from backend if available
+    const dayHigh = Number(raw.day_high ?? raw['High 1 day'] ?? raw.high ?? orb.day_high ?? orb.high);
+    const dayLow = Number(raw.day_low ?? raw['Low 1 day'] ?? raw.low ?? orb.day_low ?? orb.low);
+    const prevHigh = Number(raw.prev_high ?? raw['Previous High'] ?? orb.prev_high);
+    const prevLow = Number(raw.prev_low ?? raw['Previous Low'] ?? orb.prev_low);
+
+    if (dayHigh && p >= dayHigh) session.push({ type: 'bullish', text: '💥 New Daily High', time: currentTime, category: 'D' });
+    else if (dayHigh && p >= dayHigh * 0.999) session.push({ type: 'bullish', text: 'Near Daily High', time: currentTime, category: 'D' });
+
+    if (dayLow && p <= dayLow) session.push({ type: 'bearish', text: '📉 New Daily Low', time: currentTime, category: 'D' });
+    else if (dayLow && p <= dayLow * 1.001) session.push({ type: 'bearish', text: 'Near Daily Low', time: currentTime, category: 'D' });
+
+    if (prevHigh && p > prevHigh) session.push({ type: 'bullish', text: '🚀 Broke Prev Day High', time: currentTime, category: 'D' });
+    if (prevLow && p < prevLow) session.push({ type: 'bearish', text: '🔻 Broke Prev Day Low', time: currentTime, category: 'D' });
+
+    // ORB Levels
+    ['5m', '15m', '30m', '1h'].forEach(tf => {
+        const oh = orb[`orb_high_${tf}`] ?? raw[`orb_high_${tf}`];
+        const ol = orb[`orb_low_${tf}`] ?? raw[`orb_low_${tf}`];
+        if (oh && p > oh) session.push({ type: 'bullish', text: `✅ Crossed ORB ${tf} High`, time: currentTime, category: 'D' });
+        if (ol && p < ol) session.push({ type: 'bearish', text: `⚠️ Crossed ORB ${tf} Low`, time: currentTime, category: 'D' });
+    });
+
+    // Volume / Volatility
+    if (rvol > 3) session.push({ type: 'bullish', text: `🔥 High Rel Vol (${Number(rvol).toFixed(1)}x)`, time: currentTime, category: 'D' });
+    if (volatility > 5) session.push({ type: 'neutral', text: `⚡ High Volatility`, time: currentTime, category: 'D' });
+
+    // --- 2. INTERVAL DYNAMICS (Context-Aware) ---
     if (prices && prices.length >= 3) {
         const first = prices[0];
         const last = prices[prices.length - 1];
         const max = Math.max(...prices);
         const min = Math.min(...prices);
 
-        // Simple heuristic trends
         const isHigher = last > first;
-        const totalMove = Math.abs(last - first) / first;
 
         if (isHigher && last >= max * 0.9995) {
-            logs.push({ type: 'bullish', text: '📈 In Uptrend' });
+            interval.push({ type: 'bullish', text: 'In Uptrend', time: currentTime, category: 'I' });
         } else if (!isHigher && last <= min * 1.0005) {
-            logs.push({ type: 'bearish', text: '📉 In Downtrend' });
+            interval.push({ type: 'bearish', text: 'In Downtrend', time: currentTime, category: 'I' });
         } else if (isHigher && last < max * 0.995) {
-            logs.push({ type: 'neutral', text: '⚠️ Pullback' });
+            interval.push({ type: 'neutral', text: 'Pullback', time: currentTime, category: 'I' });
         } else if (!isHigher && last > min * 1.005) {
-            logs.push({ type: 'neutral', text: '🔄 Possible Bounce' });
+            interval.push({ type: 'neutral', text: 'Possible Bounce', time: currentTime, category: 'I' });
         }
     }
 
-    // 2. Day & Session Levels
-    const dayHigh = Number(raw['High 1 day'] ?? raw.high ?? orb.high);
-    const dayLow = Number(raw['Low 1 day'] ?? raw.low ?? orb.low);
-    const prevHigh = Number(raw['Previous High'] ?? raw.prev_high ?? orb.prev_high);
-    const prevLow = Number(raw['Previous Low'] ?? raw.prev_low ?? orb.prev_low);
-
-    if (dayHigh && p >= dayHigh) logs.push({ type: 'bullish', text: '💥 New Daily High' });
-    else if (dayHigh && p >= dayHigh * 0.99) logs.push({ type: 'bullish', text: 'Near Daily High' });
-
-    if (dayLow && p <= dayLow) logs.push({ type: 'bearish', text: '📉 New Daily Low' });
-    else if (dayLow && p <= dayLow * 1.01) logs.push({ type: 'bearish', text: 'Near Daily Low' });
-
-    if (prevHigh && p > prevHigh) logs.push({ type: 'bullish', text: '🚀 Broke Prev Day High' });
-    if (prevLow && p < prevLow) logs.push({ type: 'bearish', text: '🔻 Broke Prev Day Low' });
-
-    // 3. ORB Levels
-    ['5m', '15m', '30m', '1h'].forEach(tf => {
-        const oh = orb[`orb_high_${tf}`] ?? raw[`orb_high_${tf}`];
-        const ol = orb[`orb_low_${tf}`] ?? raw[`orb_low_${tf}`];
-        if (oh && p > oh) logs.push({ type: 'bullish', text: `✅ Crossed ORB ${tf} High` });
-        if (ol && p < ol) logs.push({ type: 'bearish', text: `⚠️ Crossed ORB ${tf} Low` });
-    });
-
-    // 4. Volume / Volatility
-    if (rvol > 3) logs.push({ type: 'bullish', text: `🔥 High Rel Vol (${Number(rvol).toFixed(1)}x)` });
-    if (volatility > 5) logs.push({ type: 'neutral', text: `⚡ High Volatility` });
-
     // Deduplicate logic
-    const uniqueLogs = [];
-    const seen = new Set();
-    logs.forEach(l => {
-        if (!seen.has(l.text)) {
-            seen.add(l.text);
-            uniqueLogs.push(l);
-        }
-    });
+    const unique = (arr) => {
+        const seen = new Set();
+        return arr.filter(item => {
+            if (seen.has(item.text)) return false;
+            seen.add(item.text);
+            return true;
+        });
+    };
 
-    return uniqueLogs.slice(0, 8);
+    const allLogs = [...unique(session), ...unique(interval)];
+    // Sort by time (actually they are added in order, but just to be safe if we had multiple sources)
+    // We reverse to get "latest first"
+    const sortedLogs = allLogs.reverse();
+
+    return sortedLogs.slice(0, 15);
 }
 
 export default function BubbleTooltip({
@@ -284,15 +290,49 @@ export default function BubbleTooltip({
             aria-live="polite"
         >
             <div className="bt-container">
-                {/* Main Content (Left Side) */}
+                {/* Logical Logs Panel (Left Column) */}
+                <div className="bt-logs">
+                    <div className="bt-log-header">
+                        <span>⚡ LIVE ALERTS</span>
+                    </div>
+
+                    <div className="bt-log-list">
+                        {(() => {
+                            const logs = getLogicalLogs({ price, prices, raw, orb, rvol, volatility });
+                            if (logs.length === 0) {
+                                return <div className="bt-log-empty">No active signals</div>;
+                            }
+
+                            return logs.map((log, i) => (
+                                <div key={i} className={`bt-log-item ${log.type}`}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                                        {log.time && <span style={{ color: '#64748b', fontWeight: 600, fontSize: '10px', minWidth: '32px' }}>[{log.time}]</span>}
+                                        <span className={`bt-log-cat ${log.category === 'D' ? 'session' : 'interval'}`}>
+                                            {log.category === 'D' ? 'D' : 'I'}
+                                        </span>
+                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.text}</span>
+                                        {log.category === 'I' && (
+                                            <span style={{ fontSize: '12px' }}>
+                                                {log.text.includes('Uptrend') && '📈'}
+                                                {log.text.includes('Downtrend') && '📉'}
+                                                {log.text.includes('Bounce') && '↗️'}
+                                                {log.text.includes('Pullback') && '↘️'}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            ));
+                        })()}
+                    </div>
+                </div>
+
+                {/* Main Content (Center Column) */}
                 <div className="bt-main">
                     {/* Header with Symbol and Price */}
                     <div className="bt-header">
-                        <div>
-                            <div className="bt-symbol">{symbol || '—'}</div>
-                            {name && name !== symbol && (
-                                <div className="bt-name">{name}</div>
-                            )}
+                        <div className="bt-symbol-block">
+                            <div className="bt-symbol">{symbol || 'N/A'}</div>
+                            <div className="bt-name">{name || 'Unknown'}</div>
                         </div>
                         <div className="bt-price-block">
                             <div className="bt-price">{formatPrice(price)}</div>
@@ -369,7 +409,7 @@ export default function BubbleTooltip({
                     </div>
                 </div>
 
-                {/* Sidebar (Right Side) */}
+                {/* Sidebar (Right Column) */}
                 <div className="bt-sidebar">
                     {/* Today's Range Section */}
                     <div className="bt-sidebar-section">
@@ -436,27 +476,6 @@ export default function BubbleTooltip({
                             <span className="bt-stat-label">Close</span>
                             <span className="bt-stat-value">{formatPrice(orb?.prev_close ?? raw?.prev_close ?? raw?.['Previous Close'])}</span>
                         </div>
-                    </div>
-                </div>
-
-                {/* Logical Logs Panel (3rd Column) */}
-                <div className="bt-logs">
-                    <div className="bt-log-header">
-                        <span>⚡ LIVE ALERTS</span>
-                    </div>
-
-                    <div className="bt-log-list">
-                        {getLogicalLogs({ price, prices, raw, orb, rvol, volatility }).length > 0 ? (
-                            getLogicalLogs({ price, prices, raw, orb, rvol, volatility }).map((log, i) => (
-                                <div key={i} className={`bt-log-item ${log.type}`}>
-                                    <span>{log.text}</span>
-                                    {log.type === 'neutral' && log.text.includes('Bounce') && <span style={{ marginLeft: 'auto' }}>↗️</span>}
-                                    {log.type === 'neutral' && log.text.includes('Pullback') && <span style={{ marginLeft: 'auto' }}>↘️</span>}
-                                </div>
-                            ))
-                        ) : (
-                            <div className="bt-log-empty">No active signals</div>
-                        )}
                     </div>
                 </div>
             </div>

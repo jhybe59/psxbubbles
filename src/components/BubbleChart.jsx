@@ -95,9 +95,15 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
   }, []);
 
   // Update price history store whenever data changes (for tooltip sparklines)
+  const prevBatchRef = useRef(null);
   useEffect(() => {
     if (data && Array.isArray(data) && data.length > 0) {
+      // Before we process new data, lock in the OLD batch as the baseline for trends
+      if (prevBatchRef.current) {
+        prevBatchRef.current.forEach(coin => updatePreviousValues(coin));
+      }
       updatePrices(data);
+      prevBatchRef.current = data;
     }
   }, [data]);
 
@@ -1294,7 +1300,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         const trend = getTrend(symbol, metricKey, currentValue);
         if (trend === 'up') return { arrow: '▲', color: '#4ade80' };
         if (trend === 'down') return { arrow: '▼', color: '#f87171' };
-        return { arrow: '═', color: '#94a3b8' };
+        return { arrow: '•', color: '#94a3b8' };
       }
 
       // Remove old content elements and create new ones for multi-metric
@@ -1333,7 +1339,9 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         metricEl.append('tspan')
           .text(trendInfo.arrow)
           .style('fill', trendInfo.color)
-          .style('font-size', '0.7em');
+          .style('font-size', trendInfo.arrow === '•' ? '1em' : '0.8em')
+          .style('font-weight', '900')
+          .attr('dy', trendInfo.arrow === '•' ? '-0.05em' : '0');
 
         // Animate if needed
         metricEl
@@ -1342,11 +1350,6 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .style('font-size', `${pctSize}px`);
 
         if (pctSize >= 14) metricEl.attr('filter', 'url(#textShadow)');
-
-        // Also update previous values for trend tracking (on first metric only to avoid duplicates)
-        if (idx === 0 && d.data) {
-          updatePreviousValues(d.data);
-        }
       });
     });
 
