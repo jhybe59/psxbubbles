@@ -68,6 +68,13 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     }
   }));
 
+  // Track seen symbols to distinguish "Brand New" (Gold Ripple) vs "Returning" (White Ripple)
+  const seenSymbolsRef = useRef(new Set());
+  // Reset seen symbols when interval changes (so we track "new in this session" correctly)
+  useEffect(() => {
+    seenSymbolsRef.current.clear();
+  }, [currentInterval]);
+
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
@@ -801,21 +808,30 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
     // Only trigger if this is NOT a full interval refresh (start up or time frame switch)
     if (!intervalChanged) {
       circleEnter.each(function (d) {
+        const symbolId = d.id;
+        const isReturning = seenSymbolsRef.current.has(symbolId);
+
+        // Add to seen set immediately
+        seenSymbolsRef.current.add(symbolId);
+
         const g = d3.select(this);
         const nodeR = d.r;
 
         // Recursive pulse function for prolonged visibility (~15s)
         // This ensures the user notices the new bubble even if they look away briefly.
-        // Recursive pulse function for prolonged visibility (~15s)
         function pulse(count) {
           if (count <= 0) return;
+
+          // Color Logic: Gold for First Time, White for Returning
+          const rippleColor = isReturning ? '#ffffff' : '#ffd700'; // Gold vs White
+          const strokeWidth = isReturning ? 2.5 : 3.5; // Thicker for gold
 
           g.append('circle')
             .attr('class', 'ripple-pulse')
             .attr('r', nodeR) // Start at the edge
             .attr('fill', 'none')
-            .attr('stroke', '#ffffff')
-            .attr('stroke-width', 2.5) // Slightly thinner for cleaner look
+            .attr('stroke', rippleColor)
+            .attr('stroke-width', strokeWidth)
             .style('opacity', 0.9)
             .style('pointer-events', 'none') // Ensure it doesn't block interactions
             .transition()
@@ -838,6 +854,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       // Also fade the bubble itself in nicely
       circleEnter.transition().duration(800).style('opacity', 1);
       labelEnter.transition().duration(800).style('opacity', 1);
+    } else {
+      // If interval changed, just populate the seen set silently without animation
+      // so we "know" these are the baseline bubbles for this session.
+      nodes.forEach(d => {
+        seenSymbolsRef.current.add(d.id);
+      });
     }
 
     circleSelRef.current = circleNodes;
@@ -1441,48 +1463,44 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       })
       .on('mousemove', function (event) {
         const pad = 16;
-        const ttW = 320; // approximate tooltip width (with some buffer)
-        const ttH = 460; // approximate max tooltip height
+        // Tooltip dimensions (must match CSS)
+        const ttW = 640;
+        const ttH = 460;
 
-        // Default: placement to bottom-right of cursor
-        let x = event.clientX + pad;
-        let y = event.clientY + pad;
+        // Get chart container bounds to convert window coords -> local coords
+        // precise alignment relative to the container
+        const rect = wrapperRef.current ? wrapperRef.current.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
 
-        const winW = window.innerWidth;
-        const winH = window.innerHeight;
+        // Relative coordinates inside the chart container
+        // event.clientX is relative to viewport. rect.left is relative to viewport.
+        // So relX = event.clientX - rect.left.
+        let relX = event.clientX - rect.left;
+        let relY = event.clientY - rect.top;
 
-        // X Positioning: prevent horizontal overflow
-        if (x + ttW > winW - pad) {
-          // If slightly off screen, shift left
-          x = winW - ttW - pad;
-          // If cursor is now covering tooltip (tooltip shifted under cursor), move to left side of cursor
-          if (x < event.clientX && x + ttW > event.clientX) {
-            x = event.clientX - ttW - pad;
-          }
+        // Start relative to cursor
+        let x = relX + pad;
+        let y = relY + pad;
+
+        // X Positioning: Check overflow against CONTAINER width (rect.width)
+        // If x + ttW > rect.width, flip left
+        if (x + ttW > rect.width - pad) {
+          x = relX - ttW - pad;
+          // Clamp left
+          if (x < pad) x = pad;
         }
 
-        // Y Positioning: prevent vertical overflow (FLIP UP behavior)
-        if (y + ttH > winH - pad) {
-          // Flip to top of cursor
-          y = event.clientY - ttH - pad;
-
-          // If flipping up goes off top, clamp to top (and let it overlap cursor if really needed, better than invisible)
-          // But better yet: shift it just enough to fit if possible
-          if (y < pad) {
-            // If fitting above is impossible, simpler clamp logic (revert to bottom-aligned but pushed up)
-            // But usually flipping is best. Let's clamp the top.
-            y = Math.max(pad, y);
-
-            // If clamped top still means bottom is cut off (screen too small), force top-align to viewport 
-            // ensuring header is visible
-            if (y + ttH > winH) {
-              // This is a small screen case. 
-              // We prioritizing seeing the top of the tooltip.
-              y = Math.max(pad, winH - ttH - pad);
-            }
-          }
+        // Y Positioning: Check overflow against CONTAINER height (rect.height)
+        if (y + ttH > rect.height - pad) {
+          y = relY - ttH - pad;
+          // Clamp top
+          if (y < pad) y = pad;
         }
 
+        // Final safety: ensure we never render completely outside if container is tiny
+        // (Not strictly necessary if container is full screen, but good for widgets)
+
+        // Important: Update state with LOCAL coordinates
+        // BubbleTooltip should use position: absolute relative to the wrapper
         setTooltipPos({ x, y });
       })
       .on('mouseout', function (event, d) {
