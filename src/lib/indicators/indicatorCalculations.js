@@ -266,3 +266,194 @@ export function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeri
 
     return { macd, signal, histogram };
 }
+
+/**
+ * Opening Range Breakout (ORB)
+ * Calculates the High/Low ranges for the first X minutes of the day.
+ * @param {Object[]} candles - Array of OHLCV candles
+ * @param {number[]} periods - Array of periods in minutes (e.g., [5, 15, 30])
+ * @returns {Object} - Object containing arrays for each period's high/low
+ */
+export function calculateORB(candles, periods = [5, 15, 30]) {
+    // Result containers
+    const results = {};
+    periods.forEach(p => {
+        results[`up${p}`] = new Array(candles.length).fill(null);
+        results[`down${p}`] = new Array(candles.length).fill(null);
+    });
+
+    if (!candles || candles.length === 0) return results;
+
+    // Helper to get day string in Karachi time (matches PSX context)
+    const getDay = (ts) => {
+        return new Date(ts * 1000).toLocaleDateString('en-PK', {
+            timeZone: 'Asia/Karachi',
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric'
+        });
+    };
+
+    let currentDay = null;
+    let dayStartIndex = 0;
+
+    // Process all candles
+    // We do this in a single pass? No, partitioning by day is safer logic.
+    // 1. Identification pass
+    const dayGroups = [];
+    let currentGroup = [];
+
+    for (let i = 0; i < candles.length; i++) {
+        const day = getDay(candles[i].time);
+        if (day !== currentDay) {
+            if (currentGroup.length > 0) {
+                dayGroups.push({ day: currentDay, indices: currentGroup });
+            }
+            currentDay = day;
+            currentGroup = [i];
+        } else {
+            currentGroup.push(i);
+        }
+    }
+    if (currentGroup.length > 0) dayGroups.push({ day: currentDay, indices: currentGroup });
+
+    // 2. Calculation pass per day
+    dayGroups.forEach(group => {
+        const startIdx = group.indices[0];
+        const sessionStartTime = candles[startIdx].time;
+
+        // Calculate ranges for this day
+        periods.forEach(minutes => {
+            const durationSeconds = minutes * 60;
+            const endTime = sessionStartTime + durationSeconds;
+
+            // Find candles inside the opening range [start, start + minutes]
+            // Note: We include the candle that *starts* exactly at the limit?
+            // Usually [0, 5) minutes. 9:00, 9:01, 9:02, 9:03, 9:04. 9:05 is new bar.
+            // Check based on time <= endTime? Or < endTime?
+            // Candles are marked by Open time. The 5-minute range consists of minute bars 0,1,2,3,4.
+            // Bar at '0' covers 0-1. Bar at '4' covers 4-5.
+            // So we want candles where time < start + 5*60.
+
+            let high = -Infinity;
+            let low = Infinity;
+            let found = false;
+
+            for (const idx of group.indices) {
+                const c = candles[idx];
+                if (c.time < endTime) {
+                    if (c.high > high) high = c.high;
+                    if (c.low < low) low = c.low;
+                    found = true;
+                } else {
+                    // Optimized: passed the range, no need to check further for this period in this day
+                    // Wait, we assume sorted data.
+                    break;
+                }
+            }
+
+            // Fill the results for ALL candles in this day
+            // Logic: The script plots the daily range value across the whole day (using valuewhen).
+            if (found) {
+                group.indices.forEach(idx => {
+                    results[`up${minutes}`][idx] = high;
+                    results[`down${minutes}`][idx] = low;
+                });
+            }
+        });
+    });
+
+    return results;
+}
+
+/**
+ * Calculate Previous Day High and Low
+ * Includes Daily and Weekly separator markers
+ * @param {Array} candles - Array of candle objects
+ * @param {Object} params - { utcOffset, showSeparators }
+ */
+export function calculatePrevDayHL(candles, params) {
+    const { utcOffset = 0, showSeparators = true } = params;
+    const offsetMs = (utcOffset || 0) * 60 * 60 * 1000;
+
+    const pdh = []; // Previous Day High
+    const pdl = []; // Previous Day Low
+    const markers = []; // Separator markers
+
+    // Helpers to get day/week from timestamp + offset
+    const getDay = (ts) => {
+        const d = new Date((ts * 1000) + offsetMs);
+        return d.getUTCDate();
+    };
+    const getWeek = (ts) => {
+        const d = new Date((ts * 1000) + offsetMs);
+        // ISO week calculation
+        const date = new Date(d.getTime());
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+        const week1 = new Date(date.getFullYear(), 0, 4);
+        return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+    };
+    const getDayName = (ts) => {
+        const d = new Date((ts * 1000) + offsetMs);
+        return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()];
+    };
+    const getMonthName = (ts) => {
+        const d = new Date((ts * 1000) + offsetMs);
+        return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()];
+    };
+
+    let currentDayHigh = -Infinity;
+    let currentDayLow = Infinity;
+
+    // We need to track the High/Low of the *finished* day to project it to the next day
+    let prevDayHigh = null;
+    let prevDayLow = null;
+
+    for (let i = 0; i < candles.length; i++) {
+        const c = candles[i];
+        const day = getDay(c.time);
+        const week = getWeek(c.time);
+
+        const prevC = i > 0 ? candles[i - 1] : null;
+        const prevDay = prevC ? getDay(prevC.time) : null;
+        const prevWeek = prevC ? getWeek(prevC.time) : null;
+
+        const isNewDay = prevDay !== null && day !== prevDay;
+        const isNewWeek = prevWeek !== null && week !== prevWeek;
+
+        if (isNewDay) {
+            // Day changed. The stats we collected (currentDayHigh/Low) are now the "Previous Day" stats
+            prevDayHigh = currentDayHigh;
+            prevDayLow = currentDayLow;
+
+            // Reset for new day
+            currentDayHigh = -Infinity;
+            currentDayLow = Infinity;
+
+            if (showSeparators) {
+                // Add marker for new day
+                const dName = getDayName(c.time);
+                const dNum = new Date((c.time * 1000) + offsetMs).getUTCDate();
+
+                markers.push({
+                    time: c.time,
+                    position: 'aboveBar',
+                    color: isNewWeek ? '#94a3b8' : '#F59E0B', // Gray for week (to match Pine), Orange for day
+                    shape: 'arrowDown',
+                    text: isNewWeek ? `WEEK | ${dName} ${dNum}` : `${dName} ${dNum}`,
+                });
+            }
+        }
+
+        // Update current day stats
+        currentDayHigh = Math.max(currentDayHigh, c.high);
+        currentDayLow = Math.min(currentDayLow, c.low);
+
+        // Assign previous day values to current candle
+        pdh.push(prevDayHigh);
+        pdl.push(prevDayLow);
+    }
+
+    return { pdh, pdl, markers };
+}

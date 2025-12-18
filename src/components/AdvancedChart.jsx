@@ -622,6 +622,19 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
                     console.error(`Error rendering plot ${plot.id} for indicator ${ind.name}:`, err);
                 }
             });
+
+            // Handle Markers if provided by calculation
+            if (values.markers && Array.isArray(values.markers) && plots.length > 0) {
+                const firstSeries = instanceSeriesMap[plots[0].id];
+                if (firstSeries) {
+                    try {
+                        const sortedMarkers = [...values.markers].sort((a, b) => a.time - b.time);
+                        firstSeries.setMarkers(sortedMarkers);
+                    } catch (e) {
+                        console.error('Failed to set markers for', ind.name, e);
+                    }
+                }
+            }
         });
 
         setIndicatorValues(newValues);

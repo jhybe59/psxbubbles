@@ -11,7 +11,9 @@ import {
     calculateVWAP,
     calculateBollingerBands,
     calculateRSI,
-    calculateMACD
+    calculateMACD,
+    calculateORB,
+    calculatePrevDayHL
 } from './indicatorCalculations.js';
 
 /**
@@ -59,6 +61,10 @@ export const INDICATOR_COLORS = [
     '#00B8D4', // Cyan
     '#FFD600', // Yellow
     '#C51162', // Pink
+    '#00C853', // Green 5m
+    '#CC0000', // Red 5m
+    '#009900', // Green 15m
+    '#FF0000', // Red 15m
 ];
 
 /**
@@ -317,6 +323,75 @@ export const INDICATOR_REGISTRY = {
             const data = getSourceData(candles, params.source);
             return calculateMACD(data, params.fastPeriod, params.slowPeriod, params.signalPeriod);
         }
+    },
+
+    // ===== CUSTOM INDICATORS =====
+    pdh_pdl: {
+        id: 'pdh_pdl',
+        name: 'Prev Day High/Low',
+        shortName: 'PDH/L',
+        category: CATEGORIES.CUSTOM,
+        type: 'overlay',
+        multiLine: true,
+        defaultParams: {
+            utcOffset: 0,
+            showSeparators: true
+        },
+        paramDefs: [
+            { key: 'utcOffset', label: 'UTC Offset', type: 'number', min: -12, max: 12, step: 1 },
+            { key: 'showSeparators', label: 'Show Separators', type: 'boolean' }
+        ],
+        plots: [
+            { id: 'pdh', title: 'Prev Day High', type: 'line', color: '#94a3b8' },
+            { id: 'pdl', title: 'Prev Day Low', type: 'line', color: '#94a3b8' }
+        ],
+        calculate: calculatePrevDayHL
+    },
+
+    orb: {
+        id: 'orb',
+        name: 'ORB Merged (5/15/30)',
+        shortName: 'ORB',
+        category: CATEGORIES.CUSTOM,
+        type: 'overlay',
+        multiLine: true,
+        defaultParams: {
+            up5on: true, down5on: true,
+            up15on: true, down15on: true,
+            up30on: true, down30on: true
+        },
+        paramDefs: [
+            { key: 'up5on', label: '5m High', type: 'boolean', default: true },
+            { key: 'down5on', label: '5m Low', type: 'boolean', default: true },
+            { key: 'up15on', label: '15m High', type: 'boolean', default: true },
+            { key: 'down15on', label: '15m Low', type: 'boolean', default: true },
+            { key: 'up30on', label: '30m High', type: 'boolean', default: true },
+            { key: 'down30on', label: '30m Low', type: 'boolean', default: true }
+        ],
+        plots: [
+            // 5 Minute
+            { id: 'up5', title: '5m High', type: 'line' },
+            { id: 'down5', title: '5m Low', type: 'line' },
+            // 15 Minute
+            { id: 'up15', title: '15m High', type: 'line' },
+            { id: 'down15', title: '15m Low', type: 'line' },
+            // 30 Minute
+            { id: 'up30', title: '30m High', type: 'line' },
+            { id: 'down30', title: '30m Low', type: 'line' }
+        ],
+        calculate: (candles, params) => {
+            const results = calculateORB(candles, [5, 15, 30]);
+
+            // Apply visibility filters (return null if disabled)
+            if (!params.up5on) results.up5 = results.up5.map(() => null);
+            if (!params.down5on) results.down5 = results.down5.map(() => null);
+            if (!params.up15on) results.up15 = results.up15.map(() => null);
+            if (!params.down15on) results.down15 = results.down15.map(() => null);
+            if (!params.up30on) results.up30 = results.up30.map(() => null);
+            if (!params.down30on) results.down30 = results.down30.map(() => null);
+
+            return results;
+        }
     }
 };
 
@@ -356,8 +431,19 @@ export function createIndicatorInstance(indicatorId, customParams = {}) {
         params: { ...def.defaultParams, ...customParams },
         // Initialize styles for each plot
         styles: (def.plots || []).reduce((acc, plot) => {
+            // Special color override for ORB to match user script
+            let defaultColor = getNextColor();
+            if (def.id === 'orb') {
+                if (plot.id === 'up5') defaultColor = '#00cc00';
+                if (plot.id === 'down5') defaultColor = '#cc0000';
+                if (plot.id === 'up15') defaultColor = '#009900';
+                if (plot.id === 'down15') defaultColor = '#ff0000';
+                if (plot.id === 'up30') defaultColor = '#006600';
+                if (plot.id === 'down30') defaultColor = '#cc0000';
+            }
+
             acc[plot.id] = {
-                color: getNextColor(), // Assign unique colors if possible, or cycle
+                color: defaultColor, // Assign unique colors if possible, or cycle
                 lineWidth: 2,
                 lineStyle: 0, // 0=Solid, 1=Dashed, 2=Dotted
                 lineType: 0, // 0=Simple, 1=Step, 2=Curved
