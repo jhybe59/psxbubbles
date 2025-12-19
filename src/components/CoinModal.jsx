@@ -118,27 +118,26 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
 
   useEffect(() => {
     let mounted = true;
-    async function loadSeries() {
+    // ... (inside loadSeries, add isPolling param)
+    async function loadSeries(isPolling = false) {
       if (!coin) return;
-      console.log('[CoinModal] loadSeries called for', coin.symbol, 'timeframe:', timeframe, 'candleInterval:', candleInterval);
+      // console.log('[CoinModal] loadSeries called for', coin.symbol, 'timeframe:', timeframe, 'candleInterval:', candleInterval);
       try {
         const isCandleMode = chartType === 'Candles';
-        // Effective timeframe for data fetching logic
         const effectiveTf = isCandleMode ? candleInterval : timeframe;
         const isTick = effectiveTf.includes('Tick');
 
         if (isTick) {
-          // Tick-based fetching (Bypasses storage, goes straight to API)
+          // Tick-based fetching
           try {
             const origin = typeof window !== 'undefined' ? window.location.origin : '';
             const base = LIVE_API_BASE_URL.startsWith('http') ? LIVE_API_BASE_URL : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
             const url = new URL('tick-candles', base.endsWith('/') ? base : `${base}/`);
 
-            // Convert "100 Ticks" -> "100T"
             const intervalCode = effectiveTf.replace(' Ticks', 'T').replace(' ', '');
             url.searchParams.set('symbol', coin.symbol);
             url.searchParams.set('interval', intervalCode);
-            url.searchParams.set('limit', '100'); // Reasonable limit for tick charts
+            url.searchParams.set('limit', '100');
 
             const headers = { 'Content-Type': 'application/json' };
             if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
@@ -147,7 +146,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
             if (!res.ok) throw new Error('Tick API failed');
             const json = await res.json();
 
-            if (mounted && json.data) {
+            if (mounted && json.data && json.data.length > 0) {
               const s = json.data.map(d => ({
                 ts: new Date(d.ts).getTime(),
                 open: d.open,
@@ -156,9 +155,6 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
                 close: d.close,
                 volume: d.volume
               }));
-              // Ticks come oldest->newest from backend?
-              // tick-candles.mjs reverses them at the end: "candles.reverse()"
-              // So they are oldest -> newest. Correct for charts.
 
               setSeries(s);
 
@@ -168,20 +164,20 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
                 const low = Math.min(...s.map(i => i.low));
                 const high = Math.max(...s.map(i => i.high));
                 setOhlcSummary({ open, low, high, close });
-
-                // We don't support pillPctMap for ticks easily yet (would need many queries)
                 setPillPctMap({});
               }
+            } else if (!isPolling && mounted) {
+              // only clear on initial load if no data
+              setSeries([]);
             }
           } catch (err) {
             console.error('Tick fetch error', err);
-            if (mounted) setSeries([]);
+            if (mounted && !isPolling) setSeries([]);
           }
           return;
         }
 
-        // --- Time-Based Logic: Use Live API as primary source ---
-        // Fetch candles from live API first (has proper historical data)
+        // --- Time-Based Logic ---
         let rows = [];
         try {
           const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -189,18 +185,12 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
           const url = new URL('candles', base.endsWith('/') ? base : `${base}/`);
           url.searchParams.set('symbol', coin.symbol);
 
-          // Map timeframe to API interval
           let apiInterval = '1h';
           if (isCandleMode) {
-            apiInterval = effectiveTf; // e.g. 1m, 15m, 1h, 4h, Day, Week, Month, Year
+            apiInterval = effectiveTf;
           } else {
-            // Legacy Area mapping
             const intervalMap = {
-              'Hour': '1h',
-              'Day': 'Day',
-              'Week': 'Day',
-              'Month': 'Day',
-              'Year': 'Day'
+              'Hour': '1h', 'Day': 'Day', 'Week': 'Day', 'Month': 'Day', 'Year': 'Day'
             };
             apiInterval = intervalMap[timeframe] || '1h';
           }
@@ -208,7 +198,6 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
           url.searchParams.set('interval', apiInterval);
           url.searchParams.set('limit', '500');
 
-          console.log('[CoinModal] Fetching candles from:', url.toString());
           const headers = { 'Content-Type': 'application/json' };
           if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
 
@@ -231,27 +220,32 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
           console.warn('CoinModal: Failed to fetch live candles', e);
         }
 
-        // If API failed, fall back to storage
+        // Fallback to storage if API failed AND we are NOT polling (or polling failed to get data)
+        // Actually if polling failed to get rows, we just want to keep existing series?
+
         if (rows.length === 0) {
+          if (isPolling) {
+            // If polling and got no data, DO NOTHING. Keep existing chart.
+            // console.log('[CoinModal] Poll returned no data, keeping existing.');
+            return;
+          }
+
+          // If initial load, try storage
           console.log('[CoinModal] API returned no data, falling back to storage');
           const tsList = await storage.getAllTimestamps();
           if (tsList && tsList.length > 0) {
             const latestTs = tsList[tsList.length - 1];
-            const latestIdx = tsList.length - 1;
             const lookback = INTERVAL_LOOKUP[timeframe] || 1;
-            const targetIdx = Math.max(0, latestIdx - lookback);
+            const targetIdx = Math.max(0, tsList.length - 1 - lookback);
             const earlierTs = tsList[targetIdx];
             rows = await storage.getRange(coin.symbol, earlierTs, latestTs);
           }
         }
 
-        // If data already has OHLC (from API), use directly; otherwise build from snapshots
         let s = [];
         if (rows.length > 0 && rows[0].open !== undefined) {
-          // Data already has OHLC
           s = rows.map(r => ({ ts: r.ts, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume }));
         } else if (rows.length > 0) {
-          // Build candles from price snapshots
           const BUCKET_MS = {
             Hour: 5 * 60 * 1000,
             Day: 60 * 60 * 1000,
@@ -265,41 +259,33 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
         }
 
         if (mounted) {
-          setSeries(s);
-          if (s && s.length) {
+          // If we have data, update. If s is empty and !isPolling, clear.
+          if (s.length > 0) {
+            setSeries(s);
             const open = s[0].open != null ? s[0].open : s[0].close;
             const close = s[s.length - 1].close;
             const low = Math.min(...s.map((z) => (z.low != null ? z.low : z.close)));
             const high = Math.max(...s.map((z) => (z.high != null ? z.high : z.close)));
             setOhlcSummary({ open, low, high, close });
 
-            // Compute percentage from first to last candle in current series
             const pctMap = {};
             if (s.length >= 2) {
               const pct = ((close - open) / open) * 100;
-              // For candle mode, we don't have a pill map for the new intervals yet, 
-              // or we can just store it in state if needed, but the pills are hidden in candle mode.
               if (!isCandleMode) {
                 pctMap[timeframe] = `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
               }
             }
             if (!isCandleMode) setPillPctMap(pctMap);
 
-            // FORCE SYNC: If we have a live coin price that is newer/different than the API tail,
-            // update the last candle to match the header immediately.
-            if (s.length > 0 && coin && coin.price) {
+            // Force Sync logic...
+            if (coin && coin.price) {
+              // ... (same as original force sync logic)
               const lastCandle = s[s.length - 1];
               const headerPrice = Number(coin.price);
               if (Number.isFinite(headerPrice)) {
-
-                // Only update if substantially different or just to be safe
                 lastCandle.close = headerPrice;
-
-                // Adjust high/low if the current price is outside current bounds
                 if (headerPrice > lastCandle.high) lastCandle.high = headerPrice;
                 if (headerPrice < lastCandle.low) lastCandle.low = headerPrice;
-
-                // Update OHLC summary as well
                 setOhlcSummary(prev => ({
                   open: s[0].open,
                   low: Math.min(...s.map(z => z.low)),
@@ -309,10 +295,14 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
               }
             }
 
-          } else setOhlcSummary(null);
+          } else if (!isPolling) {
+            setSeries([]);
+            setOhlcSummary(null);
+            setPillPctMap({});
+          }
         }
       } catch (err) {
-        if (mounted) {
+        if (mounted && !isPolling) {
           setSeries([]);
           setOhlcSummary(null);
           setPillPctMap({});
@@ -321,15 +311,13 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
     }
 
     // Initial Load
-    loadSeries();
+    loadSeries(false);
 
     // Auto-Refresh Poll (every 10 seconds)
     let intervalId = null;
     if (ENABLE_LIVE_API) {
       intervalId = setInterval(() => {
-        // We can just call loadSeries again. 
-        // Ideally we shouldn't show loading state on poll, but loadSeries doesn't toggle a 'loading' state prop other than internal vars.
-        loadSeries();
+        loadSeries(true);
       }, 10000);
     }
 

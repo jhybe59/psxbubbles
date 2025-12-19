@@ -70,7 +70,7 @@ export default function QuickChart({ symbol, interval, x, y, onClose, currentPri
 
                     const res = await fetch(url.toString(), { headers });
                     const json = await res.json();
-                    if (mounted && json.data) {
+                    if (mounted && json.data && json.data.length > 0) {
                         setSeries(json.data.map(d => ({
                             ts: new Date(d.ts).getTime(),
                             open: d.open, high: d.high, low: d.low, close: d.close, volume: d.volume
@@ -92,7 +92,7 @@ export default function QuickChart({ symbol, interval, x, y, onClose, currentPri
                     const res = await fetch(url.toString(), { headers });
                     if (res.ok) {
                         const json = await res.json();
-                        if (mounted && json.data) {
+                        if (mounted && json.data && json.data.length > 0) {
                             setSeries(json.data.map(d => ({
                                 ts: new Date(d.ts).getTime(),
                                 open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close), volume: Number(d.volume)
@@ -107,9 +107,9 @@ export default function QuickChart({ symbol, interval, x, y, onClose, currentPri
             }
         }
 
-        fetchData();
+        fetchData(false);
 
-        // Poll every 15 seconds
+        // Poll every 10 seconds
         if (ENABLE_LIVE_API) {
             intervalId = setInterval(() => {
                 fetchData(true);
