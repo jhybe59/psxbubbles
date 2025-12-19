@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, AreaSeries, LineSeries } from 'lightweight-charts';
 import { IndicatorButton, IndicatorSelector, ActiveIndicatorsDropdown, IndicatorSettingsModal } from './indicators';
+import ChartSettingsModal from './ChartSettingsModal';
+import DaySeparatorPlugin from '../lib/chart/DaySeparatorPlugin';
 import { getIndicator, getActiveIndicators, setActiveIndicators, addIndicator, removeIndicator, toggleIndicatorVisibility, updateIndicator, getCandleType, setCandleType } from '../lib/indicators';
 import { toHeikinAshi } from '../lib/heikinAshi';
 import ChartControls from './ChartControls';
@@ -116,6 +118,44 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
             candleType: 'Candles'
         }];
     });
+
+    // Chart Settings (Global for all panels)
+    const [chartSettings, setChartSettings] = useState(() => {
+        try {
+            const saved = localStorage.getItem('advancedChart_settings');
+            return saved ? JSON.parse(saved) : {
+                sessionBreaks: { visible: false, color: '#363a45', lineStyle: 1, lineWidth: 1, opacity: 0.5 }
+            };
+        } catch {
+            return { sessionBreaks: { visible: false, color: '#363a45', lineStyle: 1, lineWidth: 1, opacity: 0.5 } };
+        }
+    });
+
+    const [showSettingsModal, setShowSettingsModal] = useState(false);
+    const [contextMenu, setContextMenu] = useState(null);
+
+    // Persist settings
+    useEffect(() => {
+        try {
+            localStorage.setItem('advancedChart_settings', JSON.stringify(chartSettings));
+        } catch { }
+    }, [chartSettings]);
+
+    // Context Menu Handler
+    const onContextMenu = useCallback((e) => {
+        e.preventDefault();
+        setContextMenu({
+            x: e.clientX,
+            y: e.clientY
+        });
+    }, []);
+
+    // Close context menu on click elsewhere
+    useEffect(() => {
+        const handleClick = () => setContextMenu(null);
+        window.addEventListener('click', handleClick);
+        return () => window.removeEventListener('click', handleClick);
+    }, []);
 
     // Save settings to localStorage when they change
     useEffect(() => {
@@ -282,6 +322,31 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
             chartRef.current = chart;
             setChartInstance(chart);
 
+            // Day Separator Plugin (Single Chart Mode)
+            const daySeparator = new DaySeparatorPlugin();
+            chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+                // Trigger update if needed, though plugin handles itself usually
+            });
+            // Attach manually via private API or if LC 4.0 supports it differently.
+            // Since we are using Custom Series Primitive which is supported in recent versions:
+            // Actually, primitives are attached to series or chart. 
+            // In LC v4+, custom series are top level? No, primitives are usually attached via chart.
+            // Wait, looking at docs, ISeriesPrimitive is attached via a custom series?
+            // "You can create a custom series..."
+            // For Day Separators, it's often a "Overlay" primitive.
+            // Let's use the standard way: create a CustomSeries if needed, OR if it's just drawing on TimeScale.
+
+            // Standard Plugin usage:
+            // const series = chart.addCustomSeries(new DaySeparatorPlugin()); -- if it was a series type.
+            // But here it is a primitive. We need to attach it to a series.
+
+            // IMPORTANT: DaySeparatorPlugin needs to be attached to a series to get data/coordinates.
+            // We'll attach it to the Main Series later when series is created.
+
+            // Storing ref to plugin to update options
+            chartRef.current.daySeparator = daySeparator;
+
+
             // Add Main Series based on type
             let mainSeries;
             if (effectiveChartType === 'Area') {
@@ -301,6 +366,12 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
                 });
             }
             seriesRef.current = mainSeries;
+
+            // Attach Day Separator Plugin to Main Series
+            if (chartRef.current.daySeparator) {
+                mainSeries.attachPrimitive(chartRef.current.daySeparator);
+                chartRef.current.daySeparator.applyOptions(chartSettings.sessionBreaks);
+            }
 
             // Add Volume Series (Overlay) on a separate scale 'volume'
             const volumeSeries = chart.addSeries(HistogramSeries, {
@@ -473,6 +544,13 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
             }
         }
     }, [data, effectiveChartType, effectiveCandleType]); // Re-run when data, chartType, or candleType changes
+
+    // Update Plugin Options when settings change (Single Chart Mode)
+    useEffect(() => {
+        if (chartRef.current && chartRef.current.daySeparator) {
+            chartRef.current.daySeparator.applyOptions(chartSettings.sessionBreaks);
+        }
+    }, [chartSettings]);
 
     // Calculate and render indicator series
     useEffect(() => {
@@ -931,7 +1009,10 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
             </div>
 
             {/* ======= MAIN CONTENT ======= */}
-            <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+            <div
+                style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}
+                onContextMenu={onContextMenu}
+            >
                 {/* Split Screen Mode */}
                 {layout !== '1x1' ? (
                     <div style={{
@@ -957,6 +1038,7 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
                                 onCandleTypeChange={(ct) => updatePanel(panel.id, { candleType: ct })}
                                 syncSettings={getSyncSettings()}
                                 inheritedIndicators={activeIndicators}
+                                chartSettings={chartSettings} // PASS SETTINGS HERE
                             />
                         ))}
                     </div>
@@ -986,6 +1068,46 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
                         </div>
                     </div>
                 )}
+
+                {/* Custom Context Menu */}
+                {contextMenu && (
+                    <div
+                        style={{
+                            position: 'fixed',
+                            top: contextMenu.y,
+                            left: contextMenu.x,
+                            zIndex: 100001,
+                            background: '#1e222d',
+                            border: '1px solid #363a45',
+                            borderRadius: '4px',
+                            padding: '4px 0',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                            minWidth: '160px'
+                        }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div
+                            style={{ padding: '8px 16px', color: '#d1d4dc', fontSize: '13px', cursor: 'pointer', transition: 'background 0.1s' }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#2a2e39'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                            onClick={() => {
+                                setContextMenu(null);
+                                setShowSettingsModal(true);
+                            }}
+                        >
+                            Settings...
+                        </div>
+                        <div style={{ borderTop: '1px solid #2a2e39', margin: '4px 0' }} />
+                        <div
+                            style={{ padding: '8px 16px', color: '#d1d4dc', fontSize: '13px', cursor: 'pointer' }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#2a2e39'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                            onClick={() => setContextMenu(null)}
+                        >
+                            Close
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Indicator Selector Popup */}
@@ -1001,6 +1123,17 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
                 onClose={() => setEditingIndicator(null)}
                 indicator={editingIndicator}
                 onSave={handleUpdateIndicator}
+            />
+
+            {/* Chart Settings Modal */}
+            <ChartSettingsModal
+                isOpen={showSettingsModal}
+                onClose={() => setShowSettingsModal(false)}
+                settings={chartSettings}
+                onSave={(newSettings) => {
+                    setChartSettings(newSettings);
+                    setShowSettingsModal(false);
+                }}
             />
 
             {/* Symbol Search Popover */}

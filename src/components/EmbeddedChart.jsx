@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, AreaSeries, LineSeries } from 'lightweight-charts';
+import DaySeparatorPlugin from '../lib/chart/DaySeparatorPlugin';
 import { IndicatorSelector, ActiveIndicatorsDropdown, IndicatorSettingsModal } from './indicators';
 import { getIndicator, getActiveIndicators, setActiveIndicators, addIndicator, removeIndicator, toggleIndicatorVisibility, updateIndicator } from '../lib/indicators';
 import { toHeikinAshi } from '../lib/heikinAshi';
@@ -58,6 +59,18 @@ const EmbeddedChart = React.forwardRef(({ data = [], symbol, height = 300, onFul
     const [indicatorValues, setIndicatorValues] = useState({});
     const indicatorSeriesRef = useRef({}); // Map of instanceId -> series
 
+    // Chart Settings (Global)
+    const [chartSettings, setChartSettings] = useState(() => {
+        try {
+            const saved = localStorage.getItem('advancedChart_settings');
+            return saved ? JSON.parse(saved) : {
+                sessionBreaks: { visible: false, color: '#363a45', lineStyle: 1, lineWidth: 1, opacity: 0.5 }
+            };
+        } catch {
+            return { sessionBreaks: { visible: false, color: '#363a45', lineStyle: 1, lineWidth: 1, opacity: 0.5 } };
+        }
+    });
+
     // Load indicators from storage on mount AND sync across tabs
     useEffect(() => {
         const loadIndicators = () => {
@@ -74,8 +87,21 @@ const EmbeddedChart = React.forwardRef(({ data = [], symbol, height = 300, onFul
             if (e.key === 'chart_indicators_layout' || e.key === null) {
                 loadIndicators();
             }
+            if (e.key === 'advancedChart_settings' || e.key === null) {
+                try {
+                    const saved = localStorage.getItem('advancedChart_settings');
+                    if (saved) setChartSettings(JSON.parse(saved));
+                } catch { }
+            }
         };
         window.addEventListener('storage', handleStorageChange);
+
+        // Custom event listener for same-tab updates (dispatched from AdvancedChart if needed, or by us)
+        // Since AdvancedChart uses setItem, 'storage' event only fires on OTHER tabs.
+        // For same-tab syncing, we might need a custom event or check on focus.
+        // But for now, storage event covers multi-window/tab. 
+        // If user changes setting in AdvancedChart in SAME window, it won't fire 'storage' event.
+        // We'll rely on re-mount or manual firing if we want perfect sync in same window.
 
         return () => {
             window.removeEventListener('storage', handleStorageChange);
@@ -113,97 +139,104 @@ const EmbeddedChart = React.forwardRef(({ data = [], symbol, height = 300, onFul
 
         let chart = null;
 
-        try {
-            // Create Chart
-            chart = createChart(chartContainerRef.current, {
-                ...THEME_DARK,
-                width: chartContainerRef.current.clientWidth,
-                height: height,
+
+        // Create Chart
+        chart = createChart(chartContainerRef.current, {
+            ...THEME_DARK,
+            width: chartContainerRef.current.clientWidth,
+            height: height,
+        });
+
+        chartRef.current = chart;
+        setChartInstance(chart);
+
+        // Add Main Series based on chartType
+        let mainSeries;
+        if (chartType === 'Area') {
+            mainSeries = chart.addSeries(AreaSeries, {
+                topColor: 'rgba(38, 166, 154, 0.56)',
+                bottomColor: 'rgba(38, 166, 154, 0.04)',
+                lineColor: 'rgba(38, 166, 154, 1)',
+                lineWidth: 2,
             });
-
-            chartRef.current = chart;
-            setChartInstance(chart);
-
-            // Add Main Series based on chartType
-            let mainSeries;
-            if (chartType === 'Area') {
-                mainSeries = chart.addSeries(AreaSeries, {
-                    topColor: 'rgba(38, 166, 154, 0.56)',
-                    bottomColor: 'rgba(38, 166, 154, 0.04)',
-                    lineColor: 'rgba(38, 166, 154, 1)',
-                    lineWidth: 2,
-                });
-            } else {
-                mainSeries = chart.addSeries(CandlestickSeries, {
-                    upColor: '#089981',
-                    downColor: '#ef4444',
-                    borderVisible: false,
-                    wickUpColor: '#089981',
-                    wickDownColor: '#ef4444',
-                });
-            }
-            seriesRef.current = mainSeries;
-
-            // Add Volume Series (Overlay) on a separate scale 'volume'
-            const volumeSeries = chart.addSeries(HistogramSeries, {
-                color: '#26a69a',
-                priceFormat: {
-                    type: 'volume',
-                },
-                priceScaleId: 'volume',
+        } else {
+            mainSeries = chart.addSeries(CandlestickSeries, {
+                upColor: '#089981',
+                downColor: '#ef4444',
+                borderVisible: false,
+                wickUpColor: '#089981',
+                wickDownColor: '#ef4444',
             });
-            volumeSeriesRef.current = volumeSeries;
-
-            // Configure the 'volume' scale to sit at the bottom (overlay)
-            chart.priceScale('volume').applyOptions({
-                scaleMargins: {
-                    top: 0.8, // Top 80% is empty, volume sits in bottom 20%
-                    bottom: 0,
-                },
-                visible: false, // Hide the price axis for volume
-            });
-
-            // Configure the main scale (candles) to take up most of the space
-            chart.priceScale('right').applyOptions({
-                scaleMargins: {
-                    top: 0.1,
-                    bottom: 0.1, // Leave some space
-                },
-            });
-
-            // Subscribe to crosshair move
-            chart.subscribeCrosshairMove((param) => {
-                if (
-                    param.point === undefined ||
-                    !param.time ||
-                    param.point.x < 0 ||
-                    param.point.x > chartContainerRef.current.clientWidth ||
-                    param.point.y < 0 ||
-                    param.point.y > chartContainerRef.current.clientHeight
-                ) {
-                    setLegend(null);
-                } else {
-                    // Get price data
-                    const priceData = param.seriesData.get(mainSeries);
-                    // Get volume data
-                    const volumeData = param.seriesData.get(volumeSeries);
-
-                    if (priceData) {
-                        setLegend({
-                            open: priceData.open || priceData.value, // Support Area series (value) or Candle (open)
-                            high: priceData.high || priceData.value,
-                            low: priceData.low || priceData.value,
-                            close: priceData.close || priceData.value,
-                            volume: volumeData ? volumeData.value : undefined,
-                            isUp: (priceData.close || priceData.value) >= (priceData.open || priceData.value)
-                        });
-                    }
-                }
-            });
-
-        } catch (e) {
-            console.error('Failed to init chart:', e);
         }
+        seriesRef.current = mainSeries;
+
+        // Day Separator Plugin
+        const daySeparator = new DaySeparatorPlugin();
+        if (chartSettings && chartSettings.sessionBreaks) {
+            daySeparator.applyOptions(chartSettings.sessionBreaks);
+        }
+        mainSeries.attachPrimitive(daySeparator);
+        chartRef.current.daySeparator = daySeparator;
+
+
+        // Add Volume Series (Overlay) on a separate scale 'volume'
+        const volumeSeries = chart.addSeries(HistogramSeries, {
+            color: '#26a69a',
+            priceFormat: {
+                type: 'volume',
+            },
+            priceScaleId: 'volume',
+        });
+        volumeSeriesRef.current = volumeSeries;
+
+        // Configure the 'volume' scale to sit at the bottom (overlay)
+        chart.priceScale('volume').applyOptions({
+            scaleMargins: {
+                top: 0.8, // Top 80% is empty, volume sits in bottom 20%
+                bottom: 0,
+            },
+            visible: false, // Hide the price axis for volume
+        });
+
+        // Configure the main scale (candles) to take up most of the space
+        chart.priceScale('right').applyOptions({
+            scaleMargins: {
+                top: 0.1,
+                bottom: 0.1, // Leave some space
+            },
+        });
+
+        // Subscribe to crosshair move
+        chart.subscribeCrosshairMove((param) => {
+            if (
+                param.point === undefined ||
+                !param.time ||
+                param.point.x < 0 ||
+                param.point.x > chartContainerRef.current.clientWidth ||
+                param.point.y < 0 ||
+                param.point.y > chartContainerRef.current.clientHeight
+            ) {
+                setLegend(null);
+            } else {
+                // Get price data
+                const priceData = param.seriesData.get(mainSeries);
+                // Get volume data
+                const volumeData = param.seriesData.get(volumeSeries);
+
+                if (priceData) {
+                    setLegend({
+                        open: priceData.open || priceData.value, // Support Area series (value) or Candle (open)
+                        high: priceData.high || priceData.value,
+                        low: priceData.low || priceData.value,
+                        close: priceData.close || priceData.value,
+                        volume: volumeData ? volumeData.value : undefined,
+                        isUp: (priceData.close || priceData.value) >= (priceData.open || priceData.value)
+                    });
+                }
+            }
+        });
+
+
 
         return () => {
             if (chartRef.current) {
@@ -310,6 +343,14 @@ const EmbeddedChart = React.forwardRef(({ data = [], symbol, height = 300, onFul
             }
         }
     }, [data, chartType, candleType]); // Depend on chartType and candleType too to ensure re-render consistency
+
+    // Update Plugin when settings change
+    useEffect(() => {
+        if (chartRef.current && chartRef.current.daySeparator && chartSettings.sessionBreaks) {
+            chartRef.current.daySeparator.applyOptions(chartSettings.sessionBreaks);
+        }
+    }, [chartSettings]);
+
 
     // Calculate and render indicator series
     useEffect(() => {

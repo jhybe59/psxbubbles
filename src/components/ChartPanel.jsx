@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, AreaSeries, LineSeries } from 'lightweight-charts';
+import DaySeparatorPlugin from '../lib/chart/DaySeparatorPlugin';
 import { getIndicator, getActiveIndicators, addIndicator, removeIndicator, toggleIndicatorVisibility, updateIndicator } from '../lib/indicators';
 import { toHeikinAshi } from '../lib/heikinAshi';
 import { LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
@@ -41,6 +42,7 @@ export default function ChartPanel({
     onCandleTypeChange,
     syncSettings = null, // { interval, candleType } when sync is enabled
     inheritedIndicators = [], // Indicators inherited from single mode
+    chartSettings = {}, // Chart settings (Day Separator, etc.)
     showHeader = true,
     style = {}
 }) {
@@ -177,6 +179,14 @@ export default function ChartPanel({
         });
         seriesRef.current = mainSeries;
 
+        // Day Separator Plugin
+        const daySeparator = new DaySeparatorPlugin();
+        if (chartSettings && chartSettings.sessionBreaks) {
+            daySeparator.applyOptions(chartSettings.sessionBreaks);
+        }
+        mainSeries.attachPrimitive(daySeparator);
+        chartRef.current.daySeparator = daySeparator; // Save ref for updates
+
         // Volume series
         const volumeSeries = chart.addSeries(HistogramSeries, {
             color: '#26a69a',
@@ -282,6 +292,13 @@ export default function ChartPanel({
             console.error('ChartPanel: Chart error:', err);
         }
     }, [series, effectiveCandleType]);
+
+    // Update Plugin Options
+    useEffect(() => {
+        if (chartRef.current && chartRef.current.daySeparator && chartSettings.sessionBreaks) {
+            chartRef.current.daySeparator.applyOptions(chartSettings.sessionBreaks);
+        }
+    }, [chartSettings]);
 
     const fmt = (num) => num == null ? '-' : (num >= 1000 ? num.toFixed(2) : num.toFixed(4));
     const fmtVol = (num) => {

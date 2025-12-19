@@ -319,8 +319,24 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
         }
       }
     }
+
+    // Initial Load
     loadSeries();
-    return () => { mounted = false; };
+
+    // Auto-Refresh Poll (every 10 seconds)
+    let intervalId = null;
+    if (ENABLE_LIVE_API) {
+      intervalId = setInterval(() => {
+        // We can just call loadSeries again. 
+        // Ideally we shouldn't show loading state on poll, but loadSeries doesn't toggle a 'loading' state prop other than internal vars.
+        loadSeries();
+      }, 10000);
+    }
+
+    return () => {
+      mounted = false;
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [coin, timeframe, candleInterval, chartType]);
 
   // Update currentCoin when coin prop changes (real-time updates)

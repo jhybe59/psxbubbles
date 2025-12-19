@@ -50,9 +50,11 @@ export default function QuickChart({ symbol, interval, x, y, onClose, currentPri
 
     useEffect(() => {
         let mounted = true;
-        async function fetchData() {
+        let intervalId = null;
+
+        async function fetchData(isPolling = false) {
             if (!symbol) return;
-            setLoading(true);
+            if (!isPolling) setLoading(true); // Don't show loading spinner on poll
             try {
                 // Ticks Logic
                 if (chartInterval.includes('T')) {
@@ -101,11 +103,23 @@ export default function QuickChart({ symbol, interval, x, y, onClose, currentPri
             } catch (err) {
                 console.error("QuickChart fetch error", err);
             } finally {
-                if (mounted) setLoading(false);
+                if (mounted && !isPolling) setLoading(false);
             }
         }
+
         fetchData();
-        return () => { mounted = false; };
+
+        // Poll every 15 seconds
+        if (ENABLE_LIVE_API) {
+            intervalId = setInterval(() => {
+                fetchData(true);
+            }, 10000); // 10s poll for snappier updates
+        }
+
+        return () => {
+            mounted = false;
+            if (intervalId) clearInterval(intervalId);
+        };
     }, [symbol, chartInterval]);
 
     // Click outside to close
