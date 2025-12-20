@@ -30,6 +30,13 @@ export const resolveValue = (coin, field, interval) => {
     if (field === 'volatility') return coin.volatility != null ? Number(coin.volatility) : null;
     if (field === 'relative_volume') return coin.relative_volume != null ? Number(coin.relative_volume) : null;
 
+    // Volatility Engine Metrics
+    if (field === 'squeeze_on') return coin.squeeze_on === true ? 1 : 0;
+    if (field === 'bb_width') return (coin.bb_width ?? coin.raw?.bb_width) != null ? Number(coin.bb_width ?? coin.raw?.bb_width) : null;
+    if (field === 'kc_width') return (coin.kc_width ?? coin.raw?.kc_width) != null ? Number(coin.kc_width ?? coin.raw?.kc_width) : null;
+    if (field === 'vol_atr') return (coin.vol_atr ?? coin.raw?.vol_atr) != null ? Number(coin.vol_atr ?? coin.raw?.vol_atr) : null;
+    if (field === 'vol_stddev') return (coin.vol_stddev ?? coin.raw?.vol_stddev) != null ? Number(coin.vol_stddev ?? coin.raw?.vol_stddev) : null;
+
     // Candle Body Percentage - body size as % of total range (for candle strength filtering)
     // body = |close - open|, range = high - low, body_pct = (body / range) * 100
     if (field === 'candle_body_pct') {

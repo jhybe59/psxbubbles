@@ -9,6 +9,7 @@ import { withClient } from '../db.mjs';  // PostgreSQL for static data
 import { getCache, setCache } from '../cache.mjs';
 import logger from '../logger.mjs';
 import rvolService from '../services/rvol-service.mjs';
+import { volatilityService } from '../services/volatility-service.mjs';
 
 const router = Router();
 
@@ -544,6 +545,35 @@ router.get('/', async (req, res) => {
       }
     } catch (orbErr) {
       logger.warn({ err: orbErr }, 'Failed to merge ORB data (non-fatal)');
+    }
+
+    // Fetch and merge Volatility (Squeeze) Data
+    try {
+      const volInterval = interval === 'Day' ? '1d' : interval;
+      // Only run for intervals supported by volatilityService (minutes/hours/days)
+      // Tick intervals are handled by tick-bubbles route, but schema allows valid intervals here.
+      // Tick intervals shouldn't reach here if isTickInterval check works? 
+      // isTickInterval uses buildTickQuery.
+      // But this route handles TIME intervals in 'else' block.
+
+      if (!isTickInterval(interval)) {
+        const symbolsList = payload.data.map(b => b.symbol);
+        const squeezeMap = await volatilityService.getBatchSqueezeState(symbolsList, volInterval);
+
+        for (const bubble of payload.data) {
+          const volData = squeezeMap.get(bubble.symbol);
+          if (volData) {
+            bubble.squeeze_on = volData.squeeze_on;
+            bubble.bb_width = volData.bb_width;
+            bubble.kc_width = volData.kc_width;
+            bubble.vol_atr = volData.atr;
+            bubble.vol_atr_pct = volData.vol_atr_pct;
+            bubble.vol_stddev = volData.stddev;
+          }
+        }
+      }
+    } catch (volErr) {
+      logger.warn({ err: volErr }, 'Failed to merge Volatility data');
     }
 
     // Apply limit

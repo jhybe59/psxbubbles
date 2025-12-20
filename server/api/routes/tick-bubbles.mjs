@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { queryQuestDB } from '../questdb.mjs';
 import logger from '../logger.mjs';
 import rvolService from '../services/rvol-service.mjs';
+import { volatilityService } from '../services/volatility-service.mjs';
 
 const router = Router();
 
@@ -342,6 +343,26 @@ router.get('/', async (req, res) => {
             }
         } catch (rvolErr) {
             console.error('[tick-bubbles] Failed to merge tick RVOL data:', rvolErr);
+        }
+
+        // Fetch and merge Tick-based Volatility (Squeeze) data
+        try {
+            const symbolsList = bubbles.map(b => b.symbol);
+            const squeezeMap = await volatilityService.getBatchTickSqueeze(symbolsList, tickCount);
+
+            for (const bubble of bubbles) {
+                const volData = squeezeMap.get(bubble.symbol);
+                if (volData) {
+                    bubble.squeeze_on = volData.squeeze_on;
+                    bubble.bb_width = volData.bb_width;
+                    bubble.kc_width = volData.kc_width;
+                    bubble.vol_atr = volData.atr;
+                    bubble.vol_atr_pct = volData.vol_atr_pct;
+                    bubble.vol_stddev = volData.stddev;
+                }
+            }
+        } catch (volErr) {
+            console.error('[tick-bubbles] Failed to merge tick volatility data:', volErr);
         }
 
         const duration = Date.now() - start;

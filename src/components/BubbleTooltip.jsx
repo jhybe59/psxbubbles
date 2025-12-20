@@ -257,7 +257,12 @@ export default function BubbleTooltip({
     // New Props for Sidebar
     raw = {},
     orb = {},
-    style = {}
+    style = {},
+    // Volatility
+    squeeze_on,
+    bb_width,
+    kc_width,
+    vol_atr
 }) {
     // Use new props if available, fallback to old ones
     const intPct = intervalPctChange ?? pctChange ?? 0;
@@ -477,6 +482,31 @@ export default function BubbleTooltip({
                             <span className="bt-stat-value">{formatPrice(orb?.prev_close ?? raw?.prev_close ?? raw?.['Previous Close'])}</span>
                         </div>
                     </div>
+
+                    <div className="bt-sidebar-separator"></div>
+
+                    {/* Volatility Section */}
+                    {typeof squeeze_on !== 'undefined' && (
+                        <div className="bt-sidebar-section">
+                            <div className="bt-sidebar-header">Volatility</div>
+
+                            <div className="bt-stat-row">
+                                <span className="bt-stat-label">Status</span>
+                                <span className="bt-stat-value" style={{
+                                    color: squeeze_on ? '#f97316' : '#10b981',
+                                    fontWeight: 'bold'
+                                }}>
+                                    {squeeze_on ? 'SQUEEZE' : 'NORMAL'}
+                                </span>
+                            </div>
+                            {bb_width != null && (
+                                <div className="bt-stat-row">
+                                    <span className="bt-stat-label">BB Width</span>
+                                    <span className="bt-stat-value">{Number(bb_width).toFixed(4)}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

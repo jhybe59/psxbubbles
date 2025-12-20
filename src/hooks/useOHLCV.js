@@ -194,8 +194,15 @@ async function fetchLiveInterval(interval) {
           daily_change_1d: row.dailyPct != null ? Number(row.dailyPct) : (row.pct_24h != null ? Number(row.pct_24h) : null),
           // Add 24h volume for tooltip
           day_volume: row.day_volume != null ? Number(row.day_volume) : null,
-          volatility: volatility,
+          volatility: row.vol_atr_pct != null ? Number(row.vol_atr_pct) : volatility,
           relative_volume: relative_volume,
+          // Volatility Engine Metrics
+          squeeze_on: row.squeeze_on ?? false,
+          bb_width: row.bb_width ? Number(row.bb_width) : null,
+          kc_width: row.kc_width ? Number(row.kc_width) : null,
+          vol_atr: row.vol_atr ? Number(row.vol_atr) : null,
+          vol_atr_pct: row.vol_atr_pct ? Number(row.vol_atr_pct) : null,
+          vol_stddev: row.vol_stddev ? Number(row.vol_stddev) : null,
           // Previous volatility and RVOL for momentum confirmation
           prev_volatility: prevCandle?.volatility ?? null,
           prev_rvol: prevCandle?.rvol ?? null,
@@ -278,10 +285,17 @@ async function fetchTickInterval(interval) {
         daily_change_1d: row.pct_24h != null ? Number(row.pct_24h) : null,
         day_volume: row.day_volume != null ? Number(row.day_volume) : null,
         day_volume: row.day_volume != null ? Number(row.day_volume) : null,
-        volatility: 0,
         // Map RVOL correctly from API response
         rvol: row.rvol != null ? Number(row.rvol) : 0,
         relative_volume: row.rvol != null ? Number(row.rvol) : 0,
+        volatility: row.vol_atr_pct != null ? Number(row.vol_atr_pct) : (row.volatility != null ? Number(row.volatility) : 0),
+        // Volatility Engine Metrics
+        squeeze_on: row.squeeze_on ?? false,
+        bb_width: row.bb_width ? Number(row.bb_width) : null,
+        kc_width: row.kc_width ? Number(row.kc_width) : null,
+        vol_atr: row.vol_atr ? Number(row.vol_atr) : null,
+        vol_atr_pct: row.vol_atr_pct ? Number(row.vol_atr_pct) : null,
+        vol_stddev: row.vol_stddev ? Number(row.vol_stddev) : null,
         ts: row.ts ? new Date(row.ts).getTime() : null,
         // Tick-specific fields
         tickInterval: tickCount,

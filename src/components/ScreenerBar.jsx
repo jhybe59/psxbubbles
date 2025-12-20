@@ -75,6 +75,40 @@ const QUICK_FILTERS = [
             volume: { operator: 'above', target: 'prev_volume' },
             relative_volume: { operator: 'above', target: 'prev_rvol' }
         }
+    },
+    {
+        id: 'squeeze_on',
+        label: '🟠 Squeeze On',
+        conditions: {
+            squeeze_on: { min: 1 }
+        }
+    },
+    {
+        id: 'vol_expansion',
+        label: '💥 Vol Expansion',
+        conditions: {
+            bb_width: { operator: 'above', target: 'kc_width' }
+        }
+    },
+    {
+        id: 'power_breakout',
+        label: '🚀 Power Breakout',
+        conditions: {
+            bb_width: { operator: 'above', target: 'kc_width' },
+            relative_volume: { min: 1.5 },
+            squeeze_on: { max: 0 }
+        }
+    },
+    {
+        id: 'bullish_breakout',
+        label: '🔥 Bullish Breakout',
+        conditions: {
+            price_change_percentage_24h: { min: 0.5 },
+            orb_breakout_30m: { min: 1 },
+            relative_volume: { min: 2.5 },
+            bb_width: { operator: 'above', target: 'kc_width' },
+            squeeze_on: { max: 0 }
+        }
     }
 ];
 

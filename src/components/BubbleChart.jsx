@@ -992,6 +992,28 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         .attr('stroke-width', ringW)
         .style('opacity', 0.95);
 
+      // Squeeze Indicator (Volatility Engine)
+      const isSqueeze = d.data && d.data.squeeze_on === true;
+      let squeezeRing = n.select('.squeeze-ring');
+      if (isSqueeze) {
+        if (squeezeRing.empty()) {
+          squeezeRing = n.append('circle')
+            .attr('class', 'squeeze-ring')
+            .attr('r', d.r + 3)
+            .attr('fill', 'none')
+            .attr('stroke', '#f97316') // vibrant orange
+            .attr('stroke-width', 2.5)
+            .attr('stroke-dasharray', '4,3')
+            .style('opacity', 0);
+        }
+        squeezeRing.transition()
+          .duration(600)
+          .attr('r', d.r + 3)
+          .style('opacity', 0.8);
+      } else if (!squeezeRing.empty()) {
+        squeezeRing.transition().duration(600).style('opacity', 0).remove();
+      }
+
       // (logos and labels are placed in labelsGroup so they remain constant size)
     });
 
@@ -1273,7 +1295,11 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           text = formatLargeNumber(volNum);
           color = '#ffffff';
         } else if (metricType === 'Volatility') {
-          const volVal = (d.data && d.data.volatility != null) ? d.data.volatility : (d.volatility != null ? d.volatility : 0);
+          // Prioritize Engine's ATR % if available
+          const volVal = (d.data && d.data.vol_atr_pct != null) ? d.data.vol_atr_pct :
+            (d.data && d.data.vol_atr != null) ? d.data.vol_atr :
+              (d.data && d.data.volatility != null) ? d.data.volatility :
+                (d.volatility != null ? d.volatility : 0);
           value = volVal;
           metricKey = 'volatility';
           text = `${volVal.toFixed(2)}%`;
@@ -1462,7 +1488,12 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           lastUpdate: history?.lastUpdate || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           // New Data for Sidebar
           raw: d.data?.raw || {},
-          orb: d.data || {}
+          orb: d.data || {},
+          // Volatility Engine
+          squeeze_on: d.data?.squeeze_on,
+          bb_width: d.data?.bb_width,
+          kc_width: d.data?.kc_width,
+          vol_atr: d.data?.vol_atr
         });
       })
       .on('mousemove', function (event) {
@@ -1691,6 +1722,11 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           // New Sidebar props
           raw={tooltipData.raw}
           orb={tooltipData.orb}
+          // Volatility Engine
+          squeeze_on={tooltipData.squeeze_on}
+          bb_width={tooltipData.bb_width}
+          kc_width={tooltipData.kc_width}
+          vol_atr={tooltipData.vol_atr}
           style={{
             left: tooltipPos.x,
             top: tooltipPos.y

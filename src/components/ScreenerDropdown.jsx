@@ -28,6 +28,13 @@ const QUICK_FILTERS = [
         }
     },
     {
+        id: 'high_rvol',
+        label: '🔥 High Tick RVOL (>3x)',
+        conditions: {
+            rvol: { min: 3 }
+        }
+    },
+    {
         id: 'oversold',
         label: '📉 Oversold (RSI)',
         conditions: {
@@ -70,6 +77,44 @@ const QUICK_FILTERS = [
         description: 'Price above 30-minute Opening Range High',
         conditions: {
             price: { operator: 'above', target: 'orb_high_30m' }
+        }
+    },
+    {
+        id: 'squeeze_on',
+        label: '🟠 Squeeze On',
+        description: 'Bollinger Bands inside Keltner Channels (Compression)',
+        conditions: {
+            squeeze_on: { min: 1 }
+        }
+    },
+    {
+        id: 'vol_expansion',
+        label: '💥 Vol Expansion',
+        description: 'Bollinger Bands outside Keltner Channels (Breakout)',
+        conditions: {
+            bb_width: { operator: 'above', target: 'kc_width' }
+        }
+    },
+    {
+        id: 'power_breakout',
+        label: '🚀 Power Breakout',
+        description: 'Confirmed Breakout: Vol Expansion + High RVOL (>1.5x)',
+        conditions: {
+            bb_width: { operator: 'above', target: 'kc_width' },
+            relative_volume: { min: 1.5 },
+            squeeze_on: { max: 0 }
+        }
+    },
+    {
+        id: 'bullish_breakout',
+        label: '🔥 Bullish Breakout',
+        description: 'STRICT LONG: Above ORB High + RVOL > 2.5x + Vol Expansion + Up Trend',
+        conditions: {
+            price_change_percentage_24h: { min: 0.5 },
+            orb_breakout_30m: { min: 1 },
+            relative_volume: { min: 2.5 },
+            bb_width: { operator: 'above', target: 'kc_width' },
+            squeeze_on: { max: 0 }
         }
     }
 ];
