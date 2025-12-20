@@ -277,8 +277,11 @@ async function fetchTickInterval(interval) {
         price_change_percentage_24h: changePct,
         daily_change_1d: row.pct_24h != null ? Number(row.pct_24h) : null,
         day_volume: row.day_volume != null ? Number(row.day_volume) : null,
+        day_volume: row.day_volume != null ? Number(row.day_volume) : null,
         volatility: 0,
-        relative_volume: 1,
+        // Map RVOL correctly from API response
+        rvol: row.rvol != null ? Number(row.rvol) : 0,
+        relative_volume: row.rvol != null ? Number(row.rvol) : 0,
         ts: row.ts ? new Date(row.ts).getTime() : null,
         // Tick-specific fields
         tickInterval: tickCount,

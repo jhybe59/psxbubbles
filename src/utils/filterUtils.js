@@ -128,6 +128,7 @@ export const resolveValue = (coin, field, interval) => {
     if (field === 'high') return Number(coin.high != null ? coin.high : (coin.raw?.high || coin.price || 0));
     if (field === 'low') return Number(coin.low != null ? coin.low : (coin.raw?.low || coin.price || 0));
     if (field === 'close') return Number(coin.close != null ? coin.close : (coin.raw?.close || coin.price || 0));
+    if (field === 'rvol') return coin.rvol != null ? Number(coin.rvol) : 0;
 
     return 0;
 };

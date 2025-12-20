@@ -8,6 +8,7 @@ import { queryQuestDB } from '../questdb.mjs';
 import { withClient } from '../db.mjs';  // PostgreSQL for static data
 import { getCache, setCache } from '../cache.mjs';
 import logger from '../logger.mjs';
+import rvolService from '../services/rvol-service.mjs';
 
 const router = Router();
 
@@ -411,7 +412,8 @@ function transformResponse(result, interval, favorites = []) {
         day_high: dayHigh,
         day_low: dayLow,
         ts: typeof ts === 'string' ? ts : new Date(ts).toISOString(),
-        isFavorite: favorites.includes(symbol)
+        isFavorite: favorites.includes(symbol),
+        rvol: 0 // Placeholder, will be merged later
       });
     }
   }
@@ -478,6 +480,18 @@ router.get('/', async (req, res) => {
 
     const result = await queryQuestDB(sql);
     const payload = transformResponse(result, interval, favorites || []);
+
+    // Fetch and merge RVOL data
+    try {
+      const symbolsList = payload.data.map(b => b.symbol);
+      const rvolMap = await rvolService.getBatchRVOL(symbolsList, interval, 20);
+
+      for (const bubble of payload.data) {
+        bubble.rvol = rvolMap.get(bubble.symbol) || 0;
+      }
+    } catch (rvolErr) {
+      logger.warn({ err: rvolErr }, 'Failed to merge RVOL data');
+    }
 
     // Fetch ORB data and merge with bubbles
     try {

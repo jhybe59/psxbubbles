@@ -333,8 +333,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       // Relative Volume-based sizing
       sizeMax = d3.max(used, (d) => {
         if (!d) return 0;
-        if (d.relative_volume != null) return Number(d.relative_volume) || 0;
-        if (d.data && d.data.relative_volume != null) return Number(d.data.relative_volume) || 0;
+        if (d.rvol != null) return Number(d.rvol) || 0;
+        if (d.data && d.data.rvol != null) return Number(d.data.rvol) || 0;
         return 0;
       }) || 5; // Default max relative volume if none found (5x average)
     } else {
@@ -394,8 +394,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
             return vb > va ? b : a;
           }
           if (selections && selections.size === 'Relative Volume') {
-            const va = (a.relative_volume != null ? a.relative_volume : (a.data && a.data.relative_volume)) || 0;
-            const vb = (b.relative_volume != null ? b.relative_volume : (b.data && b.data.relative_volume)) || 0;
+            const va = (a.rvol != null ? a.rvol : (a.data && a.data.rvol)) || 0;
+            const vb = (b.rvol != null ? b.rvol : (b.data && b.data.rvol)) || 0;
             return vb > va ? b : a;
           }
         } catch (e) {
@@ -433,7 +433,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           const lv = (largest.volatility != null ? largest.volatility : (largest.data && largest.data.volatility)) || 1;
           var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lv || sizeMax)]).range([12, 160])(lv)));
         } else if (selections && selections.size === 'Relative Volume') {
-          const lrv = (largest.relative_volume != null ? largest.relative_volume : (largest.data && largest.data.relative_volume)) || 1;
+          const lrv = (largest.rvol != null ? largest.rvol : (largest.data && largest.data.rvol)) || 1;
           var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, Math.max(1, lrv || sizeMax)]).range([12, 160])(lrv)));
         } else {
           var baseR = Math.max(12, Math.round(d3.scaleSqrt().domain([0, inferredMaxPct]).range([12, 160])(Math.abs(largest.price_change_percentage_24h || 0))));
@@ -539,7 +539,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         const volVal = (d.volatility != null ? d.volatility : (d.data && d.data.volatility)) || 0;
         baseR = Math.max(8, Math.round(localRadiusScale(volVal)));
       } else if (selections && selections.size === 'Relative Volume') {
-        const relVolVal = (d.relative_volume != null ? d.relative_volume : (d.data && d.data.relative_volume)) || 0;
+        const relVolVal = (d.rvol != null ? d.rvol : (d.data && d.data.rvol)) || 0;
         baseR = Math.max(8, Math.round(localRadiusScale(relVolVal)));
       } else {
         baseR = Math.max(8, Math.round(localRadiusScale(pctAbs)));
@@ -1279,7 +1279,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           text = `${volVal.toFixed(2)}%`;
           color = '#f59e0b';
         } else if (metricType === 'Relative Volume') {
-          const relVolVal = (d.data && d.data.relative_volume != null) ? d.data.relative_volume : (d.relative_volume != null ? d.relative_volume : 0);
+          // STRICT CHECK: Only use 'rvol' from API. Default to 0 if missing.
+          const relVolVal = (d.data && d.data.rvol != null) ? Number(d.data.rvol) : 0;
           value = relVolVal;
           metricKey = 'rvol';
           text = `${relVolVal.toFixed(2)}x`;
@@ -1456,7 +1457,7 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           volume: intervalVol,
           // Other data
           prices: history?.prices || [],
-          rvol: d.data?.relative_volume || history?.rvol,
+          rvol: d.data?.rvol || history?.rvol,
           volatility: d.data?.volatility || history?.volatility,
           lastUpdate: history?.lastUpdate || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           // New Data for Sidebar

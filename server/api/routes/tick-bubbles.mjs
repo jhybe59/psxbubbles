@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { queryQuestDB } from '../questdb.mjs';
 import logger from '../logger.mjs';
+import rvolService from '../services/rvol-service.mjs';
 
 const router = Router();
 
@@ -323,6 +324,24 @@ router.get('/', async (req, res) => {
             }
         } catch (orbErr) {
             logger.warn({ err: orbErr }, 'Failed to merge ORB data into tick bubbles (non-fatal)');
+        }
+
+        // Fetch and merge Tick-based RVOL data
+        try {
+            const symbolsList = bubbles.map(b => b.symbol);
+            console.log(`[tick-bubbles] Fetching RVOL for ${symbolsList.length} symbols, ticks=${tickCount}`);
+            const rvolMap = await rvolService.getBatchTickRVOL(symbolsList, tickCount, 20);
+            console.log(`[tick-bubbles] RVOL Map size: ${rvolMap.size}`);
+            if (rvolMap.size > 0) {
+                const sampleKey = symbolsList[0];
+                console.log(`[tick-bubbles] Sample RVOL for ${sampleKey}: ${rvolMap.get(sampleKey)}`);
+            }
+
+            for (const bubble of bubbles) {
+                bubble.rvol = rvolMap.get(bubble.symbol) || 0;
+            }
+        } catch (rvolErr) {
+            console.error('[tick-bubbles] Failed to merge tick RVOL data:', rvolErr);
         }
 
         const duration = Date.now() - start;
