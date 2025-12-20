@@ -1,7 +1,7 @@
 import { queryQuestDB } from '../questdb.mjs';
 
 const VALID_INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
-const TICK_INTERVALS = [10, 100, 500, 1000];
+const TICK_INTERVALS = [10, 20, 50, 100, 500, 1000];
 
 function mapQuestDBResults(result) {
     if (!result || !result.dataset || !result.columns) return [];

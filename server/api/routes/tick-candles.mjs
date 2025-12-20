@@ -12,13 +12,14 @@ const router = Router();
 // Validation schema
 const schema = z.object({
     symbol: z.string().transform(s => s.toUpperCase()),
-    interval: z.enum(['10T', '100T', '500T', '1000T']).default('100T'),
-    limit: z.coerce.number().int().min(1).max(1000).default(100)
+    interval: z.enum(['10T', '20T', '50T', '100T', '500T', '1000T']).default('100T'),
+    limit: z.coerce.number().int().min(1).max(1000).default(100),
+    to: z.string().optional() // ISO timestamp or QuestDB date string
 });
 
 /**
  * GET /api/tick-candles
- * Example: /api/tick-candles?symbol=BTC&interval=100T&limit=50
+ * Example: /api/tick-candles?symbol=BTC&interval=100T&limit=50&to=2023-12-01T12:00:00.000000Z
  */
 router.get('/', async (req, res) => {
     const start = Date.now();
@@ -28,7 +29,7 @@ router.get('/', async (req, res) => {
             return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.errors });
         }
 
-        const { symbol, interval, limit } = parsed.data;
+        const { symbol, interval, limit, to } = parsed.data;
         const tickCount = parseInt(interval.replace('T', ''));
 
         // We need (limit * tickCount) raw rows to build 'limit' candles
@@ -41,10 +42,16 @@ router.get('/', async (req, res) => {
         // Fetch one extra row to calculate volume delta for the oldest tick in the set
         const fetchLimit = Math.min(neededRows + 1, maxRows);
 
+        let timeFilter = '';
+        if (to) {
+            // If 'to' is provided, we fetch trades BEFORE that time
+            timeFilter = `AND timestamp <= '${to}'`;
+        }
+
         const sql = `
             SELECT timestamp, price, volume
             FROM trades
-            WHERE symbol = '${symbol}'
+            WHERE symbol = '${symbol}' ${timeFilter}
             ORDER BY timestamp DESC
             LIMIT ${neededRows}
         `;

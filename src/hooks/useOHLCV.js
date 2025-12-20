@@ -44,6 +44,8 @@ const LIVE_INTERVAL_MAP = {
   'Year': 'Day',
   // Tick-based intervals
   '10 Ticks': '10t',
+  '20 Ticks': '20t',
+  '50 Ticks': '50t',
   '100 Ticks': '100t',
   '500 Ticks': '500t',
   '1000 Ticks': '1000t'

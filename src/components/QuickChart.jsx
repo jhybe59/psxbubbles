@@ -41,7 +41,7 @@ export default function QuickChart({ symbol, interval, x, y, onClose, currentPri
         const mapping = {
             '1 Min': '1m', '5 Min': '5m', '15 Min': '15m', 'Hour': '1h',
             'Day': 'Day', 'Week': 'Week', 'Month': 'Month', 'Year': 'Year',
-            '10 Ticks': '10T', '100 Ticks': '100T', '500 Ticks': '500T', '1000 Ticks': '1000T'
+            '10 Ticks': '10T', '20 Ticks': '20T', '50 Ticks': '50T', '100 Ticks': '100T', '500 Ticks': '500T', '1000 Ticks': '1000T'
         };
         return mapping[int] || '1h';
     };

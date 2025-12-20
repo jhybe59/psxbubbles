@@ -25,6 +25,8 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
       'Year': 'Year',
       // Tick intervals - use actual tick format
       '10 Ticks': '10 Ticks',
+      '20 Ticks': '20 Ticks',
+      '50 Ticks': '50 Ticks',
       '100 Ticks': '100 Ticks',
       '500 Ticks': '500 Ticks',
       '1000 Ticks': '1000 Ticks'
@@ -66,7 +68,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
   // Indicators state for external control
   const embeddedChartRef = useRef(null);
   const [indicatorCount, setIndicatorCount] = useState(0);
-  const CANDLE_INTERVALS = ['1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'];
+  const CANDLE_INTERVALS = ['10 Ticks', '20 Ticks', '50 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks', '1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'];
   const INTERVAL_LOOKUP = { Hour: 1, Day: 1, Week: 5, Month: 22, Year: 252 };
 
   // Format large numbers with K/M abbreviations
@@ -1057,7 +1059,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
                       fontWeight: 500
                     }}
                   >
-                    {['10 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks', '1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'].map(int => (
+                    {CANDLE_INTERVALS.map(int => (
                       <option key={int} value={int}>{int}</option>
                     ))}
                   </select>
@@ -1083,7 +1085,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
             {/* Timeframes for Area Chart (Hidden if Candles) */}
             {chartType !== 'Candles' && (
               <div className="timeframe-row" style={{ marginTop: 0 }}>
-                {['Hour', 'Day', 'Week', 'Month', 'Year', '100 Ticks', '1000 Ticks'].map((tf) => (
+                {['Hour', 'Day', 'Week', 'Month', 'Year', '20 Ticks', '50 Ticks', '100 Ticks', '1000 Ticks'].map((tf) => (
                   <div key={tf} className={`time-pill ${timeframe === tf ? 'active' : ''}`} onClick={() => setTimeframe(tf)}>
                     {tf}
                     <br />

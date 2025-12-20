@@ -57,7 +57,7 @@ const THEME_DARK = {
 };
 
 const AREA_TIMEFRAMES = ['Hour', 'Day', 'Week', 'Month', 'Year', '100 Ticks', '1000 Ticks'];
-const CANDLE_INTERVALS = ['10 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks', '1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'];
+const CANDLE_INTERVALS = ['10 Ticks', '20 Ticks', '50 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks', '1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'];
 const CHART_TYPES = ['Candles', 'Heikin-Ashi', 'Area'];
 
 export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChange, timeframe, onTimeframeChange, chartType, setChartType, candleType, setCandleType }) {

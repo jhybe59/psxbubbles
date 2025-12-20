@@ -407,7 +407,7 @@ function App() {
   // Define intervals
   const dayIntervals = ['1 Min', '5 Min', '15 Min', 'Hour'];
   const monthlyIntervals = ['Day', 'Week', 'Month', 'Year'];
-  const tickIntervals = ['10 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks'];
+  const tickIntervals = ['10 Ticks', '20 Ticks', '50 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks'];
 
   // Get current dropdown type
   const isDayInterval = dayIntervals.includes(currentInterval);

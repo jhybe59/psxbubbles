@@ -9,13 +9,14 @@ const router = Router();
 const schema = z.object({
     symbol: z.string().transform(s => s.toUpperCase()),
     interval: z.enum(['1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year']).default('Day'),
-    limit: z.coerce.number().int().min(1).max(5000).default(336) // Default ~2 weeks of hourly data
+    limit: z.coerce.number().int().min(1).max(5000).default(336), // Default ~2 weeks of hourly data
+    to: z.string().optional() // ISO timestamp or QuestDB date string
 });
 
 /**
  * Build aggregated candle query
  */
-function buildCandleQuery(symbol, interval, limit) {
+function buildCandleQuery(symbol, interval, limit, to = null) {
     const sampleByMap = {
         '1m': '1m',
         '5m': '5m',
@@ -46,8 +47,6 @@ function buildCandleQuery(symbol, interval, limit) {
   `;
 
     // Optimization: Pre-filter by roughly the time range needed to avoid scanning entire table
-    // Assuming worst case (sparse data), we might grab more, but 'limit' at the end clips it.
-
     let hoursBack = 24;
     switch (interval) {
         case '1m': hoursBack = Math.ceil(limit / 60); break;
@@ -63,10 +62,14 @@ function buildCandleQuery(symbol, interval, limit) {
     }
 
     // Add a buffer - Ensure at least 1 week of data is scanned to cover weekends/holidays
-    // especially for small intervals like 1m/5m which might otherwise only look back a few hours
     hoursBack = Math.max(Math.ceil(hoursBack * 1.5), 168);
 
-    sql += ` AND timestamp > dateadd('h', -${hoursBack}, now())`;
+    const anchor = to ? `'${to}'` : 'now()';
+    sql += ` AND timestamp > dateadd('h', -${hoursBack}, ${anchor})`;
+
+    if (to) {
+        sql += ` AND timestamp <= '${to}'`;
+    }
 
     sql += ` SAMPLE BY ${sampleBy} ALIGN TO CALENDAR`;
     sql += ` ORDER BY ts DESC`;
@@ -83,9 +86,9 @@ router.get('/', async (req, res) => {
             return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.errors });
         }
 
-        const { symbol, interval, limit } = parsed.data;
+        const { symbol, interval, limit, to } = parsed.data;
 
-        const sql = buildCandleQuery(symbol, interval, limit);
+        const sql = buildCandleQuery(symbol, interval, limit, to);
         const result = await queryQuestDB(sql);
 
         // Transform response

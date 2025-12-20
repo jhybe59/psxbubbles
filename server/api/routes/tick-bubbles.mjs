@@ -13,7 +13,7 @@ import { volatilityService } from '../services/volatility-service.mjs';
 
 const router = Router();
 
-const TICK_INTERVALS = [10, 100, 500, 1000];
+const TICK_INTERVALS = [10, 20, 50, 100, 500, 1000];
 
 const schema = z.object({
     ticks: z.coerce.number().int().refine(val => TICK_INTERVALS.includes(val), {

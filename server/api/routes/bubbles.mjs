@@ -182,10 +182,18 @@ function buildAggregatedQuery(interval, symbols = null) {
   }
 
   // Determine time window condition
+  // Determine time window condition
   // Pakistan trading day starts at 09:00 PKT = 04:00 UTC
+  // Use a data-relative anchor for time intervals to avoid 0.0% when market is closed
+  const anchorTime = `(SELECT MAX(timestamp) FROM minute_bars)`;
+
+  // ROBUST: Calculate "Today Open" relative to the latest data timestamp, not NOW
+  // This ensures that during weekends, "Today" refers to the last trading day.
+  const todayOpen = `dateadd('h', 4, date_trunc('day', ${anchorTime}))`;
+
   const timeCondition = isDay
-    ? `timestamp >= dateadd('h', 4, date_trunc('day', now()))`
-    : `timestamp > dateadd('m', -${minutes}, now())`;
+    ? `timestamp >= ${todayOpen}`
+    : `timestamp > dateadd('m', -${minutes}, ${anchorTime})`;
 
   // Get the latest data per symbol using LATEST ON (same as 1m - always fresh)
   // Then also compute aggregates from the lookback window
@@ -200,18 +208,19 @@ function buildAggregatedQuery(interval, symbols = null) {
       -- Session starts at 09:00 PKT = 04:00 UTC
       SELECT symbol, sum(volume) as day_volume
       FROM trades
-      WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+      WHERE timestamp >= ${todayOpen}
       GROUP BY symbol
     ),
     prev_day_stats AS (
+      -- ROBUST: Find the last known close BEFORE today's session open
+      -- This works on Mondays, weekends, and holidays.
       SELECT 
         symbol,
-        max(high) as prev_high,
-        last(close) as prev_close
+        high as prev_high,
+        close as prev_close
       FROM minute_bars
-      WHERE timestamp >= dateadd('d', -1, dateadd('h', 4, date_trunc('day', now())))
-        AND timestamp < dateadd('h', 4, date_trunc('day', now()))
-      GROUP BY symbol
+      WHERE timestamp < ${todayOpen}
+      LATEST ON timestamp PARTITION BY symbol
     ),
     day_agg AS (
       -- Get session high/low from trades (raw data) to ensure accuracy
@@ -220,7 +229,7 @@ function buildAggregatedQuery(interval, symbols = null) {
         max(price) as day_high,
         min(price) as day_low
       FROM trades
-      WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+      WHERE timestamp >= ${todayOpen}
       GROUP BY symbol
     ),
     window_agg AS (
@@ -298,7 +307,7 @@ function buildTickQuery(interval, symbols = null) {
         tick_seq,
         (tick_seq / ${tickSize}) as tick_bucket
       FROM minute_bars
-      WHERE timestamp > dateadd('h', -24, now())
+      WHERE timestamp > dateadd('h', -168, now())
     ),
     day_vols AS (
       -- Get total SESSION volume from trades (raw tick data)
@@ -389,11 +398,10 @@ function transformResponse(result, interval, favorites = []) {
         intervalPct = open !== 0 ? ((close - open) / open) * 100 : 0;
       }
 
-      // Fallback for daily_pct: if 0 but we have valid open/close movement, use calculated
-      let finalDailyPct = dailyPct;
-      if (finalDailyPct === 0 && interval === 'Day') {
-        finalDailyPct = intervalPct;
-      }
+      // Calculate Day Percentage reliably (PSX Standard)
+      // If interval is Day, use calculated intervalPct. Otherwise, use prevClose if available.
+      const calcDayPct = prevClose ? ((close - prevClose) / prevClose) * 100 : dailyPct;
+      const finalDailyPct = (interval === 'Day') ? intervalPct : calcDayPct;
 
       symbolMap.set(symbol, {
         symbol,
