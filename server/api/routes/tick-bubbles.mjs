@@ -26,7 +26,7 @@ const schema = z.object({
  * Uses market-wide first tick as ORB start time
  * Returns ORB high/low for 5m, 15m, 30m windows
  */
-async function getORBData() {
+async function getORBData(latestTs) {
     try {
         // Step 1: Get market-wide first tick of the trading day
         // Pakistan trading day starts at 09:00 PKT = 04:00 UTC
@@ -34,7 +34,7 @@ async function getORBData() {
         const marketOpenSql = `
             SELECT MIN(timestamp) as first_tick
             FROM trades
-            WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+            WHERE timestamp >= dateadd('h', 4, date_trunc('day', '${latestTs}'))
         `;
 
         const marketOpenResult = await queryQuestDB(marketOpenSql);
@@ -156,6 +156,13 @@ router.get('/', async (req, res) => {
         // Calculate OHLCV for each symbol
         const bubbles = [];
 
+        // Get latest timestamp from DB to use as anchor
+        const anchorRes = await queryQuestDB("SELECT MAX(timestamp) FROM minute_bars");
+        let latestTs = new Date().toISOString();
+        if (anchorRes && anchorRes.dataset && anchorRes.dataset.length > 0 && anchorRes.dataset[0][0]) {
+            latestTs = anchorRes.dataset[0][0];
+        }
+
         // Fetch 24h stats for all symbols
         // daily_pct comes from minute_bars (efficient LATEST ON)
         // day_volume comes from trades (SUM from start of day) per user request
@@ -181,7 +188,7 @@ router.get('/', async (req, res) => {
             const prevCloseSql = `
                 SELECT symbol, last(close) as prev_close
                 FROM minute_bars
-                WHERE timestamp < dateadd('h', 4, date_trunc('day', now()))
+                WHERE timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'))
                 GROUP BY symbol
             `;
             const prevCloseResult = await queryQuestDB(prevCloseSql);
@@ -202,7 +209,7 @@ router.get('/', async (req, res) => {
                     max(price) as day_high,
                     min(price) as day_low
                 FROM trades
-                WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+                WHERE timestamp >= dateadd('h', 4, date_trunc('day', '${latestTs}'))
                 GROUP BY symbol
             `;
             const volResult = await queryQuestDB(volHighLowSql);
@@ -277,7 +284,7 @@ router.get('/', async (req, res) => {
 
         // Fetch ORB data and merge with tick bubbles
         try {
-            const orbMap = await getORBData();
+            const orbMap = await getORBData(latestTs);
 
             if (orbMap.size > 0) {
                 for (const bubble of bubbles) {

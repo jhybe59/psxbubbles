@@ -13,11 +13,11 @@ import { volatilityService } from '../services/volatility-service.mjs';
 
 const router = Router();
 
-// Tick interval pattern: 10t, 100t, 500t, 1000t
-const TICK_INTERVALS = ['10t', '100t', '500t', '1000t'];
+// Tick interval pattern: 10t, 20t, 50t, 100t, 500t, 1000t
+const TICK_INTERVALS = ['10t', '20t', '50t', '100t', '500t', '1000t'];
 
 const schema = z.object({
-  interval: z.enum(['1m', '5m', '15m', '1h', 'Day', '10t', '100t', '500t', '1000t']).default('1m'),
+  interval: z.enum(['1m', '5m', '15m', '1h', 'Day', '10t', '20t', '50t', '100t', '500t', '1000t']).default('1m'),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
   sort: z.enum(['pct', 'volume', 'symbol']).optional(),
   indices: z
@@ -158,7 +158,7 @@ function buildLatestQuery(symbols = null) {
  * Uses LATEST ON for current prices (like 1m), then calculates OHLCV from lookback window
  * This ensures all intervals get fresh data on every refresh
  */
-function buildAggregatedQuery(interval, symbols = null) {
+function buildAggregatedQuery(interval, latestTs, symbols = null) {
   // Map interval to minutes for lookback window
   const minutesMap = {
     '1m': 1,
@@ -171,6 +171,12 @@ function buildAggregatedQuery(interval, symbols = null) {
   const minutes = minutesMap[interval] || 5;
   const isDay = interval === 'Day';
 
+  // QuestDB timestamp precision is microseconds (6 digits). 
+  // Truncate incoming 9-digit (nano) strings to avoid parsing errors.
+  const anchorTs = typeof latestTs === 'string' && latestTs.includes('.')
+    ? latestTs.split('.')[0] + '.' + latestTs.split('.')[1].substring(0, 6) + 'Z'
+    : latestTs;
+
   // Use subqueries to get:
   // 1. Latest row per symbol (for current close price)
   // 2. Aggregates (high, low, volume) from the lookback window
@@ -181,49 +187,36 @@ function buildAggregatedQuery(interval, symbols = null) {
     symbolFilter = ` AND symbol IN (${symbolList})`;
   }
 
-  // Determine time window condition
-  // Determine time window condition
   // Pakistan trading day starts at 09:00 PKT = 04:00 UTC
   // Use a data-relative anchor for time intervals to avoid 0.0% when market is closed
-  const anchorTime = `(SELECT MAX(timestamp) FROM minute_bars)`;
-
   // ROBUST: Calculate "Today Open" relative to the latest data timestamp, not NOW
   // This ensures that during weekends, "Today" refers to the last trading day.
-  const todayOpen = `dateadd('h', 4, date_trunc('day', ${anchorTime}))`;
+  const todayOpen = `dateadd('h', 4, date_trunc('day', to_timestamp('${anchorTs}')))`;
 
   const timeCondition = isDay
     ? `timestamp >= ${todayOpen}`
-    : `timestamp > dateadd('m', -${minutes}, ${anchorTime})`;
+    : `timestamp > dateadd('m', -${minutes}, to_timestamp('${anchorTs}'))`;
 
   // Get the latest data per symbol using LATEST ON (same as 1m - always fresh)
   // Then also compute aggregates from the lookback window
   let sql = `
-    WITH latest AS (
-      SELECT symbol, timestamp as ts, close, daily_pct
-      FROM minute_bars
-      LATEST ON timestamp PARTITION BY symbol
-    ),
-    day_vols AS (
-      -- Get total SESSION volume from trades (raw tick data)
-      -- Session starts at 09:00 PKT = 04:00 UTC
+    WITH day_vols AS (
       SELECT symbol, sum(volume) as day_volume
       FROM trades
       WHERE timestamp >= ${todayOpen}
       GROUP BY symbol
     ),
     prev_day_stats AS (
-      -- ROBUST: Find the last known close BEFORE today's session open
-      -- This works on Mondays, weekends, and holidays.
       SELECT 
         symbol,
-        high as prev_high,
-        close as prev_close
+        max(high) as prev_high,
+        last(close) as prev_close
       FROM minute_bars
-      WHERE timestamp < ${todayOpen}
-      LATEST ON timestamp PARTITION BY symbol
+      WHERE timestamp >= dateadd('d', -7, ${todayOpen})
+        AND timestamp < ${todayOpen}
+      GROUP BY symbol
     ),
     day_agg AS (
-      -- Get session high/low from trades (raw data) to ensure accuracy
       SELECT 
         symbol,
         max(price) as day_high,
@@ -247,7 +240,7 @@ function buildAggregatedQuery(interval, symbols = null) {
     SELECT 
       l.symbol,
       l.ts,
-      COALESCE(w.first_open, l.close) as open,
+      COALESCE(b.baseline_close, w.first_open, l.close) as open,
       GREATEST(COALESCE(w.high, l.close), l.close) as high,
       LEAST(COALESCE(w.low, l.close), l.close) as low,
       l.close,
@@ -259,8 +252,20 @@ function buildAggregatedQuery(interval, symbols = null) {
       pds.prev_close,
       da.day_high,
       da.day_low
-    FROM latest l
+    FROM (
+      SELECT symbol, timestamp as ts, close, daily_pct
+      FROM minute_bars
+      LATEST ON timestamp PARTITION BY symbol
+    ) l
     LEFT JOIN window_agg w ON l.symbol = w.symbol
+    LEFT JOIN (
+      SELECT symbol, close as baseline_close
+      FROM minute_bars
+      WHERE timestamp <= dateadd('m', -${minutes}, '${anchorTs}')
+        AND timestamp >= dateadd('d', -7, '${anchorTs}')
+        ${symbolFilter}
+      LATEST ON timestamp PARTITION BY symbol
+    ) b ON l.symbol = b.symbol
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
     LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
     LEFT JOIN day_agg da ON l.symbol = da.symbol
@@ -268,7 +273,7 @@ function buildAggregatedQuery(interval, symbols = null) {
 
   if (symbols && symbols.length > 0) {
     const symbolList = symbols.map(s => `'${s}'`).join(',');
-    sql += ` WHERE l.symbol IN (${symbolList})`;
+    sql += ` WHERE symbol IN (${symbolList})`;
   }
 
   return sql;
@@ -285,7 +290,7 @@ function isTickInterval(interval) {
  * Build tick-based aggregation query
  * Groups ticks by symbol and tick_seq bucket (e.g., every 100 ticks)
  */
-function buildTickQuery(interval, symbols = null) {
+function buildTickQuery(interval, latestTs, symbols = null) {
   // Extract tick size from interval (e.g., '100t' -> 100)
   const tickSize = parseInt(interval.replace('t', ''), 10);
 
@@ -293,54 +298,54 @@ function buildTickQuery(interval, symbols = null) {
   // QuestDB doesn't have modulo in GROUP BY, so we use WHERE to get latest ticks
   // and then group by bucket computed via floor division
   let sql = `
-    WITH latest_ticks AS (
-      SELECT 
+    WITH latest_ticks AS(
+    SELECT 
         symbol,
-        timestamp,
-        open,
-        high,
-        low,
-        close,
-        volume,
-        value,
-        daily_pct,
-        tick_seq,
-        (tick_seq / ${tickSize}) as tick_bucket
+    timestamp,
+    open,
+    high,
+    low,
+    close,
+    volume,
+    value,
+    daily_pct,
+    tick_seq,
+    (tick_seq / ${tickSize}) as tick_bucket
       FROM minute_bars
-      WHERE timestamp > dateadd('h', -168, now())
+      WHERE timestamp > dateadd('h', -168, '${latestTs}')
     ),
-    day_vols AS (
-      -- Get total SESSION volume from trades (raw tick data)
-      -- Session starts at 09:00 PKT = 04:00 UTC
+    day_vols AS(
+      --Get total SESSION volume from trades(raw tick data)
+      --Session starts at 09:00 PKT = 04:00 UTC
       SELECT symbol, sum(volume) as day_volume
       FROM trades
-      WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+      WHERE timestamp >= dateadd('h', 4, date_trunc('day', '${latestTs}'))
       GROUP BY symbol
     ),
-    prev_day_stats AS (
+    prev_day_stats AS(
       SELECT 
         symbol,
-        max(high) as prev_high,
-        last(close) as prev_close
+      max(high) as prev_high,
+      last(close) as prev_close
       FROM minute_bars
-      WHERE timestamp >= dateadd('d', -1, dateadd('h', 4, date_trunc('day', now())))
-        AND timestamp < dateadd('h', 4, date_trunc('day', now()))
+      WHERE timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', '${latestTs}')))
+        AND timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'))
       GROUP BY symbol
     ),
-    SELECT 
-      l.symbol,
-      max(l.timestamp) as ts,
-      first(l.close) as open,
-      max(l.high) as high,
-      min(l.low) as low,
-      last(l.close) as close,
-      sum(l.volume) as volume,
-      sum(l.value) as value,
-      last(l.daily_pct) as daily_pct,
-      max(l.tick_seq) as tick_seq,
-      COALESCE(first(dv.day_volume), 0) as day_volume,
-      first(pds.prev_high) as prev_high,
-      first(pds.prev_close) as prev_close
+      SELECT
+  l.symbol,
+    max(l.timestamp) as ts,
+    first(l.close) as open,
+    max(l.high) as high,
+    min(l.low) as low,
+    last(l.close) as close,
+    sum(l.volume) as volume,
+    sum(l.value) as value,
+    last(l.daily_pct) as daily_pct,
+    max(l.tick_seq) as tick_seq,
+    COALESCE(first(dv.day_volume), 0) as day_volume,
+    first(pds.prev_high) as prev_high,
+    first(pds.prev_close) as prev_close
     FROM latest_ticks l
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
     LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
@@ -450,6 +455,7 @@ function transformResponse(result, interval, favorites = []) {
 
 router.get('/', async (req, res) => {
   const start = Date.now();
+  let sql = null;
 
   try {
     const parsed = schema.safeParse(req.query);
@@ -476,18 +482,29 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // Build and execute QuestDB query
-    let sql;
-    if (isTickInterval(interval)) {
-      sql = buildTickQuery(interval, symbols);
-    } else {
-      sql = buildAggregatedQuery(interval, symbols);
+    // Get latest timestamp from DB to use as anchor
+    const anchorRes = await queryQuestDB("SELECT MAX(timestamp) FROM minute_bars");
+    let latestTs = new Date().toISOString();
+    if (anchorRes && anchorRes.dataset && anchorRes.dataset.length > 0 && anchorRes.dataset[0][0]) {
+      latestTs = anchorRes.dataset[0][0];
     }
 
-    console.log('[DEBUG] Bubbles SQL:', sql.replace(/\s+/g, ' ').trim());
+    // Build and execute QuestDB query
+    if (isTickInterval(interval)) {
+      sql = buildTickQuery(interval, latestTs, symbols);
+    } else {
+      sql = buildAggregatedQuery(interval, latestTs, symbols);
+    }
 
+    let result;
+    try {
+      result = await queryQuestDB(sql);
+    } catch (dbErr) {
+      console.error('[BUBBLES API ERROR] SQL execution failed:', dbErr.message);
+      console.error('[BUBBLES API ERROR] SQL:', sql);
+      throw dbErr; // Rethrow to be handled by express error handler or return 500
+    }
 
-    const result = await queryQuestDB(sql);
     const payload = transformResponse(result, interval, favorites || []);
 
     // Fetch and merge RVOL data
@@ -596,7 +613,7 @@ router.get('/', async (req, res) => {
     // Disable caching for real-time data
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.set('Pragma', 'no-cache');
-    res.set('X-Response-Time', `${duration}ms`);
+    res.set('X-Response-Time', `${duration} ms`);
     res.set('X-Database', 'questdb');
 
     res.json(payload);
