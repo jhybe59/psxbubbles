@@ -30,9 +30,11 @@ export const volatilityService = {
      * @param {number} length - Lookback period (Default 20)
      * @param {number} multBB - Bollinger Band Multiplier (Default 2.0)
      * @param {number} multKC - Keltner Channel Multiplier (Default 1.5)
+     * @param {string} anchorTs - Optional anchor timestamp
      */
-    async getBatchSqueezeState(symbols, interval, length = 20, multBB = 2.0, multKC = 1.5) {
+    async getBatchSqueezeState(symbols, interval, length = 20, multBB = 2.0, multKC = 1.5, anchorTs = null) {
         if (!symbols || symbols.length === 0) return new Map();
+        const anchor = anchorTs ? `'${anchorTs}'::timestamp` : 'now()';
 
         // 1. Determine Source Table & Sampling
         let tableName = 'minute_bars';
@@ -70,7 +72,7 @@ export const volatilityService = {
                     min(low) as low,
                     last(close) as close
                 FROM ${tableName}
-                WHERE ${symbolFilter} AND timestamp > dateadd('d', -5, now()) -- Limit lookback for performance
+                WHERE ${symbolFilter} AND timestamp > dateadd('d', -10, ${anchor}) AND timestamp <= ${anchor} -- Limit lookback for performance
                 ${sampleBy}
             ),
             with_tr AS (

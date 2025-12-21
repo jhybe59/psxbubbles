@@ -56,15 +56,16 @@ async function getIndexSymbols(indexCodes) {
  * Uses market-wide first tick as ORB start time
  * Returns ORB high/low for 5m, 15m, 30m windows
  */
-async function getORBData() {
+async function getORBData(latestTs) {
   try {
+    const anchor = latestTs ? `'${latestTs}'::timestamp` : 'now()';
     // Step 1: Get market-wide first tick of the trading day
     // Pakistan trading day starts at 09:00 PKT = 04:00 UTC
     // We find today's first tick after 04:00 UTC
     const marketOpenSql = `
       SELECT MIN(timestamp) as first_tick
       FROM trades
-      WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+      WHERE timestamp >= dateadd('h', 4, date_trunc('day', ${anchor}))
     `;
 
     const marketOpenResult = await queryQuestDB(marketOpenSql);
@@ -191,11 +192,11 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
   // Use a data-relative anchor for time intervals to avoid 0.0% when market is closed
   // ROBUST: Calculate "Today Open" relative to the latest data timestamp, not NOW
   // This ensures that during weekends, "Today" refers to the last trading day.
-  const todayOpen = `dateadd('h', 4, date_trunc('day', to_timestamp('${anchorTs}')))`;
+  const todayOpen = `dateadd('h', 4, date_trunc('day', '${anchorTs}'::timestamp))`;
 
   const timeCondition = isDay
     ? `timestamp >= ${todayOpen}`
-    : `timestamp > dateadd('m', -${minutes}, to_timestamp('${anchorTs}'))`;
+    : `timestamp > dateadd('m', -${minutes}, '${anchorTs}'::timestamp)`;
 
   // Get the latest data per symbol using LATEST ON (same as 1m - always fresh)
   // Then also compute aggregates from the lookback window
@@ -207,14 +208,16 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       GROUP BY symbol
     ),
     prev_day_stats AS (
-      SELECT 
-        symbol,
-        max(high) as prev_high,
-        last(close) as prev_close
-      FROM minute_bars
-      WHERE timestamp >= dateadd('d', -7, ${todayOpen})
-        AND timestamp < ${todayOpen}
-      GROUP BY symbol
+      -- ROBUST: Find the last known close BEFORE today's session open
+      -- Using subquery pattern as QuestDB doesn't allow WHERE before LATEST ON
+      SELECT symbol, close as prev_close, high as prev_high
+      FROM (
+        SELECT symbol, close, high, timestamp
+        FROM minute_bars
+        WHERE timestamp < ${todayOpen}
+          AND timestamp >= dateadd('d', -7, ${todayOpen})
+          ${symbolFilter}
+      ) LATEST ON timestamp PARTITION BY symbol
     ),
     day_agg AS (
       SELECT 
@@ -261,8 +264,8 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
     LEFT JOIN (
       SELECT symbol, close as baseline_close
       FROM minute_bars
-      WHERE timestamp <= dateadd('m', -${minutes}, '${anchorTs}')
-        AND timestamp >= dateadd('d', -7, '${anchorTs}')
+      WHERE timestamp <= dateadd('m', -${minutes}, '${anchorTs}'::timestamp)
+        AND timestamp >= dateadd('d', -7, '${anchorTs}'::timestamp)
         ${symbolFilter}
       LATEST ON timestamp PARTITION BY symbol
     ) b ON l.symbol = b.symbol
@@ -273,7 +276,7 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
 
   if (symbols && symbols.length > 0) {
     const symbolList = symbols.map(s => `'${s}'`).join(',');
-    sql += ` WHERE symbol IN (${symbolList})`;
+    sql += ` WHERE l.symbol IN (${symbolList})`;
   }
 
   return sql;
@@ -312,25 +315,27 @@ function buildTickQuery(interval, latestTs, symbols = null) {
     tick_seq,
     (tick_seq / ${tickSize}) as tick_bucket
       FROM minute_bars
-      WHERE timestamp > dateadd('h', -168, '${latestTs}')
+      WHERE timestamp > dateadd('h', -168, '${latestTs}'::timestamp)
+      ${symbols && symbols.length > 0 ? `AND symbol IN (${symbols.map(s => `'${s}'`).join(',')})` : ''}
     ),
     day_vols AS(
       --Get total SESSION volume from trades(raw tick data)
       --Session starts at 09:00 PKT = 04:00 UTC
       SELECT symbol, sum(volume) as day_volume
       FROM trades
-      WHERE timestamp >= dateadd('h', 4, date_trunc('day', '${latestTs}'))
+      WHERE timestamp >= dateadd('h', 4, date_trunc('day', '${latestTs}'::timestamp))
       GROUP BY symbol
     ),
-    prev_day_stats AS(
-      SELECT 
-        symbol,
-      max(high) as prev_high,
-      last(close) as prev_close
-      FROM minute_bars
-      WHERE timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', '${latestTs}')))
-        AND timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'))
-      GROUP BY symbol
+    prev_day_stats AS (
+      -- ROBUST: Find the last known close BEFORE today's session open
+      SELECT symbol, close as prev_close, high as prev_high
+      FROM (
+        SELECT symbol, close, high, timestamp
+        FROM minute_bars
+        WHERE timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'::timestamp))
+          AND timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', '${latestTs}'::timestamp)))
+          ${symbols && symbols.length > 0 ? `AND symbol IN (${symbols.map(s => `'${s}'`).join(',')})` : ''}
+      ) LATEST ON timestamp PARTITION BY symbol
     )
     SELECT
   l.symbol,
@@ -496,109 +501,55 @@ router.get('/', async (req, res) => {
       sql = buildAggregatedQuery(interval, latestTs, symbols);
     }
 
-    let result;
-    try {
-      result = await queryQuestDB(sql);
-    } catch (dbErr) {
-      console.error('[BUBBLES API ERROR] SQL execution failed:', dbErr.message);
-      console.error('[BUBBLES API ERROR] SQL:', sql);
-      throw dbErr; // Rethrow to be handled by express error handler or return 500
+    // Execute queries in parallel for maximum speed
+    const [dbResult, rvolMap, orbMap, squeezeMap] = await Promise.all([
+      queryQuestDB(sql),
+      rvolService.getBatchRVOL(symbols, interval, 20, latestTs),
+      getORBData(latestTs),
+      (!isTickInterval(interval))
+        ? volatilityService.getBatchSqueezeState(symbols, interval === 'Day' ? '1d' : interval, 20, 2.0, 1.5, latestTs)
+        : Promise.resolve(new Map())
+    ]);
+
+    const payload = transformResponse(dbResult, interval, favorites || []);
+
+    // Merge RVOL data
+    for (const bubble of payload.data) {
+      bubble.rvol = rvolMap.get(bubble.symbol) || 0;
     }
 
-    const payload = transformResponse(result, interval, favorites || []);
-
-    // Fetch and merge RVOL data
-    try {
-      const symbolsList = payload.data.map(b => b.symbol);
-      const rvolMap = await rvolService.getBatchRVOL(symbolsList, interval, 20);
-
+    // Merge ORB data
+    if (orbMap.size > 0) {
       for (const bubble of payload.data) {
-        bubble.rvol = rvolMap.get(bubble.symbol) || 0;
-      }
-    } catch (rvolErr) {
-      logger.warn({ err: rvolErr }, 'Failed to merge RVOL data');
-    }
+        const orbData = orbMap.get(bubble.symbol);
+        if (orbData) {
+          bubble.orb_high_5m = orbData.orb_high_5m;
+          bubble.orb_low_5m = orbData.orb_low_5m;
+          bubble.orb_high_15m = orbData.orb_high_15m;
+          bubble.orb_low_15m = orbData.orb_low_15m;
+          bubble.orb_high_30m = orbData.orb_high_30m;
+          bubble.orb_low_30m = orbData.orb_low_30m;
 
-    // Fetch ORB data and merge with bubbles
-    try {
-      const orbMap = await getORBData();
-
-      if (orbMap.size > 0) {
-        for (const bubble of payload.data) {
-          const orbData = orbMap.get(bubble.symbol);
-          if (orbData) {
-            // Add ORB values
-            bubble.orb_high_5m = orbData.orb_high_5m;
-            bubble.orb_low_5m = orbData.orb_low_5m;
-            bubble.orb_high_15m = orbData.orb_high_15m;
-            bubble.orb_low_15m = orbData.orb_low_15m;
-            bubble.orb_high_30m = orbData.orb_high_30m;
-            bubble.orb_low_30m = orbData.orb_low_30m;
-
-            // Calculate breakout status for each window
-            const price = bubble.price;
-
-            // 5m breakout
-            if (orbData.orb_high_5m && price > orbData.orb_high_5m) {
-              bubble.orb_breakout_5m = 'above';
-            } else if (orbData.orb_low_5m && price < orbData.orb_low_5m) {
-              bubble.orb_breakout_5m = 'below';
-            } else {
-              bubble.orb_breakout_5m = 'inside';
-            }
-
-            // 15m breakout
-            if (orbData.orb_high_15m && price > orbData.orb_high_15m) {
-              bubble.orb_breakout_15m = 'above';
-            } else if (orbData.orb_low_15m && price < orbData.orb_low_15m) {
-              bubble.orb_breakout_15m = 'below';
-            } else {
-              bubble.orb_breakout_15m = 'inside';
-            }
-
-            // 30m breakout
-            if (orbData.orb_high_30m && price > orbData.orb_high_30m) {
-              bubble.orb_breakout_30m = 'above';
-            } else if (orbData.orb_low_30m && price < orbData.orb_low_30m) {
-              bubble.orb_breakout_30m = 'below';
-            } else {
-              bubble.orb_breakout_30m = 'inside';
-            }
-          }
-        }
-        payload.meta.hasORB = true;
-      }
-    } catch (orbErr) {
-      logger.warn({ err: orbErr }, 'Failed to merge ORB data (non-fatal)');
-    }
-
-    // Fetch and merge Volatility (Squeeze) Data
-    try {
-      const volInterval = interval === 'Day' ? '1d' : interval;
-      // Only run for intervals supported by volatilityService (minutes/hours/days)
-      // Tick intervals are handled by tick-bubbles route, but schema allows valid intervals here.
-      // Tick intervals shouldn't reach here if isTickInterval check works? 
-      // isTickInterval uses buildTickQuery.
-      // But this route handles TIME intervals in 'else' block.
-
-      if (!isTickInterval(interval)) {
-        const symbolsList = payload.data.map(b => b.symbol);
-        const squeezeMap = await volatilityService.getBatchSqueezeState(symbolsList, volInterval);
-
-        for (const bubble of payload.data) {
-          const volData = squeezeMap.get(bubble.symbol);
-          if (volData) {
-            bubble.squeeze_on = volData.squeeze_on;
-            bubble.bb_width = volData.bb_width;
-            bubble.kc_width = volData.kc_width;
-            bubble.vol_atr = volData.atr;
-            bubble.vol_atr_pct = volData.vol_atr_pct;
-            bubble.vol_stddev = volData.stddev;
-          }
+          const price = bubble.price;
+          bubble.orb_breakout_5m = price > orbData.orb_high_5m ? 'above' : (price < orbData.orb_low_5m ? 'below' : 'inside');
+          bubble.orb_breakout_15m = price > orbData.orb_high_15m ? 'above' : (price < orbData.orb_low_15m ? 'below' : 'inside');
+          bubble.orb_breakout_30m = price > orbData.orb_high_30m ? 'above' : (price < orbData.orb_low_30m ? 'below' : 'inside');
         }
       }
-    } catch (volErr) {
-      logger.warn({ err: volErr }, 'Failed to merge Volatility data');
+      payload.meta.hasORB = true;
+    }
+
+    // Merge Volatility Data
+    for (const bubble of payload.data) {
+      const volData = squeezeMap.get(bubble.symbol);
+      if (volData) {
+        bubble.squeeze_on = volData.squeeze_on;
+        bubble.bb_width = volData.bb_width;
+        bubble.kc_width = volData.kc_width;
+        bubble.vol_atr = volData.atr;
+        bubble.vol_atr_pct = volData.vol_atr_pct;
+        bubble.vol_stddev = volData.stddev;
+      }
     }
 
     // Apply limit

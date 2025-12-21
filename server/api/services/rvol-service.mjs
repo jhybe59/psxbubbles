@@ -24,11 +24,13 @@ const INTERVAL_MAP = {
  * @param {string[]} symbols - List of symbols
  * @param {string} interval - '1m', '5m', '1h', 'Day'
  * @param {number} lookback - Number of historical buckets to average (default 20)
+ * @param {string} anchorTs - Optional anchor timestamp (ISO or QuestDB format)
  * @returns {Promise<Map<string, number>>} - Map of symbol -> RVOL value
  */
-export async function getBatchRVOL(symbols, interval = '1m', lookback = 20) {
+export async function getBatchRVOL(symbols, interval = '1m', lookback = 20, anchorTs = null) {
   const cfg = INTERVAL_MAP[interval] || INTERVAL_MAP['1m'];
   const sampleBy = cfg.sample;
+  const anchor = anchorTs ? `'${anchorTs}'::timestamp` : 'now()';
 
   // To get the "average of last N finished buckets", we need to:
   // 1. Get N + 1 buckets (including the current one)
@@ -51,6 +53,7 @@ export async function getBatchRVOL(symbols, interval = '1m', lookback = 20) {
         sum(volume) as vol
       FROM minute_bars
       ${symbolFilter}
+      WHERE timestamp <= ${anchor}
       SAMPLE BY ${sampleBy} ALIGN TO CALENDAR TIME ZONE 'Asia/Karachi'
     ),
     with_avg AS (
