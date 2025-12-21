@@ -331,8 +331,8 @@ function buildTickQuery(interval, latestTs, symbols = null) {
       WHERE timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', '${latestTs}')))
         AND timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'))
       GROUP BY symbol
-    ),
-      SELECT
+    )
+    SELECT
   l.symbol,
     max(l.timestamp) as ts,
     first(l.close) as open,

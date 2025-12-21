@@ -96,7 +96,6 @@ export const volatilityService = {
                     (sma - (${multBB} * sqrt(greatest(0, avg_sq - (sma * sma))))) as lower_bb,
                     (sma + (${multKC} * atr)) as upper_kc,
                     (sma - (${multKC} * atr)) as lower_kc,
-                    atr,
                     (atr / sma) * 100 as vol_atr_pct,
                     row_number() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
                 FROM stats
