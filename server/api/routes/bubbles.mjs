@@ -10,6 +10,7 @@ import { getCache, setCache } from '../cache.mjs';
 import logger from '../logger.mjs';
 import rvolService from '../services/rvol-service.mjs';
 import { volatilityService } from '../services/volatility-service.mjs';
+import alertsService from '../services/alerts-service.mjs';
 
 const router = Router();
 
@@ -501,6 +502,10 @@ router.get('/', async (req, res) => {
       sql = buildAggregatedQuery(interval, latestTs, symbols);
     }
 
+    // Calculate day start for alerts (09:00 PKT = 04:00 UTC)
+    const datePart = latestTs.split('T')[0];
+    const dayStart = `${datePart}T04:00:00.000000Z`;
+
     // Execute queries in parallel for maximum speed
     const [dbResult, rvolMap, orbMap, squeezeMap] = await Promise.all([
       queryQuestDB(sql),
@@ -550,6 +555,26 @@ router.get('/', async (req, res) => {
         bubble.vol_atr_pct = volData.vol_atr_pct;
         bubble.vol_stddev = volData.stddev;
       }
+    }
+
+    // Fetch and Merge Alerts (run after we have orbMap for context)
+    // Build prevDayMap from payload for alerts service
+    const prevDayMap = new Map();
+    for (const bubble of payload.data) {
+      if (bubble.prev_high || bubble.prev_close) {
+        prevDayMap.set(bubble.symbol, { prev_high: bubble.prev_high, prev_low: bubble.prev_close });
+      }
+    }
+
+    try {
+      const symbolsList = payload.data.map(b => b.symbol);
+      const alertsMap = await alertsService.getSessionAlerts(symbolsList, dayStart, orbMap, prevDayMap);
+      for (const bubble of payload.data) {
+        bubble.alerts = alertsMap.get(bubble.symbol) || [];
+      }
+      payload.meta.hasAlerts = true;
+    } catch (alertsErr) {
+      logger.warn({ alertsErr }, 'Failed to fetch session alerts');
     }
 
     // Apply limit

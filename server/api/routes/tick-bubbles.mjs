@@ -10,6 +10,7 @@ import { queryQuestDB } from '../questdb.mjs';
 import logger from '../logger.mjs';
 import rvolService from '../services/rvol-service.mjs';
 import { volatilityService } from '../services/volatility-service.mjs';
+import alertsService from '../services/alerts-service.mjs';
 
 const router = Router();
 
@@ -370,6 +371,29 @@ router.get('/', async (req, res) => {
             }
         } catch (volErr) {
             console.error('[tick-bubbles] Failed to merge tick volatility data:', volErr);
+        }
+
+        // Fetch and merge Session Alerts
+        try {
+            const symbolsList = bubbles.map(b => b.symbol);
+            // Calculate dayStart (09:00 PKT = 04:00 UTC)
+            const datePart = latestTs.split('T')[0];
+            const dayStart = `${datePart}T04:00:00.000000Z`;
+
+            // Build prevDayMap from bubbles
+            const prevDayMap = new Map();
+            for (const bubble of bubbles) {
+                if (bubble.prev_high || bubble.prev_close) {
+                    prevDayMap.set(bubble.symbol, { prev_high: bubble.prev_high, prev_low: bubble.prev_close });
+                }
+            }
+
+            const alertsMap = await alertsService.getSessionAlerts(symbolsList, dayStart, orbMap, prevDayMap);
+            for (const bubble of bubbles) {
+                bubble.alerts = alertsMap.get(bubble.symbol) || [];
+            }
+        } catch (alertsErr) {
+            logger.warn({ alertsErr }, 'Failed to fetch session alerts for tick-bubbles');
         }
 
         const duration = Date.now() - start;

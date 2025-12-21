@@ -262,7 +262,9 @@ export default function BubbleTooltip({
     squeeze_on,
     bb_width,
     kc_width,
-    vol_atr
+    vol_atr,
+    // NEW: Backend alerts
+    alerts = []
 }) {
     // Use new props if available, fallback to old ones
     const intPct = intervalPctChange ?? pctChange ?? 0;
@@ -303,12 +305,20 @@ export default function BubbleTooltip({
 
                     <div className="bt-log-list">
                         {(() => {
-                            const logs = getLogicalLogs({ price, prices, raw, orb, rvol, volatility });
-                            if (logs.length === 0) {
+                            // Use backend alerts + supplement with client-side "state" alerts
+                            const backendAlerts = alerts || [];
+
+                            // Get client-side state-based alerts (Uptrend, Downtrend, etc.)
+                            const stateAlerts = getLogicalLogs({ price, prices, raw, orb, rvol, volatility })
+                                .filter(log => log.category === 'I'); // Only interval/state logs
+
+                            const combinedLogs = [...backendAlerts, ...stateAlerts];
+
+                            if (combinedLogs.length === 0) {
                                 return <div className="bt-log-empty">No active signals</div>;
                             }
 
-                            return logs.map((log, i) => (
+                            return combinedLogs.map((log, i) => (
                                 <div key={i} className={`bt-log-item ${log.type}`}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', fontSize: '11px', whiteSpace: 'nowrap' }}>
                                         {log.time && <span style={{ color: '#64748b', fontWeight: 600, fontSize: '10px', minWidth: '32px' }}>[{log.time}]</span>}

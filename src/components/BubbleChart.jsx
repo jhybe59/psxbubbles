@@ -1493,7 +1493,9 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           squeeze_on: d.data?.squeeze_on,
           bb_width: d.data?.bb_width,
           kc_width: d.data?.kc_width,
-          vol_atr: d.data?.vol_atr
+          vol_atr: d.data?.vol_atr,
+          // Backend session alerts
+          alerts: d.data?.alerts || []
         });
       })
       .on('mousemove', function (event) {
@@ -1727,6 +1729,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           bb_width={tooltipData.bb_width}
           kc_width={tooltipData.kc_width}
           vol_atr={tooltipData.vol_atr}
+          // Session Alerts from backend
+          alerts={tooltipData.alerts}
           style={{
             left: tooltipPos.x,
             top: tooltipPos.y

@@ -68,7 +68,8 @@ export async function getBatchRVOL(symbols, interval = '1m', lookback = 20, anch
     SELECT 
       symbol,
       vol as current_vol,
-      avg_vol
+      avg_vol,
+      ts
     FROM with_avg
     WHERE rnk = 1 AND avg_vol > 0
   `;
@@ -81,13 +82,49 @@ export async function getBatchRVOL(symbols, interval = '1m', lookback = 20, anch
     const colIndex = {};
     result.columns.forEach((col, idx) => colIndex[col.name] = idx);
 
+    // Get bucket duration in ms
+    const durationMs = (cfg.minutes || 1) * 60 * 1000;
+
+    // Determine the reference "Now" time for projection
+    // If anchorTs provided, use it. Otherwise use Date.now()
+    // NOTE: If anchorTs is a SQL string (e.g. '2023-01-01'), we should try to parse it or fallback to now.
+    // Ideally the caller passes a valid ISO string or null.
+    let referenceTime = Date.now();
+    if (anchorTs && !anchorTs.includes('now()')) {
+      const parsed = new Date(anchorTs);
+      if (!isNaN(parsed.getTime())) referenceTime = parsed.getTime();
+    }
+
     for (const row of result.dataset) {
       const symbol = row[colIndex['symbol']];
       const cur = parseFloat(row[colIndex['current_vol']]);
       const avg = parseFloat(row[colIndex['avg_vol']]);
+      const tsStr = row[colIndex['ts']]; // Timestamp of the bucket start
 
       if (avg > 0) {
-        rvolMap.set(symbol, cur / avg);
+        let rvol = cur / avg;
+
+        // Apply Projection if the bucket is potentially incomplete
+        // We assume the bucket is the "latest" one returned (rnk=1)
+        // Check if the bucket start + duration > referenceTime implies it's still ongoing?
+        // Actually, simple elapsed check:
+        // elapsed = referenceTime - bucketStartTime
+        // fraction = elapsed / duration
+        if (tsStr) {
+          const bucketStart = new Date(tsStr).getTime();
+          const elapsed = referenceTime - bucketStart;
+
+          // Only project if we are WITHIN the bucket's duration (i.e. partial bucket)
+          // If elapsed > duration, then the bucket is finished (or from the past), so no projection needed.
+          // Also clamp fraction to avoid division by zero or huge multipliers at the very start
+          if (elapsed > 0 && elapsed < durationMs) {
+            const fraction = Math.max(0.01, elapsed / durationMs);
+            // Projected RVOL = (current / fraction) / avg
+            rvol = (cur / fraction) / avg;
+          }
+        }
+
+        rvolMap.set(symbol, rvol);
       }
     }
 
