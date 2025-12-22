@@ -69,12 +69,19 @@ export default function QuickChart({ symbol, interval, x, y, onClose, currentPri
                     if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
 
                     const res = await fetch(url.toString(), { headers });
+                    if (!res.ok) {
+                        console.warn('[QuickChart] Tick API returned non-OK status:', res.status);
+                        return; // Keep existing data
+                    }
                     const json = await res.json();
                     if (mounted && json.data && json.data.length > 0) {
                         setSeries(json.data.map(d => ({
                             ts: new Date(d.ts).getTime(),
                             open: d.open, high: d.high, low: d.low, close: d.close, volume: d.volume
                         })));
+                    } else if (isPolling) {
+                        console.log('[QuickChart] Poll returned empty, keeping existing chart data');
+                        // Do nothing - preserve existing series
                     }
                 }
                 // Time-based Logic
@@ -90,18 +97,24 @@ export default function QuickChart({ symbol, interval, x, y, onClose, currentPri
                     if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
 
                     const res = await fetch(url.toString(), { headers });
-                    if (res.ok) {
-                        const json = await res.json();
-                        if (mounted && json.data && json.data.length > 0) {
-                            setSeries(json.data.map(d => ({
-                                ts: new Date(d.ts).getTime(),
-                                open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close), volume: Number(d.volume)
-                            })).sort((a, b) => a.ts - b.ts));
-                        }
+                    if (!res.ok) {
+                        console.warn('[QuickChart] Candles API returned non-OK status:', res.status);
+                        return; // Keep existing data
+                    }
+                    const json = await res.json();
+                    if (mounted && json.data && json.data.length > 0) {
+                        setSeries(json.data.map(d => ({
+                            ts: new Date(d.ts).getTime(),
+                            open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close), volume: Number(d.volume)
+                        })).sort((a, b) => a.ts - b.ts));
+                    } else if (isPolling) {
+                        console.log('[QuickChart] Poll returned empty, keeping existing chart data');
+                        // Do nothing - preserve existing series
                     }
                 }
             } catch (err) {
-                console.error("QuickChart fetch error", err);
+                console.error("[QuickChart] fetch error:", err);
+                // On error, preserve existing data - don't clear
             } finally {
                 if (mounted && !isPolling) setLoading(false);
             }

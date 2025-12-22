@@ -145,7 +145,10 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
             if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
 
             const res = await fetch(url.toString(), { headers });
-            if (!res.ok) throw new Error('Tick API failed');
+            if (!res.ok) {
+              console.warn('[CoinModal] Tick API returned non-OK status:', res.status);
+              return; // Keep existing data
+            }
             const json = await res.json();
 
             if (mounted && json.data && json.data.length > 0) {
@@ -168,13 +171,18 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
                 setOhlcSummary({ open, low, high, close });
                 setPillPctMap({});
               }
-            } else if (!isPolling && mounted) {
-              // only clear on initial load if no data
+            } else if (isPolling) {
+              console.log('[CoinModal] Tick poll returned empty, keeping existing chart');
+              // Preserve existing series - do nothing
+            } else if (mounted) {
+              // Only clear on initial load if no data
+              console.log('[CoinModal] Initial tick load returned empty, clearing series');
               setSeries([]);
             }
           } catch (err) {
-            console.error('Tick fetch error', err);
+            console.error('[CoinModal] Tick fetch error:', err);
             if (mounted && !isPolling) setSeries([]);
+            // On polling error, preserve existing data
           }
           return;
         }
