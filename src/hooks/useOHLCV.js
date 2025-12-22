@@ -222,7 +222,9 @@ async function fetchLiveInterval(interval) {
           prev_prev_open: prevPrevCandle?.open ?? null,
           // Lookback stats for flexible strategy builder
           lookback: row.lookback || {},
-          raw: row
+          raw: row,
+          // Session alerts from backend
+          alerts: row.alerts || []
         };
       });
     } catch (err) {
@@ -304,7 +306,9 @@ async function fetchTickInterval(interval) {
         timeElapsedMs: row.timeElapsedMs ?? null,
         startTs: row.startTs ? new Date(row.startTs).getTime() : null,
         tickCount: row.tickCount ?? tickCount,
-        raw: row
+        raw: row,
+        // Session alerts from backend
+        alerts: row.alerts || []
       };
     });
   } catch (err) {
