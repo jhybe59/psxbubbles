@@ -232,6 +232,73 @@ function getLogicalLogs(props) {
     return sortedLogs.slice(0, 15);
 }
 
+/**
+ * Generate Interval-specific alerts based on OHLCV data for the selected interval
+ * These are calculated client-side from the coin's interval data
+ */
+function getIntervalAlerts({ price, open, high, low, rvol, pctChange, squeeze_on, currentInterval }) {
+    const alerts = [];
+    const p = Number(price);
+    const o = Number(open);
+    const h = Number(high);
+    const l = Number(low);
+    const pct = Number(pctChange);
+    const vol = Number(rvol);
+    const currentTime = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+    if (!p || !o) return alerts;
+
+    // Price vs Open
+    if (p > o) {
+        const aboveOpenPct = ((p - o) / o * 100).toFixed(1);
+        alerts.push({ icon: '↗', text: `Above Open`, detail: `+${aboveOpenPct}%`, type: 'bullish', time: currentTime });
+    } else if (p < o) {
+        const belowOpenPct = ((o - p) / o * 100).toFixed(1);
+        alerts.push({ icon: '↘', text: `Below Open`, detail: `-${belowOpenPct}%`, type: 'bearish', time: currentTime });
+    }
+
+    // Near High/Low
+    if (h && p >= h * 0.995) {
+        alerts.push({ icon: '📈', text: 'At Interval High', detail: '', type: 'bullish', time: currentTime });
+    } else if (h && l && p >= h * 0.98 && p > l) {
+        alerts.push({ icon: '🔝', text: 'Near High', detail: `${((h - p) / h * 100).toFixed(1)}% away`, type: 'bullish', time: currentTime });
+    }
+
+    if (l && p <= l * 1.005) {
+        alerts.push({ icon: '📉', text: 'At Interval Low', detail: '', type: 'bearish', time: currentTime });
+    } else if (l && h && p <= l * 1.02 && p < h) {
+        alerts.push({ icon: '🔻', text: 'Near Low', detail: `${((p - l) / l * 100).toFixed(1)}% away`, type: 'bearish', time: currentTime });
+    }
+
+    // RVOL
+    if (vol >= 3) {
+        alerts.push({ icon: '🔥', text: 'Very High RVOL', detail: `${vol.toFixed(1)}x`, type: 'bullish', time: currentTime });
+    } else if (vol >= 2) {
+        alerts.push({ icon: '📊', text: 'High RVOL', detail: `${vol.toFixed(1)}x`, type: 'bullish', time: currentTime });
+    } else if (vol < 0.5 && vol > 0) {
+        alerts.push({ icon: '⚠️', text: 'Low Volume', detail: `${vol.toFixed(1)}x`, type: 'neutral', time: currentTime });
+    }
+
+    // Momentum
+    if (pct >= 3) {
+        alerts.push({ icon: '🚀', text: 'Strong Up', detail: `+${pct.toFixed(1)}%`, type: 'bullish', time: currentTime });
+    } else if (pct >= 1.5) {
+        alerts.push({ icon: '💪', text: 'Momentum Up', detail: `+${pct.toFixed(1)}%`, type: 'bullish', time: currentTime });
+    } else if (pct <= -3) {
+        alerts.push({ icon: '💀', text: 'Strong Down', detail: `${pct.toFixed(1)}%`, type: 'bearish', time: currentTime });
+    } else if (pct <= -1.5) {
+        alerts.push({ icon: '📉', text: 'Momentum Down', detail: `${pct.toFixed(1)}%`, type: 'bearish', time: currentTime });
+    }
+
+    // Squeeze
+    if (squeeze_on) {
+        alerts.push({ icon: '🔄', text: 'Squeeze On', detail: 'Low volatility', type: 'neutral', time: currentTime });
+    }
+
+    return alerts;
+}
+
+
 export default function BubbleTooltip({
     symbol,
     name,
@@ -520,6 +587,41 @@ export default function BubbleTooltip({
                             )}
                         </div>
                     )}
+                </div>
+
+                {/* Interval Alerts Panel (Right End Column) */}
+                <div className="bt-interval-alerts">
+                    <div className="bt-log-header">
+                        <span>📊 {currentInterval} ALERTS</span>
+                    </div>
+                    <div className="bt-log-list">
+                        {(() => {
+                            const intervalAlertsList = getIntervalAlerts({
+                                price,
+                                open: orb?.open || raw?.open,
+                                high: orb?.high || raw?.high,
+                                low: orb?.low || raw?.low,
+                                rvol,
+                                pctChange: intPct,
+                                squeeze_on,
+                                currentInterval
+                            });
+
+                            if (intervalAlertsList.length === 0) {
+                                return <div className="bt-log-empty">No interval signals</div>;
+                            }
+
+                            return intervalAlertsList.map((alert, i) => (
+                                <div key={i} className={`bt-log-item ${alert.type}`}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                                        <span style={{ fontSize: '12px' }}>{alert.icon}</span>
+                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{alert.text}</span>
+                                        {alert.detail && <span className="bt-int-detail">{alert.detail}</span>}
+                                    </div>
+                                </div>
+                            ));
+                        })()}
+                    </div>
                 </div>
             </div>
         </div>
