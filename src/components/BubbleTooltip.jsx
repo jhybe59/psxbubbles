@@ -266,6 +266,9 @@ export default function BubbleTooltip({
     // NEW: Backend alerts
     alerts = []
 }) {
+    // DEBUG: Trace alerts data
+    console.log('[BubbleTooltip] Alerts received:', symbol, alerts?.length, alerts);
+
     // Use new props if available, fallback to old ones
     const intPct = intervalPctChange ?? pctChange ?? 0;
     const intVol = intervalVolume ?? volume ?? 0;

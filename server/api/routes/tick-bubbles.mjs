@@ -284,8 +284,9 @@ router.get('/', async (req, res) => {
         }
 
         // Fetch ORB data and merge with tick bubbles
+        let orbMap = new Map();
         try {
-            const orbMap = await getORBData(latestTs);
+            orbMap = await getORBData(latestTs);
 
             if (orbMap.size > 0) {
                 for (const bubble of bubbles) {
