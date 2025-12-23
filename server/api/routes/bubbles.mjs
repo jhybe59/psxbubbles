@@ -583,7 +583,7 @@ router.get('/', async (req, res) => {
     //   1. squeeze_on = false (volatility expanding)
     //   2. bb_width > kc_width (Bollinger outside Keltner)
     //   3. rvol >= 2.0 (volume surge)
-    //   4. price > orb_high_30m (above ORB resistance)
+    //   4. price > orb_high_5m (above ORB resistance - using 5m for faster signals)
     //   5. pct_interval > 0 (current move is UP)
     // ═══════════════════════════════════════════════════════════════════
     for (const bubble of payload.data) {
@@ -592,7 +592,7 @@ router.get('/', async (req, res) => {
         bubble.bb_width != null && bubble.kc_width != null &&
         bubble.bb_width > bubble.kc_width &&
         (bubble.rvol >= 2.0 || bubble.relative_volume >= 2.0) &&
-        bubble.orb_high_30m != null && bubble.price > bubble.orb_high_30m &&
+        bubble.orb_high_5m != null && bubble.price > bubble.orb_high_5m &&
         bubble.pct_interval > 0
       );
 
