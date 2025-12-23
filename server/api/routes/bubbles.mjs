@@ -179,12 +179,10 @@ function buildLatestQuery(symbols = null) {
       l.close,
       l.volume,
       l.value,
-      CASE 
-        WHEN p.prev_close IS NULL OR p.prev_close = 0 THEN 0 
-        ELSE ((l.close - p.prev_close) / p.prev_close) * 100 
-      END as daily_pct
+      l.value,
+      0 as daily_pct
     FROM latest_final l
-    LEFT JOIN prev_day p ON l.symbol = p.symbol
+    -- LEFT JOIN prev_day p ON l.symbol = p.symbol -- DISABLED FOR STABILITY
   `;
 
   return sql;
@@ -308,20 +306,18 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       l.close,
       COALESCE(w.volume, 0) as volume,
       COALESCE(w.value, 0) as value,
-      CASE 
-        WHEN pds.prev_close IS NULL OR pds.prev_close = 0 THEN 0 
-        ELSE ((l.close - pds.prev_close) / pds.prev_close) * 100 
-      END as daily_pct,
+      COALESCE(w.value, 0) as value,
+      0 as daily_pct,
       COALESCE(dv.day_volume, 0) as day_volume,
-      pds.prev_high,
-      pds.prev_close,
+      0 as prev_high,
+      0 as prev_close,
       da.day_high,
       da.day_low
     FROM latest_ordered l
     LEFT JOIN window_agg w ON l.symbol = w.symbol
     LEFT JOIN baseline_ordered b ON l.symbol = b.symbol
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
-    LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
+    -- LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol -- DISABLED FOR STABILITY
     LEFT JOIN day_agg da ON l.symbol = da.symbol
   `;
 
@@ -395,17 +391,15 @@ function buildTickQuery(interval, latestTs, symbols = null) {
       last(l.close) as close,
       sum(l.volume) as volume,
       sum(l.value) as value,
-        CASE 
-        WHEN first(pds.prev_close) IS NULL OR first(pds.prev_close) = 0 THEN 0 
-        ELSE ((last(l.close) - first(pds.prev_close)) / first(pds.prev_close)) * 100 
-      END as daily_pct,
+      0 as daily_pct,
       max(l.tick_seq) as tick_seq,
       COALESCE(first(dv.day_volume), 0) as day_volume,
-      first(pds.prev_high) as prev_high,
-      first(pds.prev_close) as prev_close
+      0 as prev_high,
+      0 as prev_close
     FROM latest_ticks l
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
-    LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
+    -- LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol -- DISABLED
+
     GROUP BY l.symbol, l.tick_bucket
     ORDER BY l.symbol, l.tick_bucket DESC
   `;
