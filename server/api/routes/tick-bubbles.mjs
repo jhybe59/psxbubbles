@@ -169,21 +169,21 @@ router.get('/', async (req, res) => {
         // day_volume comes from trades (SUM from start of day) per user request
         let dayStats = new Map();
         try {
-            // Get daily_pct from trades
-            const pctSql = `
-                SELECT symbol, last(daily_pct)
+            // Get current price from trades (to calc daily_pct later)
+            const priceSql = `
+                SELECT symbol, last(price)
                 FROM trades
                 WHERE timestamp >= dateadd('d', -1, '${latestTs}')
                 SAMPLE BY 1m ALIGN TO CALENDAR
                 LATEST ON timestamp PARTITION BY symbol
             `;
-            const pctResult = await queryQuestDB(pctSql);
-            if (pctResult && pctResult.dataset) {
-                for (const row of pctResult.dataset) {
+            const priceResult = await queryQuestDB(priceSql);
+            if (priceResult && priceResult.dataset) {
+                for (const row of priceResult.dataset) {
                     const sym = row[0];
-                    const pct = parseFloat(row[1]) || 0;
-                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null });
-                    dayStats.get(sym).pct_24h = pct;
+                    const price = parseFloat(row[1]) || 0;
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null, current_price: 0 });
+                    dayStats.get(sym).current_price = price;
                 }
             }
 
@@ -200,8 +200,15 @@ router.get('/', async (req, res) => {
                 for (const row of prevCloseResult.dataset) {
                     const sym = row[0];
                     const pc = parseFloat(row[1]) || null;
-                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null });
-                    dayStats.get(sym).prev_close = pc;
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null, current_price: 0 });
+
+                    const stats = dayStats.get(sym);
+                    stats.prev_close = pc;
+
+                    // Calc daily pct
+                    if (pc && pc > 0 && stats.current_price > 0) {
+                        stats.pct_24h = ((stats.current_price - pc) / pc) * 100;
+                    }
                 }
             }
 

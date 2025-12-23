@@ -132,33 +132,62 @@ async function getORBData(latestTs) {
  * Build LATEST ON query for real-time data (1m interval)
  */
 function buildLatestQuery(symbols = null) {
-  let sql = `
-    SELECT 
-      symbol,
-      timestamp as ts,
-      first(price) as open,
-      max(price) as high,
-      min(price) as low,
-      last(price) as close,
-      sum(volume) as volume,
-      sum(value) as value,
-      last(daily_pct) as daily_pct
-    FROM trades
-    WHERE timestamp >= dateadd('d', -7, now())
-  `;
-
+  let symbolFilter = '';
   if (symbols && symbols.length > 0) {
     const symbolList = symbols.map(s => `'${s}'`).join(',');
-    sql += ` AND symbol IN (${symbolList})`;
+    symbolFilter = ` AND symbol IN (${symbolList})`;
   }
 
-  sql += ` SAMPLE BY 1m ALIGN TO CALENDAR`;
-
-  // Wrap in LATEST ON to get the very last minute bar
-  return `
-    SELECT * FROM (${sql})
-    LATEST ON ts PARTITION BY symbol
+  // Calculate daily_pct dynamically because 'trades' table likely lacks it
+  let sql = `
+    WITH latest_1m AS (
+      SELECT 
+        symbol,
+        timestamp as ts,
+        first(price) as open,
+        max(price) as high,
+        min(price) as low,
+        last(price) as close,
+        sum(volume) as volume,
+        sum(value) as value
+      FROM trades
+      WHERE timestamp >= dateadd('d', -1, now()) 
+      ${symbolFilter}
+      SAMPLE BY 1m ALIGN TO CALENDAR
+    ),
+    latest_final AS (
+      SELECT * FROM latest_1m LATEST ON ts PARTITION BY symbol
+    ),
+    prev_day AS (
+       -- Get last price before today's open (04:00 UTC)
+       SELECT symbol, close as prev_close
+       FROM (
+         SELECT symbol, last(price) as close, timestamp
+         FROM trades
+         WHERE timestamp < dateadd('h', 4, date_trunc('day', now()))
+           AND timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', now())))
+           ${symbolFilter}
+         SAMPLE BY 1m ALIGN TO CALENDAR
+       ) LATEST ON timestamp PARTITION BY symbol
+    )
+    SELECT 
+      l.symbol,
+      l.ts,
+      l.open,
+      l.high,
+      l.low,
+      l.close,
+      l.volume,
+      l.value,
+      CASE 
+        WHEN p.prev_close IS NULL OR p.prev_close = 0 THEN 0 
+        ELSE ((l.close - p.prev_close) / p.prev_close) * 100 
+      END as daily_pct
+    FROM latest_final l
+    LEFT JOIN prev_day p ON l.symbol = p.symbol
   `;
+
+  return sql;
 }
 
 /**
@@ -250,7 +279,7 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       GROUP BY symbol
     ),
     latest_l AS (
-      SELECT symbol, timestamp as ts, last(price) as close, last(daily_pct) as daily_pct
+      SELECT symbol, timestamp as ts, last(price) as close
       FROM trades
       WHERE timestamp >= dateadd('d', -7, '${anchorTs}'::timestamp) 
       ${symbolFilter.replace('WHERE', 'AND')}
@@ -279,7 +308,10 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       l.close,
       COALESCE(w.volume, 0) as volume,
       COALESCE(w.value, 0) as value,
-      l.daily_pct,
+      CASE 
+        WHEN pds.prev_close IS NULL OR pds.prev_close = 0 THEN 0 
+        ELSE ((l.close - pds.prev_close) / pds.prev_close) * 100 
+      END as daily_pct,
       COALESCE(dv.day_volume, 0) as day_volume,
       pds.prev_high,
       pds.prev_close,
@@ -330,7 +362,6 @@ function buildTickQuery(interval, latestTs, symbols = null) {
         price as close,
         volume,
         value,
-        daily_pct,
         tick_seq,
         (tick_seq / ${tickSize}) as tick_bucket
       FROM trades
@@ -364,7 +395,10 @@ function buildTickQuery(interval, latestTs, symbols = null) {
       last(l.close) as close,
       sum(l.volume) as volume,
       sum(l.value) as value,
-      last(l.daily_pct) as daily_pct,
+        CASE 
+        WHEN first(pds.prev_close) IS NULL OR first(pds.prev_close) = 0 THEN 0 
+        ELSE ((last(l.close) - first(pds.prev_close)) / first(pds.prev_close)) * 100 
+      END as daily_pct,
       max(l.tick_seq) as tick_seq,
       COALESCE(first(dv.day_volume), 0) as day_volume,
       first(pds.prev_high) as prev_high,
