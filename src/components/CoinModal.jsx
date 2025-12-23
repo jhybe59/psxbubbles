@@ -55,6 +55,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
   const [currentCoin, setCurrentCoin] = useState(coin);
   const [chartType, setChartType] = useState('Candles'); // 'Candles' or 'Area'
   const [candleType, setCandleTypeState] = useState(() => getCandleType()); // 'Candles' or 'Heikin-Ashi'
+  const [isChartLoading, setIsChartLoading] = useState(true); // Loading state for chart
 
   // Advanced chart can have different symbol than modal
   const [advancedChartSymbol, setAdvancedChartSymbol] = useState(coin?.symbol);
@@ -130,64 +131,101 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
         const isTick = effectiveTf.includes('Tick');
 
         if (isTick) {
-          // Tick-based fetching
-          try {
-            const origin = typeof window !== 'undefined' ? window.location.origin : '';
-            const base = LIVE_API_BASE_URL.startsWith('http') ? LIVE_API_BASE_URL : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
-            const url = new URL('tick-candles', base.endsWith('/') ? base : `${base}/`);
+          // Tick-based fetching with retry logic
+          if (!isPolling) setIsChartLoading(true);
 
-            const intervalCode = effectiveTf.replace(' Ticks', 'T').replace(' ', '');
-            url.searchParams.set('symbol', coin.symbol);
-            url.searchParams.set('interval', intervalCode);
-            url.searchParams.set('limit', '100');
+          const maxRetries = isPolling ? 1 : 3; // Retry only on initial load
+          let lastError = null;
 
-            const headers = { 'Content-Type': 'application/json' };
-            if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              const origin = typeof window !== 'undefined' ? window.location.origin : '';
+              const base = LIVE_API_BASE_URL.startsWith('http') ? LIVE_API_BASE_URL : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+              const url = new URL('tick-candles', base.endsWith('/') ? base : `${base}/`);
 
-            const res = await fetch(url.toString(), { headers });
-            if (!res.ok) {
-              console.warn('[CoinModal] Tick API returned non-OK status:', res.status);
-              return; // Keep existing data
-            }
-            const json = await res.json();
+              const intervalCode = effectiveTf.replace(' Ticks', 'T').replace(' ', '');
+              url.searchParams.set('symbol', coin.symbol);
+              url.searchParams.set('interval', intervalCode);
+              url.searchParams.set('limit', '100');
 
-            if (mounted && json.data && json.data.length > 0) {
-              const s = json.data.map(d => ({
-                ts: new Date(d.ts).getTime(),
-                open: d.open,
-                high: d.high,
-                low: d.low,
-                close: d.close,
-                volume: d.volume
-              }));
+              const headers = { 'Content-Type': 'application/json' };
+              if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
 
-              setSeries(s);
+              const res = await fetch(url.toString(), { headers });
 
-              if (s.length > 0) {
-                const open = s[0].open;
-                const close = s[s.length - 1].close;
-                const low = Math.min(...s.map(i => i.low));
-                const high = Math.max(...s.map(i => i.high));
-                setOhlcSummary({ open, low, high, close });
-                setPillPctMap({});
+              if (!res.ok) {
+                console.warn(`[CoinModal] Tick API attempt ${attempt}/${maxRetries} returned status:`, res.status);
+                lastError = new Error(`HTTP ${res.status}`);
+                if (attempt < maxRetries) {
+                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+                  continue;
+                }
+                // Final attempt failed - preserve existing data
+                if (!isPolling) setIsChartLoading(false);
+                return;
               }
-            } else if (isPolling) {
-              console.log('[CoinModal] Tick poll returned empty, keeping existing chart');
-              // Preserve existing series - do nothing
-            } else if (mounted) {
-              // Only clear on initial load if no data
-              console.log('[CoinModal] Initial tick load returned empty, clearing series');
-              setSeries([]);
+
+              const json = await res.json();
+
+              if (mounted && json.data && json.data.length > 0) {
+                const s = json.data.map(d => ({
+                  ts: new Date(d.ts).getTime(),
+                  open: d.open,
+                  high: d.high,
+                  low: d.low,
+                  close: d.close,
+                  volume: d.volume
+                }));
+
+                setSeries(s);
+                if (!isPolling) setIsChartLoading(false);
+
+                if (s.length > 0) {
+                  const open = s[0].open;
+                  const close = s[s.length - 1].close;
+                  const low = Math.min(...s.map(i => i.low));
+                  const high = Math.max(...s.map(i => i.high));
+                  setOhlcSummary({ open, low, high, close });
+                  setPillPctMap({});
+                }
+                return; // Success - exit retry loop
+              } else if (isPolling) {
+                // console.log('[CoinModal] Tick poll returned empty, keeping existing chart');
+                // Preserve existing series - do nothing
+                return;
+              } else if (attempt < maxRetries) {
+                // Initial load returned empty, retry
+                console.log(`[CoinModal] Tick attempt ${attempt}/${maxRetries} returned empty, retrying...`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                continue;
+              } else if (mounted) {
+                // Final attempt on initial load returned empty
+                console.log('[CoinModal] All tick fetch attempts returned empty');
+                setSeries([]);
+                setIsChartLoading(false);
+                return;
+              }
+            } catch (err) {
+              console.error(`[CoinModal] Tick fetch attempt ${attempt}/${maxRetries} error:`, err);
+              lastError = err;
+              if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                continue;
+              }
             }
-          } catch (err) {
-            console.error('[CoinModal] Tick fetch error:', err);
-            if (mounted && !isPolling) setSeries([]);
-            // On polling error, preserve existing data
+          }
+
+          // All retries exhausted
+          if (mounted && !isPolling) {
+            console.error('[CoinModal] All tick fetch retries failed:', lastError);
+            // Don't clear series on failure - preserve whatever data we have
+            setIsChartLoading(false);
           }
           return;
         }
 
         // --- Time-Based Logic ---
+        if (!isPolling) setIsChartLoading(true);
         let rows = [];
         try {
           const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -272,6 +310,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
           // If we have data, update. If s is empty and !isPolling, clear.
           if (s.length > 0) {
             setSeries(s);
+            if (!isPolling) setIsChartLoading(false);
             const open = s[0].open != null ? s[0].open : s[0].close;
             const close = s[s.length - 1].close;
             const low = Math.min(...s.map((z) => (z.low != null ? z.low : z.close)));
@@ -310,13 +349,12 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
             setOhlcSummary(null);
             setPillPctMap({});
           }
+          if (!isPolling) setIsChartLoading(false);
         }
       } catch (err) {
-        if (mounted && !isPolling) {
-          setSeries([]);
-          setOhlcSummary(null);
-          setPillPctMap({});
-        }
+        console.error('[CoinModal] Time-based fetch error:', err);
+        // Preserve existing data on error instead of clearing
+        if (!isPolling) setIsChartLoading(false);
       }
     }
 
@@ -1104,20 +1142,51 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
             )}
           </div>
 
-          {/* Chart */}
-          <EmbeddedChart
-            ref={embeddedChartRef}
-            data={series}
-            symbol={coin.symbol}
-            height={320}
-            chartType={chartType}
-            candleType={candleType}
-            onFullscreen={() => {
-              const interval = chartType === 'Candles' ? candleInterval : timeframe;
-              window.open(`/chart/${coin.symbol}?interval=${encodeURIComponent(interval)}&type=${chartType}&candleType=${candleType}`, '_blank');
-            }}
-            onActiveCountChange={setIndicatorCount}
-          />
+          {/* Chart with Loading Overlay */}
+          <div style={{ position: 'relative' }}>
+            {isChartLoading && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(19, 23, 34, 0.85)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 20,
+                borderRadius: '8px'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}>
+                  <div style={{
+                    width: '32px',
+                    height: '32px',
+                    border: '3px solid #334155',
+                    borderTopColor: '#3b82f6',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                  }} />
+                  <span style={{ color: '#94a3b8', fontSize: '13px' }}>Loading chart data...</span>
+                </div>
+              </div>
+            )}
+            <EmbeddedChart
+              ref={embeddedChartRef}
+              data={series}
+              symbol={coin.symbol}
+              height={320}
+              chartType={chartType}
+              candleType={candleType}
+              onFullscreen={() => {
+                const interval = chartType === 'Candles' ? candleInterval : timeframe;
+                window.open(`/chart/${coin.symbol}?interval=${encodeURIComponent(interval)}&type=${chartType}&candleType=${candleType}`, '_blank');
+              }}
+              onActiveCountChange={setIndicatorCount}
+            />
+          </div>
         </div>
 
 
