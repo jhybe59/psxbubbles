@@ -634,7 +634,7 @@ router.get('/', async (req, res) => {
         if (!bubble.alerts.some(a => a.type === 'BREAKOUT')) {
           bubble.alerts.unshift(breakoutAlert);
         }
-        logger.info({ symbol: bubble.symbol, price: bubble.price, rvol: Math.max(rollingRvol, sessionRvol), source: hasRollingRvol ? 'ROLLING' : 'SESSION' }, 'BREAKOUT DETECTED');
+        // logger.info({ symbol: bubble.symbol, price: bubble.price, rvol: Math.max(rollingRvol, sessionRvol), source: hasRollingRvol ? 'ROLLING' : 'SESSION' }, 'BREAKOUT DETECTED');
       }
     }
 

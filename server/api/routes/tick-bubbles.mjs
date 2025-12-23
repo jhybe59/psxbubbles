@@ -457,12 +457,12 @@ router.get('/', async (req, res) => {
                 if (!bubble.alerts.some(a => a.type === 'BREAKOUT')) {
                     bubble.alerts.unshift(breakoutAlert);
                 }
-                logger.info({ symbol: bubble.symbol, price: bubble.price, rvol: bubble.rvol }, 'BREAKOUT DETECTED');
+                // logger.info({ symbol: bubble.symbol, price: bubble.price, rvol: bubble.rvol }, 'BREAKOUT DETECTED');
             }
         }
 
         const duration = Date.now() - start;
-        logger.info({ duration, count: bubbles.length, ticks: tickCount }, 'Tick bubbles query');
+        // logger.info({ duration, count: bubbles.length, ticks: tickCount }, 'Tick bubbles query');
 
         res.json(bubbles);
     } catch (err) {
