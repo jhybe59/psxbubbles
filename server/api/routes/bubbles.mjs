@@ -578,26 +578,45 @@ router.get('/', async (req, res) => {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BREAKOUT DETECTION - TTM Squeeze Strategy
+    // BREAKOUT DETECTION - TTM Squeeze Strategy (DUAL RVOL)
     // Conditions:
     //   1. squeeze_on = false (volatility expanding)
     //   2. bb_width > kc_width (Bollinger outside Keltner)
-    //   3. rvol >= 2.0 (volume surge)
-    //   4. price > orb_high_5m (above ORB resistance - using 5m for faster signals)
+    //   3. RVOL check (EITHER rolling OR session-based):
+    //      - Rolling RVOL >= 1.5 (current vs last 20 bars avg)
+    //      - Session RVOL >= 1.5 (current vs first 5m bar of day)
+    //   4. price > orb_high_5m (above ORB resistance)
     //   5. pct_interval > 0 (current move is UP)
     // ═══════════════════════════════════════════════════════════════════
     for (const bubble of payload.data) {
+      // Check Rolling RVOL (current method, threshold lowered to 1.5)
+      const rollingRvol = bubble.rvol || bubble.relative_volume || 0;
+      const hasRollingRvol = rollingRvol >= 1.5;
+
+      // Check Session-based RVOL (vs orb_volume_5m from first 5 min)
+      const orbVol5m = bubble.orb_volume_5m || 0;
+      const currentVol = bubble.volume || bubble.day_volume || 0;
+      const sessionRvol = orbVol5m > 0 ? (currentVol / orbVol5m) : 0;
+      const hasSessionRvol = sessionRvol >= 1.5;
+
+      // Breakout requires EITHER rolling OR session RVOL signal
+      const hasVolumeSignal = hasRollingRvol || hasSessionRvol;
+
       const isBreakout = (
         bubble.squeeze_on === false &&
         bubble.bb_width != null && bubble.kc_width != null &&
         bubble.bb_width > bubble.kc_width &&
-        (bubble.rvol >= 2.0 || bubble.relative_volume >= 2.0) &&
+        hasVolumeSignal &&
         bubble.orb_high_5m != null && bubble.price > bubble.orb_high_5m &&
         bubble.pct_interval > 0
       );
 
       bubble.breakout_signal = isBreakout;
       bubble.breakout_type = isBreakout ? 'TTM_SQUEEZE' : null;
+      // Add RVOL details for debugging
+      bubble.breakout_rvol_rolling = rollingRvol;
+      bubble.breakout_rvol_session = sessionRvol;
+      bubble.breakout_rvol_source = isBreakout ? (hasRollingRvol ? 'ROLLING' : 'SESSION') : null;
 
       // Add breakout alert if detected
       if (isBreakout) {
@@ -605,7 +624,8 @@ router.get('/', async (req, res) => {
           type: 'BREAKOUT',
           label: '🚀 BREAKOUT',
           message: `${bubble.symbol} TTM Squeeze breakout @ ${bubble.price?.toFixed(2)}`,
-          rvol: bubble.rvol || bubble.relative_volume,
+          rvol: Math.max(rollingRvol, sessionRvol),
+          rvol_source: hasRollingRvol ? 'ROLLING' : 'SESSION',
           price: bubble.price,
           time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
         };
@@ -614,7 +634,7 @@ router.get('/', async (req, res) => {
         if (!bubble.alerts.some(a => a.type === 'BREAKOUT')) {
           bubble.alerts.unshift(breakoutAlert);
         }
-        logger.info({ symbol: bubble.symbol, price: bubble.price, rvol: bubble.rvol }, 'BREAKOUT DETECTED');
+        logger.info({ symbol: bubble.symbol, price: bubble.price, rvol: Math.max(rollingRvol, sessionRvol), source: hasRollingRvol ? 'ROLLING' : 'SESSION' }, 'BREAKOUT DETECTED');
       }
     }
 
