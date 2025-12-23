@@ -104,7 +104,7 @@ const QUICK_FILTERS = [
         label: '🔥 Bullish Breakout',
         conditions: {
             price_change_percentage_24h: { min: 0.5 },
-            orb_breakout_30m: { min: 1 },
+            price: { operator: 'above', target: 'orb_high_30m' },
             relative_volume: { min: 2.5 },
             bb_width: { operator: 'above', target: 'kc_width' },
             squeeze_on: { max: 0 }

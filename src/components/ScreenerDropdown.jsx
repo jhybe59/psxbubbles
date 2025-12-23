@@ -111,7 +111,7 @@ const QUICK_FILTERS = [
         description: 'STRICT LONG: Above ORB High + RVOL > 2.5x + Vol Expansion + Up Trend',
         conditions: {
             price_change_percentage_24h: { min: 0.5 },
-            orb_breakout_30m: { min: 1 },
+            price: { operator: 'above', target: 'orb_high_30m' },
             relative_volume: { min: 2.5 },
             bb_width: { operator: 'above', target: 'kc_width' },
             squeeze_on: { max: 0 }
@@ -139,7 +139,14 @@ const savePresetsToStorage = (presets) => {
     }
 };
 
-export default function ScreenerDropdown({ activeFilters, onFilterChange, resultCount, totalCount }) {
+export default function ScreenerDropdown({
+    activeFilters,
+    onFilterChange,
+    resultCount,
+    totalCount,
+    breakoutAlertsEnabled = true,
+    setBreakoutAlertsEnabled = () => { }
+}) {
     const [isOpen, setIsOpen] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
     const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -272,6 +279,57 @@ export default function ScreenerDropdown({ activeFilters, onFilterChange, result
 
             {isOpen && (
                 <div className="screener-dropdown-menu">
+                    {/* Breakout Alerts Toggle */}
+                    <div className="screener-section" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px', marginBottom: '8px' }}>
+                        <div
+                            className="screener-alert-toggle"
+                            onClick={() => setBreakoutAlertsEnabled(!breakoutAlertsEnabled)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '10px 12px',
+                                background: breakoutAlertsEnabled ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                                border: `1px solid ${breakoutAlertsEnabled ? 'rgba(34, 197, 94, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '18px' }}>{breakoutAlertsEnabled ? '🚀' : '🔕'}</span>
+                                <div>
+                                    <div style={{ fontWeight: 600, color: breakoutAlertsEnabled ? '#4ade80' : '#9ca3af', fontSize: '13px' }}>
+                                        Breakout Alerts
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+                                        TTM Squeeze + RVOL + ORB
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={{
+                                width: '40px',
+                                height: '22px',
+                                background: breakoutAlertsEnabled ? '#22c55e' : 'rgba(255,255,255,0.15)',
+                                borderRadius: '11px',
+                                position: 'relative',
+                                transition: 'all 0.2s'
+                            }}>
+                                <div style={{
+                                    width: '18px',
+                                    height: '18px',
+                                    background: '#fff',
+                                    borderRadius: '50%',
+                                    position: 'absolute',
+                                    top: '2px',
+                                    left: breakoutAlertsEnabled ? '20px' : '2px',
+                                    transition: 'all 0.2s',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                                }} />
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="screener-section">
                         <div className="screener-section-title">Quick Filters</div>
                         <div className="screener-chips-grid">

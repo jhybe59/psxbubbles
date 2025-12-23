@@ -577,6 +577,47 @@ router.get('/', async (req, res) => {
       logger.warn({ alertsErr }, 'Failed to fetch session alerts');
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // BREAKOUT DETECTION - TTM Squeeze Strategy
+    // Conditions:
+    //   1. squeeze_on = false (volatility expanding)
+    //   2. bb_width > kc_width (Bollinger outside Keltner)
+    //   3. rvol >= 2.0 (volume surge)
+    //   4. price > orb_high_30m (above ORB resistance)
+    //   5. pct_interval > 0 (current move is UP)
+    // ═══════════════════════════════════════════════════════════════════
+    for (const bubble of payload.data) {
+      const isBreakout = (
+        bubble.squeeze_on === false &&
+        bubble.bb_width != null && bubble.kc_width != null &&
+        bubble.bb_width > bubble.kc_width &&
+        (bubble.rvol >= 2.0 || bubble.relative_volume >= 2.0) &&
+        bubble.orb_high_30m != null && bubble.price > bubble.orb_high_30m &&
+        bubble.pct_interval > 0
+      );
+
+      bubble.breakout_signal = isBreakout;
+      bubble.breakout_type = isBreakout ? 'TTM_SQUEEZE' : null;
+
+      // Add breakout alert if detected
+      if (isBreakout) {
+        const breakoutAlert = {
+          type: 'BREAKOUT',
+          label: '🚀 BREAKOUT',
+          message: `${bubble.symbol} TTM Squeeze breakout @ ${bubble.price?.toFixed(2)}`,
+          rvol: bubble.rvol || bubble.relative_volume,
+          price: bubble.price,
+          time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+        };
+        if (!bubble.alerts) bubble.alerts = [];
+        // Only add if not already present (avoid duplicates on refresh)
+        if (!bubble.alerts.some(a => a.type === 'BREAKOUT')) {
+          bubble.alerts.unshift(breakoutAlert);
+        }
+        logger.info({ symbol: bubble.symbol, price: bubble.price, rvol: bubble.rvol }, 'BREAKOUT DETECTED');
+      }
+    }
+
     // Apply limit
     if (payload.data.length > limit) {
       payload.data = payload.data.slice(0, limit);

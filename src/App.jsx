@@ -21,6 +21,7 @@ import storage from './lib/storage'
 import { applyFilter } from './utils/filterUtils'
 import ScreenerDropdown from './components/ScreenerDropdown'
 import useTechnicalIndicators from './hooks/useTechnicalIndicators'
+import BreakoutToast from './components/BreakoutToast'
 
 function App() {
   const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp } = useOHLCV();
@@ -53,6 +54,24 @@ function App() {
       return ['1 Min', 'Day'];
     }
   })
+  // Breakout alert tracking - stores active breakout signals
+  const [breakouts, setBreakouts] = useState([])
+  const seenBreakoutsRef = useRef(new Set()) // Track already-notified breakouts
+  // Breakout alerts toggle - default ON, can be disabled in settings
+  const [breakoutAlertsEnabled, setBreakoutAlertsEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('breakoutAlertsEnabled');
+      return saved !== null ? JSON.parse(saved) : true; // Default: enabled
+    } catch {
+      return true;
+    }
+  })
+  // Persist breakout toggle to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('breakoutAlertsEnabled', JSON.stringify(breakoutAlertsEnabled));
+    } catch { /* ignore */ }
+  }, [breakoutAlertsEnabled])
   const [activeFilters, setActiveFilters] = useState(() => {
     try {
       const saved = localStorage.getItem('activeFilters');
@@ -165,6 +184,51 @@ function App() {
       // ignore
     }
   }, [indexMap]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BREAKOUT DETECTION - Track coins with breakout_signal = true
+  // ═══════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    // Skip if alerts are disabled
+    if (!breakoutAlertsEnabled) return;
+    if (!coins || !coins.length) return;
+
+    // Find new breakouts (not yet notified)
+    const newBreakouts = coins.filter(c =>
+      c.breakout_signal === true && !seenBreakoutsRef.current.has(c.symbol || c.id)
+    );
+
+    if (newBreakouts.length > 0) {
+      // Mark as seen
+      newBreakouts.forEach(c => seenBreakoutsRef.current.add(c.symbol || c.id));
+
+      // Add to breakouts state for toast display
+      const breakoutData = newBreakouts.map(c => ({
+        symbol: c.symbol || c.id,
+        price: c.price || c.close,
+        rvol: c.rvol || c.relative_volume || 0,
+        pct: c.pct_interval || c.price_change_percentage_24h || 0,
+        time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+      }));
+
+      setBreakouts(prev => [...breakoutData, ...prev].slice(0, 10));
+
+      // Console log for debugging
+      console.log('[BREAKOUT DETECTED]', newBreakouts.map(c => c.symbol || c.id));
+    }
+  }, [coins, breakoutAlertsEnabled]);
+
+  // Handler for dismissing breakout toast
+  const handleBreakoutDismiss = useCallback((symbol) => {
+    setBreakouts(prev => prev.filter(b => b.symbol !== symbol));
+  }, []);
+
+  // Handler for viewing breakout chart
+  const handleBreakoutViewChart = useCallback((symbol) => {
+    const coin = coins.find(c => (c.symbol || c.id) === symbol);
+    if (coin) setSelectedCoin(coin);
+  }, [coins]);
+
   // Price range filtering state: start as full discrete marks (1..Infinity)
   const [priceRange, setPriceRange] = useState([1, Number.POSITIVE_INFINITY])
   const [symbolsPanelOpen, setSymbolsPanelOpen] = useState(false)
@@ -640,8 +704,11 @@ function App() {
               onFilterChange={setActiveFilters}
               resultCount={displayedCoins.length}
               totalCount={coins.length}
+              breakoutAlertsEnabled={breakoutAlertsEnabled}
+              setBreakoutAlertsEnabled={setBreakoutAlertsEnabled}
             />
           </div>
+
 
           {/* Interval Section: Favorite Buttons + Dropdown */}
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginRight: '12px' }}>
@@ -1514,6 +1581,13 @@ function App() {
       {selectedCoin && <CoinModal coin={selectedCoin} onClose={() => setSelectedCoin(null)} bubbleInterval={currentInterval} />}
       {/* Debug HUD removed in demo-only reset */}
       {/* Debug Panel removed in demo-only reset */}
+
+      {/* Breakout Alert Toast Notifications */}
+      <BreakoutToast
+        breakouts={breakouts}
+        onDismiss={handleBreakoutDismiss}
+        onViewChart={handleBreakoutViewChart}
+      />
 
     </div>
   )
