@@ -102,7 +102,9 @@ export const insertMinuteBarsQuest = async (rows) => {
                 .intColumn('tick_seq', tickSeq)
                 .at(tsNanos, 'ns');
 
-            // 2. Write to 'minute_bars' (Legacy Scheme - preserves existing functionality)
+            // 2. Write to 'minute_bars' (Legacy Scheme - DEPRECATED)
+            // COMMENTED OUT to save RAM (Duplicate data)
+            /*
             sender
                 .table('minute_bars')
                 .symbol('symbol', String(row.symbol))
@@ -115,6 +117,7 @@ export const insertMinuteBarsQuest = async (rows) => {
                 .floatColumn('daily_pct', parseFloat(row.daily_pct) || 0)
                 .intColumn('tick_seq', tickSeq)
                 .at(tsNanos, 'ns');
+            */
         }
 
         await sender.flush();

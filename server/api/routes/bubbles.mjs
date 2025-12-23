@@ -136,23 +136,29 @@ function buildLatestQuery(symbols = null) {
     SELECT 
       symbol,
       timestamp as ts,
-      open,
-      high,
-      low,
-      close,
-      volume,
-      value,
-      daily_pct
-    FROM minute_bars
-    LATEST ON timestamp PARTITION BY symbol
+      first(price) as open,
+      max(price) as high,
+      min(price) as low,
+      last(price) as close,
+      sum(volume) as volume,
+      sum(value) as value,
+      last(daily_pct) as daily_pct
+    FROM trades
+    WHERE timestamp >= dateadd('d', -7, now())
   `;
 
   if (symbols && symbols.length > 0) {
     const symbolList = symbols.map(s => `'${s}'`).join(',');
-    sql += ` WHERE symbol IN (${symbolList})`;
+    sql += ` AND symbol IN (${symbolList})`;
   }
 
-  return sql;
+  sql += ` SAMPLE BY 1m ALIGN TO CALENDAR`;
+
+  // Wrap in LATEST ON to get the very last minute bar
+  return `
+    SELECT * FROM (${sql})
+    LATEST ON ts PARTITION BY symbol
+  `;
 }
 
 /**
@@ -213,11 +219,12 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       -- Using subquery pattern as QuestDB doesn't allow WHERE before LATEST ON
       SELECT symbol, close as prev_close, high as prev_high
       FROM (
-        SELECT symbol, close, high, timestamp
-        FROM minute_bars
+        SELECT symbol, last(price) as close, max(price) as high, timestamp
+        FROM trades
         WHERE timestamp < ${todayOpen}
           AND timestamp >= dateadd('d', -7, ${todayOpen})
-          ${symbolFilter}
+          ${symbolFilter.replace('WHERE', 'AND')}
+        SAMPLE BY 1m ALIGN TO CALENDAR
       ) LATEST ON timestamp PARTITION BY symbol
     ),
     day_agg AS (
@@ -232,14 +239,36 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
     window_agg AS (
       SELECT 
         symbol,
-        first(open) as first_open,
-        max(high) as high,
-        min(low) as low,
+        first(price) as first_open,
+        max(price) as high,
+        min(price) as low,
         sum(volume) as volume,
         sum(value) as value
-      FROM minute_bars
-      WHERE ${timeCondition}${symbolFilter}
+      FROM trades
+      WHERE ${timeCondition}
+        ${symbolFilter.replace('WHERE', 'AND')}
       GROUP BY symbol
+    ),
+    latest_l AS (
+      SELECT symbol, timestamp as ts, last(price) as close, last(daily_pct) as daily_pct
+      FROM trades
+      WHERE timestamp >= dateadd('d', -7, '${anchorTs}'::timestamp) 
+      ${symbolFilter.replace('WHERE', 'AND')}
+      SAMPLE BY 1m ALIGN TO CALENDAR
+    ),
+    latest_ordered AS (
+      SELECT * FROM latest_l LATEST ON ts PARTITION BY symbol
+    ),
+    baseline_b AS (
+      SELECT symbol, last(price) as baseline_close
+      FROM trades
+      WHERE timestamp <= dateadd('m', -${minutes}, '${anchorTs}'::timestamp)
+        AND timestamp >= dateadd('d', -7, '${anchorTs}'::timestamp)
+        ${symbolFilter.replace('WHERE', 'AND')}
+      SAMPLE BY 1m ALIGN TO CALENDAR
+    ),
+    baseline_ordered AS (
+      SELECT * FROM baseline_b LATEST ON timestamp PARTITION BY symbol
     )
     SELECT 
       l.symbol,
@@ -256,20 +285,9 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       pds.prev_close,
       da.day_high,
       da.day_low
-    FROM (
-      SELECT symbol, timestamp as ts, close, daily_pct
-      FROM minute_bars
-      LATEST ON timestamp PARTITION BY symbol
-    ) l
+    FROM latest_ordered l
     LEFT JOIN window_agg w ON l.symbol = w.symbol
-    LEFT JOIN (
-      SELECT symbol, close as baseline_close
-      FROM minute_bars
-      WHERE timestamp <= dateadd('m', -${minutes}, '${anchorTs}'::timestamp)
-        AND timestamp >= dateadd('d', -7, '${anchorTs}'::timestamp)
-        ${symbolFilter}
-      LATEST ON timestamp PARTITION BY symbol
-    ) b ON l.symbol = b.symbol
+    LEFT JOIN baseline_ordered b ON l.symbol = b.symbol
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
     LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
     LEFT JOIN day_agg da ON l.symbol = da.symbol
@@ -305,17 +323,17 @@ function buildTickQuery(interval, latestTs, symbols = null) {
     WITH latest_ticks AS(
     SELECT 
         symbol,
-    timestamp,
-    open,
-    high,
-    low,
-    close,
-    volume,
-    value,
-    daily_pct,
-    tick_seq,
-    (tick_seq / ${tickSize}) as tick_bucket
-      FROM minute_bars
+        timestamp,
+        price as open,
+        price as high,
+        price as low,
+        price as close,
+        volume,
+        value,
+        daily_pct,
+        tick_seq,
+        (tick_seq / ${tickSize}) as tick_bucket
+      FROM trades
       WHERE timestamp > dateadd('h', -168, '${latestTs}'::timestamp)
       ${symbols && symbols.length > 0 ? `AND symbol IN (${symbols.map(s => `'${s}'`).join(',')})` : ''}
     ),
@@ -329,29 +347,28 @@ function buildTickQuery(interval, latestTs, symbols = null) {
     ),
     prev_day_stats AS (
       -- ROBUST: Find the last known close BEFORE today's session open
-      SELECT symbol, close as prev_close, high as prev_high
-      FROM (
-        SELECT symbol, close, high, timestamp
-        FROM minute_bars
-        WHERE timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'::timestamp))
-          AND timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', '${latestTs}'::timestamp)))
-          ${symbols && symbols.length > 0 ? `AND symbol IN (${symbols.map(s => `'${s}'`).join(',')})` : ''}
-      ) LATEST ON timestamp PARTITION BY symbol
+      SELECT symbol, last(price) as prev_close, max(price) as prev_high
+      FROM trades
+      WHERE timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'::timestamp))
+        AND timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', '${latestTs}'::timestamp)))
+        ${symbols && symbols.length > 0 ? `AND symbol IN (${symbols.map(s => `'${s}'`).join(',')})` : ''}
+      SAMPLE BY 1m ALIGN TO CALENDAR
+      LATEST ON timestamp PARTITION BY symbol
     )
     SELECT
-  l.symbol,
-    max(l.timestamp) as ts,
-    first(l.close) as open,
-    max(l.high) as high,
-    min(l.low) as low,
-    last(l.close) as close,
-    sum(l.volume) as volume,
-    sum(l.value) as value,
-    last(l.daily_pct) as daily_pct,
-    max(l.tick_seq) as tick_seq,
-    COALESCE(first(dv.day_volume), 0) as day_volume,
-    first(pds.prev_high) as prev_high,
-    first(pds.prev_close) as prev_close
+      l.symbol,
+      max(l.timestamp) as ts,
+      first(l.open) as open,
+      max(l.high) as high,
+      min(l.low) as low,
+      last(l.close) as close,
+      sum(l.volume) as volume,
+      sum(l.value) as value,
+      last(l.daily_pct) as daily_pct,
+      max(l.tick_seq) as tick_seq,
+      COALESCE(first(dv.day_volume), 0) as day_volume,
+      first(pds.prev_high) as prev_high,
+      first(pds.prev_close) as prev_close
     FROM latest_ticks l
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
     LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol

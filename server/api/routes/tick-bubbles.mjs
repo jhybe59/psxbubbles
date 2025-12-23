@@ -158,21 +158,23 @@ router.get('/', async (req, res) => {
         const bubbles = [];
 
         // Get latest timestamp from DB to use as anchor
-        const anchorRes = await queryQuestDB("SELECT MAX(timestamp) FROM minute_bars");
+        const anchorRes = await queryQuestDB("SELECT MAX(timestamp) FROM trades");
         let latestTs = new Date().toISOString();
         if (anchorRes && anchorRes.dataset && anchorRes.dataset.length > 0 && anchorRes.dataset[0][0]) {
             latestTs = anchorRes.dataset[0][0];
         }
 
         // Fetch 24h stats for all symbols
-        // daily_pct comes from minute_bars (efficient LATEST ON)
+        // daily_pct comes from trades (efficient LATEST ON)
         // day_volume comes from trades (SUM from start of day) per user request
         let dayStats = new Map();
         try {
-            // Get daily_pct from minute_bars
+            // Get daily_pct from trades
             const pctSql = `
-                SELECT symbol, daily_pct
-                FROM minute_bars
+                SELECT symbol, last(daily_pct)
+                FROM trades
+                WHERE timestamp >= dateadd('d', -1, '${latestTs}')
+                SAMPLE BY 1m ALIGN TO CALENDAR
                 LATEST ON timestamp PARTITION BY symbol
             `;
             const pctResult = await queryQuestDB(pctSql);
@@ -185,11 +187,12 @@ router.get('/', async (req, res) => {
                 }
             }
 
-            // Get prev_close from minute_bars (last close before today's session)
+            // Get prev_close from trades (last close before today's session)
             const prevCloseSql = `
-                SELECT symbol, last(close) as prev_close
-                FROM minute_bars
+                SELECT symbol, last(price) as prev_close
+                FROM trades
                 WHERE timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'))
+                SAMPLE BY 1m ALIGN TO CALENDAR
                 GROUP BY symbol
             `;
             const prevCloseResult = await queryQuestDB(prevCloseSql);
