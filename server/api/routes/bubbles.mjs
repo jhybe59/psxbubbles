@@ -242,13 +242,16 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
     ),
     prev_day_stats AS (
       -- ROBUST: Find the last known close BEFORE today's session open
-      -- Optimized: Use LATEST ON directly on trades instead of subquery sample by
-      SELECT symbol, price as prev_close, price as prev_high -- Approximation for now, or just use close
-      FROM trades
-      WHERE timestamp < ${todayOpen}
-        AND timestamp >= dateadd('d', -7, ${todayOpen})
-        ${symbolFilter.replace('WHERE', 'AND')}
-      LATEST ON timestamp PARTITION BY symbol
+      -- Using subquery pattern as QuestDB doesn't allow WHERE before LATEST ON
+      SELECT symbol, close as prev_close, high as prev_high
+      FROM (
+        SELECT symbol, last(price) as close, max(price) as high, timestamp
+        FROM trades
+        WHERE timestamp < ${todayOpen}
+          AND timestamp >= dateadd('d', -7, ${todayOpen})
+          ${symbolFilter.replace('WHERE', 'AND')}
+        SAMPLE BY 1m ALIGN TO CALENDAR
+      ) LATEST ON timestamp PARTITION BY symbol
     ),
     day_agg AS (
       SELECT 
@@ -282,14 +285,16 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
     latest_ordered AS (
       SELECT * FROM latest_l LATEST ON ts PARTITION BY symbol
     ),
-    baseline_ordered AS (
-      -- Optimized: Direct LATEST ON lookup for baseline price
-      SELECT symbol, timestamp, price as baseline_close
+    baseline_b AS (
+      SELECT symbol, timestamp, last(price) as baseline_close
       FROM trades
       WHERE timestamp <= dateadd('m', -${minutes}, '${anchorTs}'::timestamp)
         AND timestamp >= dateadd('d', -7, '${anchorTs}'::timestamp)
         ${symbolFilter.replace('WHERE', 'AND')}
-      LATEST ON timestamp PARTITION BY symbol
+      SAMPLE BY 1m ALIGN TO CALENDAR
+    ),
+    baseline_ordered AS (
+      SELECT * FROM baseline_b LATEST ON timestamp PARTITION BY symbol
     )
     SELECT 
       l.symbol,
