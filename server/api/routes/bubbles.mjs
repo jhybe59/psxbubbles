@@ -179,7 +179,6 @@ function buildLatestQuery(symbols = null) {
       l.close,
       l.volume,
       l.value,
-      l.value,
       0 as daily_pct
     FROM latest_final l
     -- LEFT JOIN prev_day p ON l.symbol = p.symbol -- DISABLED FOR STABILITY
@@ -305,7 +304,6 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       LEAST(COALESCE(w.low, l.close), l.close) as low,
       l.close,
       COALESCE(w.volume, 0) as volume,
-      COALESCE(w.value, 0) as value,
       COALESCE(w.value, 0) as value,
       0 as daily_pct,
       COALESCE(dv.day_volume, 0) as day_volume,
@@ -533,8 +531,8 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // Get latest timestamp from DB to use as anchor
-    const anchorRes = await queryQuestDB("SELECT MAX(timestamp) FROM minute_bars");
+    // Get latest timestamp from DB to use as anchor (USE TRADES since minute_bars was removed)
+    const anchorRes = await queryQuestDB("SELECT MAX(timestamp) FROM trades");
     let latestTs = new Date().toISOString();
     if (anchorRes && anchorRes.dataset && anchorRes.dataset.length > 0 && anchorRes.dataset[0][0]) {
       latestTs = anchorRes.dataset[0][0];

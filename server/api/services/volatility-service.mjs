@@ -37,7 +37,7 @@ export const volatilityService = {
         const anchor = anchorTs ? `'${anchorTs}'::timestamp` : 'now()';
 
         // 1. Determine Source Table & Sampling
-        let tableName = 'minute_bars';
+        let tableName = 'trades';
         let sampleBy = '';
         let isTick = false;
 
@@ -50,7 +50,7 @@ export const volatilityService = {
             sampleBy = `SAMPLE BY ${interval}`;
         } else {
             // Default fallback
-            tableName = 'minute_bars'; // Assuming raw 1m data needs sampling
+            tableName = 'trades'; // Assuming raw 1m data needs sampling
             sampleBy = `SAMPLE BY 1h`; // Default to 1h if unknown
         }
 

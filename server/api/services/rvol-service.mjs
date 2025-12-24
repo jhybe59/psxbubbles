@@ -51,7 +51,7 @@ export async function getBatchRVOL(symbols, interval = '1m', lookback = 20, anch
         symbol,
         timestamp as ts,
         sum(volume) as vol
-      FROM minute_bars
+      FROM trades
       ${symbolFilter}
       WHERE timestamp <= ${anchor}
       SAMPLE BY ${sampleBy} ALIGN TO CALENDAR TIME ZONE 'Asia/Karachi'
