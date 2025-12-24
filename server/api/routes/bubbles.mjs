@@ -286,7 +286,7 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       SELECT * FROM latest_l LATEST ON ts PARTITION BY symbol
     ),
     baseline_b AS (
-      SELECT symbol, last(price) as baseline_close
+      SELECT symbol, timestamp, last(price) as baseline_close
       FROM trades
       WHERE timestamp <= dateadd('m', -${minutes}, '${anchorTs}'::timestamp)
         AND timestamp >= dateadd('d', -7, '${anchorTs}'::timestamp)

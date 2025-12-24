@@ -31,18 +31,17 @@ function buildCandleQuery(symbol, interval, limit, to = null) {
 
     const sampleBy = sampleByMap[interval] || '1h';
 
-    // QuestDB aggregation for candles
-    // We explicitly select the columns needed for correct OHLCV transformation
+    // trades table uses 'price' column instead of open/high/low/close
     let sql = `
     SELECT 
       timestamp as ts,
-      first(close) as open,
-      max(close) as high,
-      min(close) as low,
-      last(close) as close,
-      (max(volume) - min(volume)) as volume,
-      (max(value) - min(value)) as value
-    FROM minute_bars
+      first(price) as open,
+      max(price) as high,
+      min(price) as low,
+      last(price) as close,
+      sum(volume) as volume,
+      sum(value) as value
+    FROM trades
     WHERE symbol = '${symbol}'
   `;
 

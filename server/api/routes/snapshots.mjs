@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { withClient } from '../db.mjs';
+import { queryQuestDB } from '../questdb.mjs';
 import { getCache, setCache } from '../cache.mjs';
 import logger from '../logger.mjs';
 
@@ -11,66 +11,62 @@ const schema = z.object({
   index: z.string().optional()
 });
 
-const intervalView = {
-  '1m': 'minute_bars',
-  '5m': 'minute_bars_5m',
-  '15m': 'minute_bars_15m',
-  '1h': 'minute_bars_1h',
-  Day: 'minute_bars_1d'
+/**
+ * Map API interval to QuestDB SAMPLE BY syntax
+ */
+const intervalMap = {
+  '1m': '1m',
+  '5m': '5m',
+  '15m': '15m',
+  '1h': '1h',
+  'Day': '1d' // QuestDB doesn't have 'Day', uses '1d'
 };
 
-const snapshotSql = (interval, indexFilter) => {
-  const view = intervalView[interval];
-  const usingAggregates = interval !== '1m';
-  const bucketColumn = usingAggregates ? 'bucket' : 'ts';
-  const baseTable = usingAggregates ? view : 'minute_bars';
+const snapshotSqlQuest = (interval, indexFilter) => {
+  const sampleBy = intervalMap[interval] || '1d';
+  const lookback = interval === 'Day' ? '7d' : '24h';
 
-  const whereClauses = [];
-  const params = [];
-  let idx = 1;
+  // Logic:
+  // 1. Get latest candle for each symbol.
+  // 2. Aggregate counts/volumes from that result.
 
-  if (usingAggregates) {
-    whereClauses.push(`${bucketColumn} = (SELECT max(${bucketColumn}) FROM ${view})`);
-  }
+  const indexClause = indexFilter ? `AND symbol IN (SELECT symbol FROM index_members WHERE index_code = '${indexFilter}')` : '';
 
-  if (indexFilter) {
-    params.push(indexFilter);
-    whereClauses.push(`symbol IN (SELECT symbol FROM index_members WHERE index_code = $${idx})`);
-    idx += 1;
-  }
-
-  const where = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
-
-  const priceField = usingAggregates ? 'close' : 'close';
-  const pctField = usingAggregates ? 'pct_change' : '((close - LAG(close) OVER (PARTITION BY symbol ORDER BY ts)) / NULLIF(LAG(close) OVER (PARTITION BY symbol ORDER BY ts), 0) * 100)';
-  const volumeField = usingAggregates ? 'volume_sum' : 'volume';
-  const valueField = usingAggregates ? 'turnover_sum' : 'value';
-
-  const sql = `
-    WITH dataset AS (
-      SELECT symbol,
-        ${priceField} AS price,
-        ${usingAggregates ? 'COALESCE(pct_change, 0)' : 'COALESCE(' + pctField + ', 0)'} AS interval_pct,
-        ${volumeField} AS volume,
-        ${valueField} AS value
-      FROM ${baseTable}
-      ${where}
+  // We first fetch the latest candle for all symbols
+  const cte = `
+    WITH latest_candles AS (
+      SELECT 
+        symbol,
+        first(price) as open,
+        last(price) as close,
+        sum(volume) as vol,
+        sum(value) as val,
+        timestamp
+      FROM trades
+      WHERE timestamp >= dateadd('${lookback.endsWith('d') ? 'd' : 'h'}', -${parseInt(lookback)}, now())
+        ${indexClause}
+      SAMPLE BY ${sampleBy} ALIGN TO CALENDAR
+    ),
+    latest_final AS (
+      SELECT * FROM latest_candles LATEST ON timestamp PARTITION BY symbol
     )
     SELECT
-      COUNT(*) AS total,
-      COUNT(*) FILTER (WHERE interval_pct > 0) AS advancers,
-      COUNT(*) FILTER (WHERE interval_pct < 0) AS decliners,
-      COUNT(*) FILTER (WHERE interval_pct = 0) AS unchanged,
-      SUM(volume) AS total_volume,
-      SUM(value) AS total_turnover,
-      AVG(interval_pct) AS avg_move,
-      MAX(price) AS high_price,
-      MIN(price) AS low_price
-    FROM dataset;
+      count() as total,
+      sum(case when close > open then 1 else 0 end) as advancers,
+      sum(case when close < open then 1 else 0 end) as decliners,
+      sum(case when close = open then 1 else 0 end) as unchanged,
+      sum(vol) as total_volume,
+      sum(val) as total_turnover,
+      avg( (close - open) / open * 100 ) as avg_move,
+      max(close) as high_price,
+      min(close) as low_price
+    FROM latest_final
+    WHERE open > 0
   `;
 
-  return { sql, params };
+  return cte;
 };
+
 
 router.get('/', async (req, res) => {
   let parsed;
@@ -94,11 +90,30 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    const { sql, params } = snapshotSql(parsed.interval, parsed.index);
-    const row = await withClient(async (client) => {
-      const result = await client.query(sql, params);
-      return result.rows[0];
-    });
+    const sql = snapshotSqlQuest(parsed.interval, parsed.index);
+    const result = await queryQuestDB(sql);
+
+    // QuestDB returns [ [total, adv, dec, unch, vol, val, avg, high, low] ]
+    let row = {
+      total: 0, advancers: 0, decliners: 0, unchanged: 0,
+      total_volume: 0, total_turnover: 0, avg_move: 0,
+      high_price: 0, low_price: 0
+    };
+
+    if (result && result.dataset && result.dataset.length > 0) {
+      const r = result.dataset[0];
+      row = {
+        total: r[0],
+        advancers: r[1],
+        decliners: r[2],
+        unchanged: r[3],
+        total_volume: r[4],
+        total_turnover: r[5],
+        avg_move: r[6],
+        high_price: r[7],
+        low_price: r[8]
+      };
+    }
 
     const payload = {
       interval: parsed.interval,

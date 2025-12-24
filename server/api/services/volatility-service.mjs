@@ -67,10 +67,11 @@ export const volatilityService = {
                 SELECT 
                     symbol,
                     timestamp,
-                    first(open) as open,
-                    max(high) as high,
-                    min(low) as low,
-                    last(close) as close
+                    timestamp as ts,
+                    first(price) as open,
+                    max(price) as high,
+                    min(price) as low,
+                    last(price) as close
                 FROM ${tableName}
                 WHERE ${symbolFilter} AND timestamp > dateadd('d', -10, ${anchor}) AND timestamp <= ${anchor} -- Limit lookback for performance
                 ${sampleBy}
@@ -82,9 +83,9 @@ export const volatilityService = {
             ),
             stats AS (
                 SELECT *,
-                    avg(close) OVER (PARTITION BY symbol ORDER BY timestamp ROWS ${length} PRECEDING) as sma,
-                    avg(close * close) OVER (PARTITION BY symbol ORDER BY timestamp ROWS ${length} PRECEDING) as avg_sq,
-                    avg(tr) OVER (PARTITION BY symbol ORDER BY timestamp ROWS ${length} PRECEDING) as atr
+                    avg(close) OVER (PARTITION BY symbol ORDER BY ts ROWS ${length} PRECEDING) as sma,
+                    avg(close * close) OVER (PARTITION BY symbol ORDER BY ts ROWS ${length} PRECEDING) as avg_sq,
+                    avg(tr) OVER (PARTITION BY symbol ORDER BY ts ROWS ${length} PRECEDING) as atr
                 FROM with_tr
             ),
             latest AS (
@@ -99,7 +100,7 @@ export const volatilityService = {
                     (sma + (${multKC} * atr)) as upper_kc,
                     (sma - (${multKC} * atr)) as lower_kc,
                     (atr / sma) * 100 as vol_atr_pct,
-                    row_number() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
+                    row_number() OVER (PARTITION BY symbol ORDER BY ts DESC) as rn
                 FROM stats
             )
             SELECT * FROM latest WHERE rn = 1
@@ -138,7 +139,7 @@ export const volatilityService = {
             return squeezeMap;
 
         } catch (err) {
-            console.error('[volatilityService] Error calculating squeeze:', err);
+            console.error('[volatilityService] Error calculating squeeze:', err.message);
             return new Map();
         }
     },

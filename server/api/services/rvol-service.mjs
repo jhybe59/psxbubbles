@@ -38,12 +38,12 @@ export async function getBatchRVOL(symbols, interval = '1m', lookback = 20, anch
   // 3. Average the remaining N
 
   const limit = lookback + 1;
-  const symbolFilter = symbols && symbols.length > 0
-    ? `WHERE symbol IN (${symbols.map(s => `'${s}'`).join(',')})`
+  const symbolCondition = symbols && symbols.length > 0
+    ? `AND symbol IN (${symbols.map(s => `'${s}'`).join(',')})`
     : '';
 
   // SQL Logic for QuestDB:
-  // We use SAMPLE BY to aggregate minute_bars into the requested interval.
+  // We use SAMPLE BY to aggregate trades into the requested interval.
   // We wrap this in a subquery to calculate the average and compare with the latest.
   const sql = `
     WITH stats AS (
@@ -52,8 +52,8 @@ export async function getBatchRVOL(symbols, interval = '1m', lookback = 20, anch
         timestamp as ts,
         sum(volume) as vol
       FROM trades
-      ${symbolFilter}
       WHERE timestamp <= ${anchor}
+      ${symbolCondition}
       SAMPLE BY ${sampleBy} ALIGN TO CALENDAR TIME ZONE 'Asia/Karachi'
     ),
     with_avg AS (

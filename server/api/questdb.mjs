@@ -46,9 +46,13 @@ export async function queryQuestDB(sql) {
  * This is QuestDB's killer feature - instant results!
  */
 export async function getLatestBars(symbols = null) {
+    // trades table has: symbol, timestamp, price, volume, value
+    // We need to aggregate to get OHLC
     let sql = `
-    SELECT symbol, timestamp as ts, open, high, low, close, volume, value, daily_pct
-    FROM minute_bars
+    SELECT symbol, timestamp as ts, 
+           price as open, price as high, price as low, price as close, 
+           volume, value, 0 as daily_pct
+    FROM trades
     LATEST ON timestamp PARTITION BY symbol
   `;
 
@@ -77,18 +81,19 @@ export async function getAggregatedBars(interval, symbols = null, limit = 100) {
 
     const sampleBy = intervalMap[interval] || '1m';
 
+    // trades table has price column - aggregate it for OHLC
     let sql = `
     SELECT 
       symbol,
       timestamp as ts,
-      first(open) as open,
-      max(high) as high,
-      min(low) as low,
-      last(close) as close,
+      first(price) as open,
+      max(price) as high,
+      min(price) as low,
+      last(price) as close,
       sum(volume) as volume,
       sum(value) as value,
-      last(daily_pct) as daily_pct
-    FROM minute_bars
+      0 as daily_pct
+    FROM trades
   `;
 
     if (symbols && symbols.length > 0) {

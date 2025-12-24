@@ -108,10 +108,10 @@ async function detectORBBreakouts(symbolFilter, dayStart, orbMap) {
                 // Check high breakout
                 const hRes = await queryQuestDB(`
                     SELECT min(timestamp) 
-                    FROM minute_bars 
+                    FROM trades 
                     WHERE symbol = '${symbol}' 
                     AND timestamp >= '${dayStart}' 
-                    AND close > ${orb[highKey]}
+                    AND price > ${orb[highKey]}
                 `);
                 if (hRes?.dataset?.[0]?.[0]) {
                     alerts.push({
@@ -128,10 +128,10 @@ async function detectORBBreakouts(symbolFilter, dayStart, orbMap) {
                 // Check low breakout
                 const lRes = await queryQuestDB(`
                     SELECT min(timestamp) 
-                    FROM minute_bars 
+                    FROM trades 
                     WHERE symbol = '${symbol}' 
                     AND timestamp >= '${dayStart}' 
-                    AND close < ${orb[lowKey]}
+                    AND price < ${orb[lowKey]}
                 `);
                 if (lRes?.dataset?.[0]?.[0]) {
                     alerts.push({
@@ -160,24 +160,24 @@ async function detectDailyExtremes(symbolFilter, dayStart) {
         WITH extremes AS (
             SELECT 
                 symbol,
-                max(high) as day_high,
-                min(low) as day_low
-            FROM minute_bars
+                max(price) as day_high,
+                min(price) as day_low
+            FROM trades
             WHERE ${symbolFilter}
             AND timestamp >= '${dayStart}'
             GROUP BY symbol
         ),
         high_times AS (
             SELECT m.symbol, min(m.timestamp) as ts_high
-            FROM minute_bars m
-            JOIN extremes e ON m.symbol = e.symbol AND m.high = e.day_high
+            FROM trades m
+            JOIN extremes e ON m.symbol = e.symbol AND m.price = e.day_high
             WHERE m.timestamp >= '${dayStart}'
             GROUP BY m.symbol
         ),
         low_times AS (
             SELECT m.symbol, min(m.timestamp) as ts_low
-            FROM minute_bars m
-            JOIN extremes e ON m.symbol = e.symbol AND m.low = e.day_low
+            FROM trades m
+            JOIN extremes e ON m.symbol = e.symbol AND m.price = e.day_low
             WHERE m.timestamp >= '${dayStart}'
             GROUP BY m.symbol
         )
@@ -232,10 +232,10 @@ async function detectPrevDayBreakouts(symbolFilter, dayStart, prevDayMap) {
         if (prev.prev_high) {
             const hRes = await queryQuestDB(`
                 SELECT min(timestamp) 
-                FROM minute_bars 
+                FROM trades 
                 WHERE symbol = '${symbol}' 
                 AND timestamp >= '${dayStart}' 
-                AND close > ${prev.prev_high}
+                AND price > ${prev.prev_high}
             `);
             if (hRes?.dataset?.[0]?.[0]) {
                 alerts.push({
@@ -251,10 +251,10 @@ async function detectPrevDayBreakouts(symbolFilter, dayStart, prevDayMap) {
         if (prev.prev_low) {
             const lRes = await queryQuestDB(`
                 SELECT min(timestamp) 
-                FROM minute_bars 
+                FROM trades 
                 WHERE symbol = '${symbol}' 
                 AND timestamp >= '${dayStart}' 
-                AND close < ${prev.prev_low}
+                AND price < ${prev.prev_low}
             `);
             if (lRes?.dataset?.[0]?.[0]) {
                 alerts.push({
@@ -280,7 +280,7 @@ async function detectVolumeSpikes(symbolFilter, dayStart) {
     const sql = `
         WITH avg_vols AS (
             SELECT symbol, avg(volume) as avg_vol
-            FROM minute_bars
+            FROM trades
             WHERE ${symbolFilter}
             AND timestamp >= dateadd('d', -5, '${dayStart}')
             AND timestamp < '${dayStart}'
@@ -288,7 +288,7 @@ async function detectVolumeSpikes(symbolFilter, dayStart) {
         ),
         spikes AS (
             SELECT m.symbol, min(m.timestamp) as ts_spike
-            FROM minute_bars m
+            FROM trades m
             JOIN avg_vols a ON m.symbol = a.symbol
             WHERE m.timestamp >= '${dayStart}'
             AND m.volume > a.avg_vol * 10
@@ -330,28 +330,46 @@ async function detectVWAPCrosses(symbolFilter, dayStart) {
 
     // Calculate VWAP per bar, then find crosses
     const sql = `
-        WITH vwap_data AS (
+        WITH raw_vwap AS (
             SELECT 
                 symbol,
                 timestamp,
-                close,
-                sum(close * volume) OVER (PARTITION BY symbol ORDER BY timestamp) / 
-                    NULLIF(sum(volume) OVER (PARTITION BY symbol ORDER BY timestamp), 0) as vwap,
-                lag(close) OVER (PARTITION BY symbol ORDER BY timestamp) as prev_close
-            FROM minute_bars
+                price,
+                volume,
+                price * volume as pv
+            FROM trades
             WHERE ${symbolFilter}
             AND timestamp >= '${dayStart}'
+        ),
+        vwap_sums AS (
+            SELECT 
+                symbol,
+                timestamp,
+                price,
+                sum(pv) OVER (PARTITION BY symbol ORDER BY timestamp) as sum_pv,
+                sum(volume) OVER (PARTITION BY symbol ORDER BY timestamp) as sum_vol,
+                lag(price) OVER (PARTITION BY symbol ORDER BY timestamp) as prev_price
+            FROM raw_vwap
+        ),
+        vwap_data AS (
+            SELECT 
+                symbol,
+                timestamp,
+                price,
+                prev_price,
+                sum_pv / NULLIF(sum_vol, 0) as vwap
+            FROM vwap_sums
         ),
         cross_up AS (
             SELECT symbol, min(timestamp) as ts
             FROM vwap_data
-            WHERE close > vwap AND prev_close < vwap AND prev_close IS NOT NULL
+            WHERE price > vwap AND prev_price < vwap AND prev_price IS NOT NULL
             GROUP BY symbol
         ),
         cross_down AS (
             SELECT symbol, min(timestamp) as ts
             FROM vwap_data
-            WHERE close < vwap AND prev_close > vwap AND prev_close IS NOT NULL
+            WHERE price < vwap AND prev_price > vwap AND prev_price IS NOT NULL
             GROUP BY symbol
         )
         SELECT 'up' as dir, symbol, ts FROM cross_up

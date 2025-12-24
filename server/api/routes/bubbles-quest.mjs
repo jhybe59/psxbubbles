@@ -27,18 +27,19 @@ const schema = z.object({
  * Build LATEST ON query for real-time data
  */
 function buildLatestQuery(symbols = null) {
+    // trades table uses 'price' column
     let sql = `
     SELECT 
       symbol,
       timestamp as ts,
-      open,
-      high,
-      low,
-      close,
+      price as open,
+      price as high,
+      price as low,
+      price as close,
       volume,
       value,
-      daily_pct
-    FROM minute_bars
+      0 as daily_pct
+    FROM trades
     LATEST ON timestamp PARTITION BY symbol
   `;
 
@@ -65,20 +66,19 @@ function buildAggregatedQuery(interval, symbols = null, limit = 100) {
 
     // For aggregated intervals, we need a different approach
     // First get latest per symbol, then aggregate
-    // NOTE: Volume seems to be cumulative in minute_bars, so we use max() instead of sum()
-    // to avoid massive numbers. If it was incremental, sum() would be correct.
+    // trades table uses 'price' column
     let sql = `
     SELECT 
       symbol,
       timestamp as ts,
-      first(open) as open,
-      max(high) as high,
-      min(low) as low,
-      last(close) as close,
-      max(volume) as volume,
+      first(price) as open,
+      max(price) as high,
+      min(price) as low,
+      last(price) as close,
+      sum(volume) as volume,
       sum(value) as value,
-      last(daily_pct) as daily_pct
-    FROM minute_bars
+      0 as daily_pct
+    FROM trades
   `;
 
     if (symbols && symbols.length > 0) {

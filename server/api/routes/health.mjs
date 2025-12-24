@@ -7,7 +7,7 @@ const router = Router();
 router.get('/', async (_req, res) => {
   const [timescaleResult, redisResult] = await Promise.allSettled([
     withClient(async (client) => {
-      const result = await client.query('SELECT max(ts) AS latest_ts FROM minute_bars');
+      const result = await client.query('SELECT max(timestamp) AS latest_ts FROM trades');
       return result.rows[0]?.latest_ts;
     }),
     redisClient.ping()
