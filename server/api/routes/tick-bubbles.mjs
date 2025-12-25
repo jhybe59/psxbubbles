@@ -197,21 +197,19 @@ router.get('/', async (req, res) => {
 
         // 2. Get prev_close (Split into own try/catch)
         try {
-            // Get prev_close from trades (last close before today's session)
+            // OPTIMIZED: Use LATEST ON directly for reliable previous close
             const prevCloseSql = `
-                SELECT symbol, last(price) as prev_close
+                SELECT symbol, price as prev_close
                 FROM trades
                 WHERE timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'))
-                AND timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', '${latestTs}')))
-                SAMPLE BY 1m ALIGN TO CALENDAR
-                GROUP BY symbol
+                LATEST ON timestamp PARTITION BY symbol
             `;
             const prevCloseResult = await queryQuestDB(prevCloseSql);
             if (prevCloseResult && prevCloseResult.dataset) {
                 for (const row of prevCloseResult.dataset) {
                     const sym = row[0];
                     const pc = parseFloat(row[1]) || null;
-                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null, current_price: 0 });
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null, current_price: 0, day_high: 0, day_low: 0, day_open: 0 });
 
                     const stats = dayStats.get(sym);
                     stats.prev_close = pc;
@@ -226,14 +224,15 @@ router.get('/', async (req, res) => {
             logger.warn({ err: e }, 'Failed to fetch prev close for tick bubbles');
         }
 
-        // 3. Get day_volume, day_high, day_low (Split into own try/catch)
+        // 3. Get day_volume, day_high, day_low, day_open (Split into own try/catch)
         try {
             const volHighLowSql = `
                 SELECT 
                     symbol, 
                     sum(volume) as day_volume,
                     max(price) as day_high,
-                    min(price) as day_low
+                    min(price) as day_low,
+                    first(price) as day_open
                 FROM trades
                 WHERE timestamp >= dateadd('h', 4, date_trunc('day', '${latestTs}'))
                 GROUP BY symbol
@@ -245,11 +244,14 @@ router.get('/', async (req, res) => {
                     const vol = parseFloat(row[1]) || 0;
                     const high = parseFloat(row[2]) || 0;
                     const low = parseFloat(row[3]) || 0;
-                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null, day_high: 0, day_low: 0 });
+                    const open = parseFloat(row[4]) || 0;
+
+                    if (!dayStats.has(sym)) dayStats.set(sym, { pct_24h: 0, day_volume: 0, prev_close: null, day_high: 0, day_low: 0, day_open: 0 });
                     const ds = dayStats.get(sym);
                     ds.day_volume = vol;
                     ds.day_high = high;
                     ds.day_low = low;
+                    ds.day_open = open;
                 }
             }
         } catch (e) {
@@ -304,7 +306,8 @@ router.get('/', async (req, res) => {
                 availableTicks: ticks.length,
                 prev_close: ds.prev_close,
                 day_high: ds.day_high,
-                day_low: ds.day_low
+                day_low: ds.day_low,
+                day_open: ds.day_open
             });
         }
 
