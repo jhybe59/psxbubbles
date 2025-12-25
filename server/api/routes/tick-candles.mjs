@@ -52,6 +52,7 @@ router.get('/', async (req, res) => {
             SELECT timestamp, price, volume
             FROM trades
             WHERE symbol = '${symbol}' ${timeFilter}
+            AND volume > 0
             ORDER BY timestamp DESC
             LIMIT ${neededRows}
         `;

@@ -125,6 +125,7 @@ router.get('/', async (req, res) => {
         const sql = `
             SELECT symbol, price, volume, timestamp 
             FROM trades 
+            WHERE volume > 0
             ORDER BY timestamp DESC 
             LIMIT ${limit}
         `;
@@ -167,14 +168,18 @@ router.get('/', async (req, res) => {
         // Fetch 24h stats for all symbols
         // daily_pct comes from trades (efficient LATEST ON)
         // day_volume comes from trades (SUM from start of day) per user request
+        // Fetch 24h stats for all symbols
+        // daily_pct comes from trades (efficient LATEST ON)
+        // day_volume comes from trades (SUM from start of day) per user request
         let dayStats = new Map();
+
+        // 1. Get current price from trades (Split into own try/catch)
         try {
-            // Get current price from trades (to calc daily_pct later)
+            // OPTIMIZED: Use LATEST ON directly on trades instead of SAMPLE BY 1m
             const priceSql = `
-                SELECT symbol, last(price)
+                SELECT symbol, price
                 FROM trades
                 WHERE timestamp >= dateadd('d', -1, '${latestTs}')
-                SAMPLE BY 1m ALIGN TO CALENDAR
                 LATEST ON timestamp PARTITION BY symbol
             `;
             const priceResult = await queryQuestDB(priceSql);
@@ -186,12 +191,18 @@ router.get('/', async (req, res) => {
                     dayStats.get(sym).current_price = price;
                 }
             }
+        } catch (e) {
+            logger.warn({ err: e }, 'Failed to fetch current prices for tick bubbles');
+        }
 
+        // 2. Get prev_close (Split into own try/catch)
+        try {
             // Get prev_close from trades (last close before today's session)
             const prevCloseSql = `
                 SELECT symbol, last(price) as prev_close
                 FROM trades
                 WHERE timestamp < dateadd('h', 4, date_trunc('day', '${latestTs}'))
+                AND timestamp >= dateadd('d', -7, dateadd('h', 4, date_trunc('day', '${latestTs}')))
                 SAMPLE BY 1m ALIGN TO CALENDAR
                 GROUP BY symbol
             `;
@@ -211,8 +222,12 @@ router.get('/', async (req, res) => {
                     }
                 }
             }
+        } catch (e) {
+            logger.warn({ err: e }, 'Failed to fetch prev close for tick bubbles');
+        }
 
-            // Get day_volume, day_high, day_low from trades (raw session data)
+        // 3. Get day_volume, day_high, day_low (Split into own try/catch)
+        try {
             const volHighLowSql = `
                 SELECT 
                     symbol, 
@@ -238,7 +253,7 @@ router.get('/', async (req, res) => {
                 }
             }
         } catch (e) {
-            logger.warn({ err: e }, 'Failed to fetch day stats for tick bubbles');
+            logger.warn({ err: e }, 'Failed to fetch day volumes for tick bubbles');
         }
 
         for (const [symbol, ticks] of symbolData.entries()) {

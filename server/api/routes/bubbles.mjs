@@ -360,6 +360,7 @@ function buildTickQuery(interval, latestTs, symbols = null) {
         (tick_seq / ${tickSize}) as tick_bucket
       FROM trades
       WHERE timestamp > dateadd('h', -168, '${latestTs}'::timestamp)
+      AND volume > 0
       ${symbols && symbols.length > 0 ? `AND symbol IN (${symbols.map(s => `'${s}'`).join(',')})` : ''}
     ),
     day_vols AS(
