@@ -307,8 +307,8 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       COALESCE(w.value, 0) as value,
       0 as daily_pct,
       COALESCE(dv.day_volume, 0) as day_volume,
-      0 as prev_high,
-      0 as prev_close,
+      COALESCE(pds.prev_high, 0) as prev_high,
+      COALESCE(pds.prev_close, 0) as prev_close,
       da.day_high,
       da.day_low
     FROM latest_ordered l
