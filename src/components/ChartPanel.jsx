@@ -58,6 +58,7 @@ export default function ChartPanel({
     const [searchQuery, setSearchQuery] = useState(''); // For keyboard search
     const [availableCoins, setAvailableCoins] = useState([]);
     const [legend, setLegend] = useState(null);
+    const [dayOHLC, setDayOHLC] = useState(null); // Day-based OHLC for tooltip
     // Initialize with inherited indicators if provided
     const [activeIndicators, setActiveIndicators] = useState(() =>
         inheritedIndicators.length > 0 ? [...inheritedIndicators] : []
@@ -98,12 +99,60 @@ export default function ChartPanel({
         fetchSymbols();
     }, []);
 
+    // Fetch Day-based OHLC for tooltip (separate from interval candles)
+    useEffect(() => {
+        if (!symbol) return;
+
+        let mounted = true;
+        async function fetchDayOHLC() {
+            try {
+                const origin = window.location.origin;
+                const base = LIVE_API_BASE_URL.startsWith('http')
+                    ? LIVE_API_BASE_URL
+                    : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
+
+                const url = new URL('candles', base.endsWith('/') ? base : `${base}/`);
+                url.searchParams.set('interval', 'Day');
+                url.searchParams.set('symbol', symbol);
+                url.searchParams.set('limit', '1'); // Just today's data
+
+                const headers = { 'Content-Type': 'application/json' };
+                if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
+
+                const res = await fetch(url.toString(), { headers });
+                if (res.ok && mounted) {
+                    const json = await res.json();
+                    if (json.data && json.data.length > 0) {
+                        const d = json.data[json.data.length - 1]; // Latest day
+                        setDayOHLC({
+                            open: Number(d.open),
+                            high: Number(d.high),
+                            low: Number(d.low),
+                            close: Number(d.close),
+                            volume: Number(d.volume) || 0
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn('ChartPanel: Failed to fetch day OHLC:', err);
+            }
+        }
+
+        fetchDayOHLC();
+        const pollInterval = setInterval(fetchDayOHLC, 10000); // Poll every 10s
+
+        return () => {
+            mounted = false;
+            clearInterval(pollInterval);
+        };
+    }, [symbol]);
+
     // Fetch chart data
     useEffect(() => {
         if (!symbol) return;
 
         let mounted = true;
-        async function fetchData() {
+        async function fetchData(isPolling = false) {
             try {
                 const isTick = effectiveInterval.includes('Tick');
                 const origin = window.location.origin;
@@ -131,7 +180,7 @@ export default function ChartPanel({
                 const res = await fetch(url.toString(), { headers });
                 if (res.ok && mounted) {
                     const json = await res.json();
-                    if (json.data) {
+                    if (json.data && json.data.length > 0) {
                         let s = json.data.map(d => ({
                             ts: new Date(d.ts).getTime(),
                             open: Number(d.open),
@@ -142,15 +191,19 @@ export default function ChartPanel({
                         }));
                         s.sort((a, b) => a.ts - b.ts);
                         setSeries(s);
+                    } else if (isPolling) {
+                        // Polling returned empty, preserve existing chart data
+                        console.log('[ChartPanel] Poll returned empty, preserving existing chart');
                     }
                 }
             } catch (err) {
                 console.error('ChartPanel: Fetch error:', err);
+                // On polling error, preserve existing data (don't clear)
             }
         }
 
-        fetchData();
-        const pollInterval = setInterval(fetchData, 10000);
+        fetchData(false);  // Initial load
+        const pollInterval = setInterval(() => fetchData(true), 10000);  // Polling
 
         return () => {
             mounted = false;
@@ -407,13 +460,14 @@ export default function ChartPanel({
                         )}
                     </div>
 
-                    {/* OHLC Legend */}
-                    {legend && (
+                    {/* OHLC Legend - Day-based values */}
+                    {dayOHLC && (
                         <div style={{ display: 'flex', gap: '8px', color: '#94a3b8', marginLeft: 'auto' }}>
-                            <span>O <span style={{ color: legend.isUp ? '#24c55e' : '#ef4444' }}>{fmt(legend.open)}</span></span>
-                            <span>H <span style={{ color: legend.isUp ? '#24c55e' : '#ef4444' }}>{fmt(legend.high)}</span></span>
-                            <span>L <span style={{ color: legend.isUp ? '#24c55e' : '#ef4444' }}>{fmt(legend.low)}</span></span>
-                            <span>C <span style={{ color: legend.isUp ? '#24c55e' : '#ef4444' }}>{fmt(legend.close)}</span></span>
+                            <span style={{ color: '#64748b', fontSize: '10px', marginRight: '4px' }}>Day:</span>
+                            <span>O <span style={{ color: dayOHLC.close >= dayOHLC.open ? '#24c55e' : '#ef4444' }}>{fmt(dayOHLC.open)}</span></span>
+                            <span>H <span style={{ color: dayOHLC.close >= dayOHLC.open ? '#24c55e' : '#ef4444' }}>{fmt(dayOHLC.high)}</span></span>
+                            <span>L <span style={{ color: dayOHLC.close >= dayOHLC.open ? '#24c55e' : '#ef4444' }}>{fmt(dayOHLC.low)}</span></span>
+                            <span>C <span style={{ color: dayOHLC.close >= dayOHLC.open ? '#24c55e' : '#ef4444' }}>{fmt(dayOHLC.close)}</span></span>
                         </div>
                     )}
                 </div>
