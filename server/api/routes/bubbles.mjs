@@ -290,7 +290,7 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
       FROM trades
       WHERE timestamp <= dateadd('m', -${minutes}, '${anchorTs}'::timestamp)
         AND timestamp >= dateadd('d', -7, '${anchorTs}'::timestamp)
-        ${symbolFilter.replace('WHERE', 'AND')}
+        ${!isDay ? symbolFilter.replace('WHERE', 'AND') : "AND 1=0"} /* SKIP baseline for Day */
       SAMPLE BY 1m ALIGN TO CALENDAR
     ),
     baseline_ordered AS (
@@ -299,7 +299,7 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
     SELECT 
       l.symbol,
       l.ts,
-      COALESCE(b.baseline_close, w.first_open, l.close) as open,
+      COALESCE(${isDay ? 'NULL' : 'b.baseline_close'}, w.first_open, l.close) as open,
       GREATEST(COALESCE(w.high, l.close), l.close) as high,
       LEAST(COALESCE(w.low, l.close), l.close) as low,
       l.close,
@@ -315,7 +315,7 @@ function buildAggregatedQuery(interval, latestTs, symbols = null) {
     LEFT JOIN window_agg w ON l.symbol = w.symbol
     LEFT JOIN baseline_ordered b ON l.symbol = b.symbol
     LEFT JOIN day_vols dv ON l.symbol = dv.symbol
-    -- LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol -- DISABLED FOR STABILITY
+    LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
     LEFT JOIN day_agg da ON l.symbol = da.symbol
   `;
 
@@ -533,10 +533,14 @@ router.get('/', async (req, res) => {
     }
 
     // Get latest timestamp from DB to use as anchor (USE TRADES since minute_bars was removed)
+
     const anchorRes = await queryQuestDB("SELECT MAX(timestamp) FROM trades");
-    let latestTs = new Date().toISOString();
+    let latestTs = null;
     if (anchorRes && anchorRes.dataset && anchorRes.dataset.length > 0 && anchorRes.dataset[0][0]) {
       latestTs = anchorRes.dataset[0][0];
+    } else {
+      // Fallback only if strictly necessary (empty DB)
+      latestTs = new Date().toISOString();
     }
 
     // Build and execute QuestDB query
