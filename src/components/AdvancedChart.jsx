@@ -903,6 +903,11 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
                         {legend.volume !== undefined && (
                             <span>Vol <span style={{ color: '#bae6fd' }}>{fmtVol(legend.volume)}</span></span>
                         )}
+                        {legend.open && legend.close && (
+                            <span style={{ color: legend.isUp ? '#24c55e' : '#ef4444' }}>
+                                {legend.isUp ? '+' : ''}{((legend.close - legend.open) / legend.open * 100).toFixed(2)}%
+                            </span>
+                        )}
                     </div>
                 )}
                 <div style={{ flex: 1 }} />

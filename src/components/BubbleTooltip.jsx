@@ -349,10 +349,10 @@ export default function BubbleTooltip({
     const isPositive = intPct >= 0;
 
     // Extract Today's stats
-    // Try raw first (most accurate), then orb/data props
-    const todayOpen = raw['Open 1 day'] ?? raw['Open'] ?? raw['open'] ?? raw['day_open'] ?? orb?.day_open ?? orb?.open;
-    const todayHigh = raw['High 1 day'] ?? raw['High'] ?? raw['high'] ?? orb?.high;
-    const todayLow = raw['Low 1 day'] ?? raw['Low'] ?? raw['low'] ?? orb?.low;
+    // IMPORTANT: Prioritize day_* specific fields (from API) over generic open/high/low which are interval-based
+    const todayOpen = orb?.day_open ?? raw?.day_open ?? raw?.['Open 1 day'] ?? raw?.['day_open'];
+    const todayHigh = orb?.day_high ?? raw?.day_high ?? raw?.['High 1 day'] ?? raw?.['day_high'];
+    const todayLow = orb?.day_low ?? raw?.day_low ?? raw?.['Low 1 day'] ?? raw?.['day_low'];
 
     // Extract ORB stats
     const orbHigh5m = orb?.orb_high_5m ?? raw?.orb_high_5m;

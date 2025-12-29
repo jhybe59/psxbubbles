@@ -102,6 +102,29 @@ export default function StandaloneChart() {
         };
     }, [symbol, timeframe]);
 
+    // Update browser tab title with real-time price data (like TradingView)
+    useEffect(() => {
+        if (!symbol || !series || series.length === 0) {
+            document.title = symbol ? `${symbol} | PSX Bubbles` : 'PSX Bubbles';
+            return;
+        }
+
+        const latest = series[series.length - 1];
+
+        const price = latest.close;
+        const openPrice = latest.open; // Use LATEST candle's open, not first candle
+        const change = ((price - openPrice) / openPrice) * 100;
+        const isUp = change >= 0;
+
+        // Format: "PIOC 394.00 ▲ +2.50% | 50 Ticks"
+        const arrow = isUp ? '▲' : '▼';
+        const sign = isUp ? '+' : '';
+        const formattedPrice = price >= 1000 ? price.toFixed(0) : price.toFixed(2);
+        const formattedChange = `${sign}${change.toFixed(2)}%`;
+
+        document.title = `${symbol} ${formattedPrice} ${arrow} ${formattedChange} | ${timeframe}`;
+    }, [symbol, series, timeframe]);
+
     // Handle symbol change - update state and URL
     const handleSymbolChange = (newSymbol) => {
         setSymbol(newSymbol);

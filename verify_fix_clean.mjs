@@ -2,22 +2,22 @@
 import { queryQuestDB } from './server/api/questdb.mjs';
 
 async function verifyFixClean() {
-    console.log("--- Verifying Fix Logic (Clean) ---");
+  console.log("--- Verifying Fix Logic (Clean) ---");
 
-    const maxTsRes = await queryQuestDB("SELECT MAX(timestamp) FROM trades");
-    let latestTs = null;
-    if (maxTsRes && maxTsRes.dataset && maxTsRes.dataset.length > 0) {
-        latestTs = maxTsRes.dataset[0][0];
-        console.log("Latest TS:", latestTs);
-    } else {
-        console.log("DB Empty/Error");
-        return;
-    }
+  const maxTsRes = await queryQuestDB("SELECT MAX(timestamp) FROM trades");
+  let latestTs = null;
+  if (maxTsRes && maxTsRes.dataset && maxTsRes.dataset.length > 0) {
+    latestTs = maxTsRes.dataset[0][0];
+    console.log("Latest TS:", latestTs);
+  } else {
+    console.log("DB Empty/Error");
+    return;
+  }
 
-    const anchorTs = latestTs;
+  const anchorTs = latestTs;
 
-    // Emulate Day Interval Logic with NO comments
-    const sqlDayFix = `
+  // Emulate Day Interval Logic with NO comments
+  const sqlDayFix = `
     WITH day_vols AS (
       SELECT symbol, sum(volume) as day_volume
       FROM trades
@@ -52,31 +52,41 @@ async function verifyFixClean() {
       FROM trades
       WHERE timestamp >= dateadd('h', 4, date_trunc('day', '${anchorTs}'::timestamp))
       GROUP BY symbol
+    ),
+    day_agg AS (
+      SELECT 
+        symbol,
+        max(price) as day_high,
+        min(price) as day_low
+      FROM trades
+      WHERE timestamp >= dateadd('h', 4, date_trunc('day', '${anchorTs}'::timestamp))
+      GROUP BY symbol
     )
     SELECT 
       l.symbol,
       l.close,
-      pds.prev_close,
-      w.first_open,
-      COALESCE(NULL, w.first_open, l.close) as calc_open,
-      ((l.close - pds.prev_close) / pds.prev_close) * 100 as pct_change_vs_prev,
-      ((l.close - w.first_open) / w.first_open) * 100 as pct_change_vs_open
+      COALESCE(pds.prev_high, 0) as prev_high,
+      COALESCE(pds.prev_close, 0) as prev_close,
+      wa.first_open,
+      da.day_high,
+      da.day_low
     FROM latest_ordered l
-    LEFT JOIN window_agg w ON l.symbol = w.symbol
+    LEFT JOIN window_agg wa ON l.symbol = wa.symbol
     LEFT JOIN prev_day_stats pds ON l.symbol = pds.symbol
+    LEFT JOIN day_agg da ON l.symbol = da.symbol
     LIMIT 10
   `;
 
-    try {
-        const res = await queryQuestDB(sqlDayFix);
-        if (res && res.dataset) {
-            console.table(res.dataset.slice(0, 10));
-        } else {
-            console.log("No result for Day Fix query");
-        }
-    } catch (e) {
-        console.error("Day Fix Query Failed:", e);
+  try {
+    const res = await queryQuestDB(sqlDayFix);
+    if (res && res.dataset) {
+      console.table(res.dataset.slice(0, 10));
+    } else {
+      console.log("No result for Day Fix query");
     }
+  } catch (e) {
+    console.error("Day Fix Query Failed:", e);
+  }
 }
 
 verifyFixClean();
