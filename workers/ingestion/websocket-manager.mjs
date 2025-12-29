@@ -6,6 +6,7 @@ import { initQuestDB, insertMinuteBarsQuest, closeQuestDB } from './questdb.mjs'
 import { config } from './config.mjs';
 import { addTick } from './tick-buffer.mjs';
 import { initBreakoutDetector, checkBreakout } from './breakout-detector.mjs';
+import { startStatsLoader, stopStatsLoader } from './stats-loader.mjs';
 
 const wsConnectionsGauge = new Gauge({
     name: 'ingestion_ws_connections_active',
@@ -253,6 +254,7 @@ class WebSocketConnection {
         wsConnectionsGauge.dec();
         this.isAlive = false;
         if (this.flushInterval) clearInterval(this.flushInterval);
+        stopStatsLoader();
         this.ws = null;
     }
 
@@ -286,6 +288,9 @@ export class WebSocketManager {
 
         // Initialize breakout detector for real-time alerts
         await initBreakoutDetector();
+
+        // Start stats loader (fetches ORB data)
+        startStatsLoader();
 
         const symbols = await loadSymbols();
         const chunkSize = 20;
