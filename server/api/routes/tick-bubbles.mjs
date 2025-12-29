@@ -459,7 +459,7 @@ router.get('/', async (req, res) => {
                 bubble.bb_width > bubble.kc_width &&
                 hasVolumeSignal &&
                 bubble.orb_high_5m != null && bubble.price > bubble.orb_high_5m &&
-                bubble.pct_interval > 0
+                bubble.price > bubble.open  // Bullish candle structure (price above open)
             );
 
             bubble.breakout_signal = isBreakout;

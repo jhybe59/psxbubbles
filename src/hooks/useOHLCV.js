@@ -224,7 +224,10 @@ async function fetchLiveInterval(interval) {
           lookback: row.lookback || {},
           raw: row,
           // Session alerts from backend
-          alerts: row.alerts || []
+          alerts: row.alerts || [],
+          // Breakout detection from backend
+          breakout_signal: row.breakout_signal ?? false,
+          breakout_type: row.breakout_type ?? null
         };
       });
     } catch (err) {
@@ -308,7 +311,10 @@ async function fetchTickInterval(interval) {
         tickCount: row.tickCount ?? tickCount,
         raw: row,
         // Session alerts from backend
-        alerts: row.alerts || []
+        alerts: row.alerts || [],
+        // Breakout detection from backend
+        breakout_signal: row.breakout_signal ?? false,
+        breakout_type: row.breakout_type ?? null
       };
     });
   } catch (err) {
