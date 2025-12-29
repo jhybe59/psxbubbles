@@ -49,7 +49,8 @@ export default function BreakoutToast({ breakouts = [], onDismiss, onViewChart }
                 >
                     <div className="toast-header">
                         <span className="toast-icon">🚀</span>
-                        <span className="toast-title">BREAKOUT ALERT!</span>
+                        <span className="toast-title">BREAKOUT</span>
+                        {breakout.time && <span className="toast-time">{breakout.time}</span>}
                     </div>
 
                     <div className="toast-body">

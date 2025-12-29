@@ -22,6 +22,7 @@ import { applyFilter } from './utils/filterUtils'
 import ScreenerDropdown from './components/ScreenerDropdown'
 import useTechnicalIndicators from './hooks/useTechnicalIndicators'
 import BreakoutToast from './components/BreakoutToast'
+import useBreakoutSocket from './hooks/useBreakoutSocket'
 
 function App() {
   const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp } = useOHLCV();
@@ -186,11 +187,34 @@ function App() {
   }, [indexMap]);
 
   // ═══════════════════════════════════════════════════════════════════
-  // BREAKOUT DETECTION - Track coins with breakout_signal = true
+  // REAL-TIME BREAKOUT ALERTS via Socket.IO
+  // ═══════════════════════════════════════════════════════════════════
+  const { connected: socketConnected, alerts: socketAlerts, dismissAlert: dismissSocketAlert } = useBreakoutSocket(breakoutAlertsEnabled);
+
+  // Merge Socket.IO alerts with polling-based alerts
+  useEffect(() => {
+    if (!breakoutAlertsEnabled) return;
+    if (!socketAlerts || socketAlerts.length === 0) return;
+
+    // Add Socket.IO alerts to toast (they come with exact timestamp)
+    const newAlerts = socketAlerts.filter(a =>
+      !seenBreakoutsRef.current.has(`socket-${a.symbol}-${a.timestamp}`)
+    );
+
+    if (newAlerts.length > 0) {
+      newAlerts.forEach(a => seenBreakoutsRef.current.add(`socket-${a.symbol}-${a.timestamp}`));
+      setBreakouts(prev => [...newAlerts, ...prev].slice(0, 10));
+      console.log('[SOCKET.IO BREAKOUT]', newAlerts.map(a => `${a.symbol} @ ${a.time}`));
+    }
+  }, [socketAlerts, breakoutAlertsEnabled]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POLLING-BASED BREAKOUT DETECTION (fallback if Socket.IO unavailable)
   // ═══════════════════════════════════════════════════════════════════
   useEffect(() => {
-    // Skip if alerts are disabled
+    // Skip if alerts are disabled or Socket.IO is connected (prefer Socket.IO)
     if (!breakoutAlertsEnabled) return;
+    if (socketConnected) return; // Use Socket.IO instead
     if (!coins || !coins.length) return;
 
     // Find new breakouts (not yet notified)
@@ -214,9 +238,9 @@ function App() {
       setBreakouts(prev => [...breakoutData, ...prev].slice(0, 10));
 
       // Console log for debugging
-      console.log('[BREAKOUT DETECTED]', newBreakouts.map(c => c.symbol || c.id));
+      console.log('[POLLING BREAKOUT DETECTED]', newBreakouts.map(c => c.symbol || c.id));
     }
-  }, [coins, breakoutAlertsEnabled]);
+  }, [coins, breakoutAlertsEnabled, socketConnected]);
 
   // Handler for dismissing breakout toast
   const handleBreakoutDismiss = useCallback((symbol) => {

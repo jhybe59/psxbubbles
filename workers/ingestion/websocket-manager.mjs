@@ -5,6 +5,7 @@ import { loadSymbols } from './symbols.mjs';
 import { initQuestDB, insertMinuteBarsQuest, closeQuestDB } from './questdb.mjs';
 import { config } from './config.mjs';
 import { addTick } from './tick-buffer.mjs';
+import { initBreakoutDetector, checkBreakout } from './breakout-detector.mjs';
 
 const wsConnectionsGauge = new Gauge({
     name: 'ingestion_ws_connections_active',
@@ -238,6 +239,11 @@ class WebSocketConnection {
                 const intervals = Object.keys(completed).join(', ');
                 logger.debug({ symbol, intervals }, 'Tick interval(s) completed');
             }
+
+            // Check for breakout and emit real-time alert
+            checkBreakout(symbol, { price, volume, ts }).catch(() => {
+                // Ignore errors silently
+            });
         } catch (err) {
             // Silently ignore errors in tick processing
         }
@@ -277,6 +283,9 @@ export class WebSocketManager {
 
         // Initialize QuestDB sender
         await initQuestDB();
+
+        // Initialize breakout detector for real-time alerts
+        await initBreakoutDetector();
 
         const symbols = await loadSymbols();
         const chunkSize = 20;
