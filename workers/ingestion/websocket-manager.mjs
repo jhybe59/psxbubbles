@@ -7,6 +7,7 @@ import { config } from './config.mjs';
 import { addTick } from './tick-buffer.mjs';
 import { initBreakoutDetector, checkBreakout } from './breakout-detector.mjs';
 import { startStatsLoader, stopStatsLoader } from './stats-loader.mjs';
+import { isMarketOpen, getTimeUntilNextOpen, getTimeUntilClose, getMarketStatus } from './market-hours.mjs';
 
 const wsConnectionsGauge = new Gauge({
     name: 'ingestion_ws_connections_active',
@@ -277,11 +278,41 @@ export class WebSocketManager {
     constructor() {
         this.connections = [];
         this.isRunning = false;
+        this.shutdownTimeout = null;
+        this.wakeupTimeout = null;
     }
 
     async start() {
         if (this.isRunning) return;
+
+        // Market Hours Check
+        const status = getMarketStatus();
+        logger.info({ status }, 'Checking market status on startup');
+
+        if (!status.isOpen) {
+            const delay = status.nextOpenDelayMs;
+            const hours = (delay / (1000 * 60 * 60)).toFixed(1);
+            logger.info({ delayMs: delay, hours }, 'Market is CLOSED. Scheduling wakeup.');
+
+            this.scheduleWakeup(delay);
+            return;
+        }
+
         this.isRunning = true;
+
+        // Schedule shutdown at market close
+        const timeUntilClose = getTimeUntilClose();
+        if (timeUntilClose > 0) {
+            logger.info({
+                timeUntilCloseMs: timeUntilClose,
+                hours: (timeUntilClose / (1000 * 60 * 60)).toFixed(1)
+            }, 'Scheduling auto-disconnect at market close');
+
+            this.shutdownTimeout = setTimeout(() => {
+                logger.info('Market closing time reached. Stopping worker...');
+                this.stop(true); // true = schedule wakeup
+            }, timeUntilClose);
+        }
 
         // Initialize QuestDB sender
         await initQuestDB();
@@ -309,13 +340,34 @@ export class WebSocketManager {
         logger.info({ totalConnections: this.connections.length }, 'WebSocket Manager started');
     }
 
-    async stop() {
+    async stop(scheduleNext = false) {
         this.isRunning = false;
+
+        // Clear timers
+        if (this.shutdownTimeout) clearTimeout(this.shutdownTimeout);
+        if (this.wakeupTimeout) clearTimeout(this.wakeupTimeout);
+
         this.connections.forEach(conn => conn.close());
         this.connections = [];
 
         // Close QuestDB sender
         await closeQuestDB();
+
+        if (scheduleNext) {
+            const delay = getTimeUntilNextOpen();
+            logger.info({ delayMs: delay }, 'Worker stopped. Scheduling wakeup for next market open.');
+            this.scheduleWakeup(delay);
+        }
+    }
+
+    scheduleWakeup(delay) {
+        if (this.wakeupTimeout) clearTimeout(this.wakeupTimeout);
+
+        // Max timeout in JS is 24.8 days, so we are safe
+        this.wakeupTimeout = setTimeout(() => {
+            logger.info('Wakeup time reached. Starting worker...');
+            this.start();
+        }, delay);
     }
 }
 

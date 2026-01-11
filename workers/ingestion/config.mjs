@@ -107,11 +107,11 @@ export const config = {
     symbolsPerMinute: numberOr(process.env.WORKER_SYMBOLS_PER_MINUTE, 100),
     marketOpenMinute: timeToMinutes(
       process.env.WORKER_MARKET_OPEN_TIME ?? process.env.WORKER_MARKET_OPEN_MINUTE,
-      9 * 60 + 30
+      8 * 60 + 0 // 08:00 AM
     ),
     marketCloseMinute: timeToMinutes(
       process.env.WORKER_MARKET_CLOSE_TIME ?? process.env.WORKER_MARKET_CLOSE_MINUTE,
-      15 * 60 + 30
+      17 * 60 + 0 // 05:00 PM
     ),
     symbolFetchDelayMinutes: numberOr(process.env.WORKER_SYMBOL_FETCH_DELAY_MINUTES, 2)
   },
