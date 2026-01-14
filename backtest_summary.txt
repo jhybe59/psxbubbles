@@ -1,0 +1,57 @@
+Backtest Detailed Failures (Relaxed + Wakeup):
+---------------------------
+[CTM] Reason:
+   Standard Failed:
+      - VolPulse: 0.85 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 0.85 (> 5)
+[BFMOD] Reason:
+   Standard Failed:
+      - VolPulse: 0.00 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 0.00 (> 5)
+[CTM] Reason:
+   Standard Failed:
+      - VolPulse: 0.81 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 0.81 (> 5)
+[UCAPM] Reason:
+   Standard Failed:
+      - Tightness: 0.0735 (< 0.05)
+   Wakeup Failed:
+      - VolPulse: 1.81 (> 5)
+[UCAPM] Reason:
+   Standard Failed:
+      - VolPulse: 0.09 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 0.09 (> 5)
+[UCAPM] Reason:
+   Standard Failed:
+      - VolPulse: 0.32 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 0.32 (> 5)
+[CTM] Reason:
+   Standard Failed:
+      - VolPulse: 0.00 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 0.00 (> 5)
+[ZAL] Reason:
+   Standard Failed:
+      - VolPulse: 1.02 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 1.02 (> 5)
+[BFMOD] Reason:
+   Standard Failed:
+      - VolPulse: 0.03 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 0.03 (> 5)
+[SGPL] Reason:
+   Standard Failed:
+      - Tightness: 0.0648 (< 0.05)
+      - VolPulse: 0.00 (> 1.5)
+   Wakeup Failed:
+      - VolPulse: 0.00 (> 5)
+
+Backtest Results on 34 Events (Relaxed + Wakeup):
+--------------------------------------------
+Pre-Breakout Warning Detected: 8/34 (23.5%)

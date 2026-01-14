@@ -626,64 +626,95 @@ router.get('/', async (req, res) => {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BREAKOUT DETECTION - TTM Squeeze Strategy (DUAL RVOL)
-    // Conditions:
-    //   1. squeeze_on = false (volatility expanding)
-    //   2. bb_width > kc_width (Bollinger outside Keltner)
-    //   3. RVOL check (EITHER rolling OR session-based):
-    //      - Rolling RVOL >= 1.5 (current vs last 20 bars avg)
-    //      - Session RVOL >= 1.5 (current vs first 5m bar of day)
-    //   4. price > orb_high_5m (above ORB resistance)
-    //   5. pct_interval > 0 (current move is UP)
+    // ZERO-FAKEOUT LEAD INDICATOR & BREAKOUT DETECTION
     // ═══════════════════════════════════════════════════════════════════
-    for (const bubble of payload.data) {
-      // Check Rolling RVOL (current method, threshold lowered to 1.5)
-      const rollingRvol = bubble.rvol || bubble.relative_volume || 0;
-      const hasRollingRvol = rollingRvol >= 1.5;
+    try {
+      // Compute today's market open (09:00 PKT = 04:00 UTC) as ISO string for QuestDB
+      const now = new Date();
+      const dayStartDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 4, 0, 0, 0));
+      const dayStartIso = dayStartDate.toISOString();
 
-      // Check Session-based RVOL (vs orb_volume_5m from first 5 min)
-      const orbVol5m = bubble.orb_volume_5m || 0;
-      const currentVol = bubble.volume || bubble.day_volume || 0;
-      const sessionRvol = orbVol5m > 0 ? (currentVol / orbVol5m) : 0;
-      const hasSessionRvol = sessionRvol >= 1.5;
-
-      // Breakout requires EITHER rolling OR session RVOL signal
-      const hasVolumeSignal = hasRollingRvol || hasSessionRvol;
-
-      const isBreakout = (
-        bubble.squeeze_on === false &&
-        bubble.bb_width != null && bubble.kc_width != null &&
-        bubble.bb_width > bubble.kc_width &&
-        hasVolumeSignal &&
-        bubble.orb_high_5m != null && bubble.price > bubble.orb_high_5m &&
-        bubble.price > bubble.open  // Bullish candle structure (price above open)
+      const leadMetrics = await volatilityService.getLeadIndicatorMetrics(
+        payload.data.map(b => b.symbol),
+        dayStartIso
       );
 
-      bubble.breakout_signal = isBreakout;
-      bubble.breakout_type = isBreakout ? 'TTM_SQUEEZE' : null;
-      // Add RVOL details for debugging
-      bubble.breakout_rvol_rolling = rollingRvol;
-      bubble.breakout_rvol_session = sessionRvol;
-      bubble.breakout_rvol_source = isBreakout ? (hasRollingRvol ? 'ROLLING' : 'SESSION') : null;
+      for (const bubble of payload.data) {
+        const metrics = leadMetrics.get(bubble.symbol);
+        if (!metrics) continue;
 
-      // Add breakout alert if detected
-      if (isBreakout) {
-        const breakoutAlert = {
-          type: 'BREAKOUT',
-          label: '🚀 BREAKOUT',
-          message: `${bubble.symbol} TTM Squeeze breakout @ ${bubble.price?.toFixed(2)}`,
-          rvol: Math.max(rollingRvol, sessionRvol),
-          rvol_source: hasRollingRvol ? 'ROLLING' : 'SESSION',
-          price: bubble.price,
-          time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
-        };
-        if (!bubble.alerts) bubble.alerts = [];
-        // Only add if not already present (avoid duplicates on refresh)
-        if (!bubble.alerts.some(a => a.type === 'BREAKOUT')) {
-          bubble.alerts.unshift(breakoutAlert);
+        // Golden Formula Check (Relaxed for broader detection)
+        const isStandardSqueeze =
+          metrics.tightness < 0.05 &&    // 5% tightness
+          metrics.vol_pulse > 1.5 &&     // 1.5x volume
+          metrics.proximity < 0.10;      // 10% proximity
+
+        // "Flash Breakout" / Volume Wake-up Check (To catch dead stocks waking up)
+        // If VolPulse is Infinite (100) or massive (>10), we relax proximity greatly.
+        const isVolumeWakeup =
+          metrics.vol_pulse > 5.0 &&
+          metrics.proximity < 0.15;
+
+        // "Infinite Pulse" Override (Dead stock waking up - primary signal is volume itself)
+        // If volume pulse is extreme (e.g. 100 from dead state), we trust it even if tightness is loose.
+        const isInfiniteWakeup = metrics.vol_pulse >= 50.0;
+
+        // Trigger if any condition is met
+        const isLeadWarning = isStandardSqueeze || isVolumeWakeup || isInfiniteWakeup;
+
+        bubble.pre_breakout_signal = isLeadWarning ? 1 : 0;
+        bubble.lead_metrics = metrics;
+
+        if (isLeadWarning) {
+          const leadAlert = {
+            type: 'PRE_BREAKOUT',
+            label: '⚡ PRE-BREAKOUT',
+            message: `${bubble.symbol} Volume Pulse detected in Tight Range! @ ${bubble.price?.toFixed(2)}`,
+            rvol: metrics.vol_pulse,
+            proximity: (metrics.proximity * 100).toFixed(2) + '%',
+            time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+          };
+          if (!bubble.alerts) bubble.alerts = [];
+          if (!bubble.alerts.some(a => a.type === 'PRE_BREAKOUT')) {
+            bubble.alerts.unshift(leadAlert);
+          }
         }
-        // logger.info({ symbol: bubble.symbol, price: bubble.price, rvol: Math.max(rollingRvol, sessionRvol), source: hasRollingRvol ? 'ROLLING' : 'SESSION' }, 'BREAKOUT DETECTED');
+
+        // Original TTM Squeeze Breakout check (Legacy updated with session context)
+        const rollingRvol = bubble.rvol || bubble.relative_volume || 0;
+        const orbVol5m = bubble.orb_volume_5m || 0;
+        const currentVol = bubble.volume || bubble.day_volume || 0;
+        const sessionRvol = orbVol5m > 0 ? (currentVol / orbVol5m) : 0;
+
+        const isBreakout = (
+          bubble.squeeze_on === false &&
+          bubble.bb_width != null && bubble.kc_width != null &&
+          bubble.bb_width > bubble.kc_width &&
+          (rollingRvol >= 1.5 || sessionRvol >= 1.5) &&
+          bubble.orb_high_5m != null && bubble.price > bubble.orb_high_5m &&
+          bubble.price > bubble.open
+        );
+
+        bubble.breakout_signal = isBreakout ? 1 : 0;
+        bubble.breakout_type = isBreakout ? 'TTM_SQUEEZE' : null;
+
+        if (isBreakout) {
+          const breakoutAlert = {
+            type: 'BREAKOUT',
+            label: '🚀 BREAKOUT',
+            message: `${bubble.symbol} TTM Squeeze breakout @ ${bubble.price?.toFixed(2)}`,
+            rvol: Math.max(rollingRvol, sessionRvol),
+            price: bubble.price,
+            time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+          };
+          if (!bubble.alerts) bubble.alerts = [];
+          if (!bubble.alerts.some(a => a.type === 'BREAKOUT')) {
+            bubble.alerts.unshift(breakoutAlert);
+          }
+        }
       }
+    } catch (leadErr) {
+      logger.error({ leadErr }, 'Failed to process lead indicators');
     }
 
     // Apply limit

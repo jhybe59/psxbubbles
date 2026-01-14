@@ -1,0 +1,188 @@
+import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+
+const RAILWAY_HOST = 'questdb-production-ec9c.up.railway.app';
+const RAILWAY_IP = '66.33.22.37'; // Hardcoded from previous logs
+const RAILWAY_URL = `https://${RAILWAY_IP}/exec`;
+
+function curlQuery(sql, retry = 3) {
+    return new Promise((resolve, reject) => {
+        const url = `${RAILWAY_URL}?query=${encodeURIComponent(sql)}&count=true`;
+
+        execFile('curl.exe', [
+            '-k', '-s', // Insecure, Silent
+            '-H', `Host: ${RAILWAY_HOST}`, // Mandatory for Railway routing
+            '--connect-timeout', '10', // Fast fail on connection
+            '--max-time', '60', // Max total time
+            url
+        ], { maxBuffer: 1024 * 1024 * 50 }, (error, stdout, stderr) => {
+            if (error) {
+                if (retry > 0) {
+                    // console.log(`   Retrying... (${retry} left)`);
+                    setTimeout(() => {
+                        curlQuery(sql, retry - 1).then(resolve).catch(reject);
+                    }, 1000);
+                    return;
+                }
+                reject(error);
+                return;
+            }
+            try {
+                const json = JSON.parse(stdout);
+                resolve(json);
+            } catch (e) {
+                // If backend returns HTML (503 Service Unavailable, etc)
+                // console.error("JSON Parse Error:", stdout.substring(0, 100));
+
+                if (retry > 0) {
+                    setTimeout(() => {
+                        curlQuery(sql, retry - 1).then(resolve).catch(reject);
+                    }, 1000);
+                    return;
+                }
+                reject(e);
+            }
+        });
+    });
+}
+
+async function runBacktest() {
+    console.log("🔍 [Phase 1] Detecting Signals via Server-Side SQL (Direct IP)...");
+
+    const dayStart = '2026-01-08T04:30:00.000Z'; // Market Open
+    const dayEnd = '2026-01-08T10:30:00.000Z';   // Market Close
+
+    const sqlObserved = `SELECT count(DISTINCT symbol) FROM trades WHERE timestamp >= '${dayStart}'`;
+    try {
+        var totalSymbolsRes = await curlQuery(sqlObserved);
+    } catch (e) {
+        console.error("Critical: Initial connection failed even with Direct IP:", e.message);
+        return;
+    }
+    const totalSymbols = totalSymbolsRes.dataset?.[0]?.[0] ?? 0;
+    console.log(`Checking ${totalSymbols} symbols...`);
+
+    // Detect Signals Logic
+    const sqlSignals = `
+    WITH m1_bars AS (
+      SELECT symbol, timestamp,
+        first(price) as open,
+        max(price) as high,
+        min(price) as low,
+        last(price) as close,
+        sum(volume) as volume
+      FROM trades
+      WHERE timestamp >= '${dayStart}' AND timestamp < '${dayEnd}'
+      SAMPLE BY 1m ALIGN TO CALENDAR
+    ),
+    session_stats AS (SELECT symbol, max(high) as session_high FROM m1_bars GROUP BY symbol),
+    window_stats AS (
+      SELECT m.symbol, m.timestamp, m.close, m.high, m.low, m.volume,
+        s.session_high,
+        max(m.high) OVER (PARTITION BY m.symbol ORDER BY m.timestamp ROWS BETWEEN 15 PRECEDING AND CURRENT ROW) as w_high,
+        min(m.low)  OVER (PARTITION BY m.symbol ORDER BY m.timestamp ROWS BETWEEN 15 PRECEDING AND CURRENT ROW) as w_low,
+        avg(m.volume) OVER (PARTITION BY m.symbol ORDER BY m.timestamp ROWS BETWEEN 15 PRECEDING AND CURRENT ROW) as w_avg_vol
+      FROM m1_bars m
+      JOIN session_stats s ON m.symbol = s.symbol
+    ),
+    derived_metrics AS (
+      SELECT *, (volume / NULLIF(w_avg_vol,0)) as calc_pulse FROM window_stats
+    ),
+    ranked_pulse AS (
+      SELECT *, row_number() OVER (PARTITION BY symbol ORDER BY calc_pulse DESC) as rn FROM derived_metrics
+    )
+    SELECT symbol, timestamp, close, session_high,
+      (w_high - w_low) / NULLIF(close,0) as tightness,
+      calc_pulse as vol_pulse,
+      (session_high - close) / NULLIF(session_high,0) as proximity
+    FROM ranked_pulse
+    WHERE rn = 1
+    `;
+
+    const res = await curlQuery(sqlSignals);
+    const rows = res.dataset || [];
+
+    const THRESHOLDS = { tightness: 0.015, volPulse: 3.0, proximity: 0.030 };
+
+    // Filter locally
+    const signals = [];
+    rows.forEach(r => {
+        const [sym, ts, close, sessHigh, t, v, p] = r;
+        if (t < THRESHOLDS.tightness && v > THRESHOLDS.volPulse && p < THRESHOLDS.proximity) {
+            signals.push({
+                symbol: sym,
+                time: n_date_iso(ts),
+                price: close,
+                tightness: t,
+                volPulse: v,
+                proximity: p
+            });
+        }
+    });
+
+    function n_date_iso(ts) { return ts.replace ? ts : new Date(ts).toISOString(); }
+
+    console.log(`✅ Found ${signals.length} signals. Checking future performance...`);
+
+    const reportData = [];
+
+    // [Phase 2] Check Future Max for each signal
+    for (let i = 0; i < signals.length; i++) {
+        const sig = signals[i];
+        if (i % 5 === 0) process.stdout.write(`\r[${i + 1}/${signals.length}] Analyzing ${sig.symbol}...`);
+
+        try {
+            const perfSql = `
+                SELECT max(price), last(price) 
+                FROM trades 
+                WHERE symbol = '${sig.symbol}' 
+                  AND timestamp > '${sig.time}' 
+                  AND timestamp <= '${dayEnd}'
+            `;
+            const perfRes = await curlQuery(perfSql);
+            const [futureMax, finalPrice] = perfRes.dataset?.[0] || [sig.price, sig.price];
+
+            const maxAfter = futureMax || sig.price;
+            const endPrice = finalPrice || sig.price;
+
+            const maxGain = ((maxAfter - sig.price) / sig.price) * 100;
+            const finalGain = ((endPrice - sig.price) / sig.price) * 100;
+
+            let verdict = "⚖️ CHOPPY";
+            let icon = "⚪";
+            if (maxGain >= 2.0 && finalGain >= 1.0) { verdict = "🚀 SUPER"; icon = "🟢"; }
+            else if (maxGain >= 1.0 && finalGain >= 0.5) { verdict = "✅ BREAKOUT"; icon = "🟢"; }
+            else if (maxGain >= 1.0) { verdict = "⚠️ FAKEOUT"; icon = "🔴"; }
+            else if (maxGain < 0.5) { verdict = "💤 DUD"; icon = "⚪"; }
+
+            reportData.push({ ...sig, maxGain, verdict, icon });
+
+        } catch (e) {
+            // console.error(`Error on ${sig.symbol}`, e.message);
+        }
+    }
+
+    reportData.sort((a, b) => a.time.localeCompare(b.time));
+
+    // Generate Report
+    let md = `# 🕵️‍♂️ Detailed Pre-Breakout Backtest (8 Jan 2026)\n\n`;
+    md += `**Total Symbols:** ${totalSymbols}\n`;
+    md += `**Signals Detected:** ${reportData.length}\n`;
+    const successCount = reportData.filter(r => r.maxGain >= 1.0).length;
+    const rate = reportData.length > 0 ? (successCount / reportData.length * 100).toFixed(1) : 0;
+    md += `**Breakout Success Rate (>1% gain):** ${rate}%\n\n`;
+
+    md += `| ⏰ Time (UTC) | Symbol | Signal Price | Tightness | Vol Pulse | Proximity | Max Gain | Verdict |\n`;
+    md += `|---|---|---|---|---|---|---|---|\n`;
+
+    reportData.forEach(r => {
+        const timeStr = r.time.split('T')[1].substring(0, 8);
+        md += `| ${timeStr} | **${r.symbol}** | ${r.price} | ${(r.tightness * 100).toFixed(2)}% | ${r.volPulse.toFixed(1)}x | ${(r.proximity * 100).toFixed(2)}% | **${r.maxGain.toFixed(2)}%** | ${r.icon} ${r.verdict} |\n`;
+    });
+
+    fs.writeFileSync('backtest_final_report.md', md);
+    console.log("\n✅ Report Generated: backtest_final_report.md");
+    console.log(md);
+}
+
+runBacktest().catch(console.error);

@@ -1014,6 +1014,58 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         squeezeRing.transition().duration(600).style('opacity', 0).remove();
       }
 
+      // 🟡 NEW: PRE-BREAKOUT WARNING (Golden Pulsing Ring)
+      const isPreBreakout = d.data && d.data.pre_breakout_signal === true;
+      let preBORing = n.select('.pre-bo-ring');
+      if (isPreBreakout) {
+        if (preBORing.empty()) {
+          preBORing = n.append('circle')
+            .attr('class', 'pre-bo-ring')
+            .attr('r', d.r + 5)
+            .attr('fill', 'none')
+            .attr('stroke', '#fbbf24') // Golden Amber
+            .attr('stroke-width', 3)
+            .attr('stroke-dasharray', '8,4')
+            .style('opacity', 0)
+            .style('filter', 'drop-shadow(0 0 4px rgba(251, 191, 36, 0.6))');
+
+          // Add pulse animation
+          function animatePreBO() {
+            preBORing.transition()
+              .duration(1000)
+              .attr('r', d.r + 8)
+              .style('opacity', 0.8)
+              .transition()
+              .duration(1000)
+              .attr('r', d.r + 5)
+              .style('opacity', 0.4)
+              .on('end', animatePreBO);
+          }
+          animatePreBO();
+        }
+      } else if (!preBORing.empty()) {
+        preBORing.interrupt().transition().duration(400).style('opacity', 0).remove();
+      }
+
+      // 🚀 NEW: BREAKOUT SIGNAL (Vibrant Green Glow)
+      const isBreakout = d.data && d.data.breakout_signal === true;
+      let boRing = n.select('.bo-ring');
+      if (isBreakout) {
+        if (boRing.empty()) {
+          boRing = n.append('circle')
+            .attr('class', 'bo-ring')
+            .attr('r', d.r + 2)
+            .attr('fill', 'none')
+            .attr('stroke', '#10b981') // Emerald Green
+            .attr('stroke-width', 4)
+            .style('opacity', 0)
+            .style('filter', 'drop-shadow(0 0 8px rgba(16, 185, 129, 0.8))');
+        }
+        boRing.transition().duration(600).style('opacity', 0.9).attr('r', d.r + 2);
+      } else if (!boRing.empty()) {
+        boRing.transition().duration(400).style('opacity', 0).remove();
+      }
+
       // (logos and labels are placed in labelsGroup so they remain constant size)
     });
 
@@ -1098,9 +1150,26 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         }
         // Always update clipPath circle radius to match current logo size
         clipPath.select('circle')
-          .attr('r', clipRadius)
-          .attr('cx', 0)
-          .attr('cy', 0);
+          .attr('r', clipRadius);
+
+        // Add Status Badge (Rocket/Warning) if applicable
+        const isBreakout = d.data && d.data.breakout_signal === true;
+        const isPreBreakout = d.data && d.data.pre_breakout_signal === true;
+
+        if (isBreakout || isPreBreakout) {
+          let statusBadge = ln.select('.status-badge');
+          if (statusBadge.empty()) {
+            statusBadge = ln.append('text').attr('class', 'status-badge');
+          }
+          statusBadge
+            .attr('x', 0)
+            .attr('y', -d.r * 0.7)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', Math.max(10, d.r * 0.4) + 'px')
+            .text(isBreakout ? '🚀' : '⚡');
+        } else {
+          ln.select('.status-badge').remove();
+        }
 
         // Check if logo exists, update or create
         let logoImg = ln.select('.logo-small');
@@ -1494,6 +1563,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           bb_width: d.data?.bb_width,
           kc_width: d.data?.kc_width,
           vol_atr: d.data?.vol_atr,
+          // Live Lead Metrics (Pulse, Tightness)
+          lead_metrics: d.data?.lead_metrics,
           // Backend session alerts
           alerts: d.data?.alerts || []
         });
@@ -1729,6 +1800,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           bb_width={tooltipData.bb_width}
           kc_width={tooltipData.kc_width}
           vol_atr={tooltipData.vol_atr}
+          // Live Lead Metrics
+          lead_metrics={tooltipData.lead_metrics}
           // Session Alerts from backend
           alerts={tooltipData.alerts}
           style={{

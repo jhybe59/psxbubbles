@@ -48,8 +48,11 @@ export const initQuestDB = async () => {
     while (retryCount < maxRetries) {
         try {
             // Create sender with HTTP protocol configuration
-            sender = await Sender.fromConfig(`http::addr=${host}:${httpPort};`);
-            logger.info({ host, httpPort }, 'QuestDB ILP sender initialized');
+            // Added request_timeout (30s), auto_flush_rows (100), and retry_timeout (10s) to prevent timeouts
+            sender = await Sender.fromConfig(
+                `http::addr=${host}:${httpPort};request_timeout=30000;retry_timeout=10000;auto_flush_rows=100;auto_flush_interval=1000;`
+            );
+            logger.info({ host, httpPort }, 'QuestDB ILP sender initialized with extended timeouts');
             return;
         } catch (err) {
             retryCount++;
@@ -82,50 +85,54 @@ export const insertMinuteBarsQuest = async (rows) => {
 
     if (!rows || rows.length === 0) return 0;
 
-    try {
-        for (const row of rows) {
-            // Convert timestamp to nanoseconds for QuestDB
-            const tsMs = Number(row.ts);
-            const tsNanos = BigInt(tsMs) * 1000000n;
+    const MAX_RETRIES = 3;
+    let attempt = 0;
 
-            // Get next tick sequence for this symbol
-            const tickSeq = getNextTickSeq(String(row.symbol));
+    while (attempt < MAX_RETRIES) {
+        try {
+            for (const row of rows) {
+                // Convert timestamp to nanoseconds for QuestDB
+                const tsMs = Number(row.ts);
+                const tsNanos = BigInt(tsMs) * 1000000n;
 
-            // 1. Write to 'trades' (New Scheme - pure ticks)
-            sender
-                .table('trades')
-                .symbol('symbol', String(row.symbol))
-                .floatColumn('price', parseFloat(row.close) || 0)
-                .floatColumn('volume', parseFloat(row.volume) || 0)
-                .floatColumn('value', parseFloat(row.value) || 0)
-                .floatColumn('daily_pct', parseFloat(row.daily_pct) || 0)
-                .intColumn('tick_seq', tickSeq)
-                .at(tsNanos, 'ns');
+                // Get next tick sequence for this symbol
+                const tickSeq = getNextTickSeq(String(row.symbol));
 
-            // 2. Write to 'minute_bars' (Legacy Scheme - DEPRECATED)
-            // COMMENTED OUT to save RAM (Duplicate data)
-            /*
-            sender
-                .table('minute_bars')
-                .symbol('symbol', String(row.symbol))
-                .floatColumn('open', parseFloat(row.open) || 0)
-                .floatColumn('high', parseFloat(row.high) || 0)
-                .floatColumn('low', parseFloat(row.low) || 0)
-                .floatColumn('close', parseFloat(row.close) || 0)
-                .floatColumn('volume', parseFloat(row.volume) || 0)
-                .floatColumn('value', parseFloat(row.value) || 0)
-                .floatColumn('daily_pct', parseFloat(row.daily_pct) || 0)
-                .intColumn('tick_seq', tickSeq)
-                .at(tsNanos, 'ns');
-            */
+                // 1. Write to 'trades' (New Scheme - pure ticks)
+                sender
+                    .table('trades')
+                    .symbol('symbol', String(row.symbol))
+                    .floatColumn('price', parseFloat(row.close) || 0)
+                    .floatColumn('volume', parseFloat(row.volume) || 0)
+                    .floatColumn('value', parseFloat(row.value) || 0)
+                    .floatColumn('daily_pct', parseFloat(row.daily_pct) || 0)
+                    .intColumn('tick_seq', tickSeq)
+                    .at(tsNanos, 'ns');
+            }
+
+            await sender.flush();
+            return rows.length;
+        } catch (err) {
+            attempt++;
+            if (attempt < MAX_RETRIES) {
+                // Exponential backoff: 500ms, 1000ms, 2000ms
+                const backoffMs = 500 * Math.pow(2, attempt - 1);
+                logger.warn({
+                    err: err.message,
+                    count: rows.length,
+                    attempt,
+                    maxRetries: MAX_RETRIES,
+                    backoffMs
+                }, `QuestDB insert failed, retrying in ${backoffMs}ms...`);
+                await new Promise(r => setTimeout(r, backoffMs));
+            } else {
+                logger.warn({ err: err.message, count: rows.length }, 'QuestDB insert failed after all retries (non-fatal)');
+                return 0;
+            }
         }
-
-        await sender.flush();
-        return rows.length;
-    } catch (err) {
-        logger.warn({ err: err.message, count: rows.length }, 'QuestDB insert failed (non-fatal)');
-        return 0;
     }
+
+    return 0;
 };
 
 /**

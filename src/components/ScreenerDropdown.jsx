@@ -116,6 +116,22 @@ const QUICK_FILTERS = [
             bb_width: { operator: 'above', target: 'kc_width' },
             squeeze_on: { max: 0 }
         }
+    },
+    {
+        id: 'pre_breakout',
+        label: '⚡ Pre-Breakout Warning',
+        description: 'ZERO-FAKEOUT: Volume Pulse + Tight Range + Hugging Resistance',
+        conditions: {
+            pre_breakout_signal: { min: 1 }
+        }
+    },
+    {
+        id: 'breakout_active',
+        label: '🚀 Breakout Active',
+        description: 'CONFIRMED: TTM Squeeze Breakout with High RVOL',
+        conditions: {
+            breakout_signal: { min: 1 }
+        }
     }
 ];
 
@@ -215,7 +231,19 @@ export default function ScreenerDropdown({
         if (isActive) {
             newFilters = activeFilters.filter(f => f.id !== filter.id);
         } else {
-            newFilters = [...activeFilters, filter];
+            // ENFORCE MUTUAL EXCLUSIVITY:
+            // Breakout Active and Pre-Breakout Warning are mutually exclusive phases.
+            // Selecting one should automatically deselect the other to avoid 0 results (logic conflict).
+            let currentFilters = [...activeFilters];
+
+            if (filter.id === 'pre_breakout') {
+                currentFilters = currentFilters.filter(f => f.id !== 'breakout_active');
+            }
+            if (filter.id === 'breakout_active') {
+                currentFilters = currentFilters.filter(f => f.id !== 'pre_breakout');
+            }
+
+            newFilters = [...currentFilters, filter];
         }
         onFilterChange(newFilters);
     };

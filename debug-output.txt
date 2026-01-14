@@ -1,0 +1,179 @@
+﻿ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+DEEP DEBUG: Pre-Breakout Screener Pipeline Analysis
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+≡ƒôí STEP 1: Fetching API data...
+Γ£à Got 96 bubbles from API
+   Timestamp: 2026-01-08T14:47:55.968Z
+
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+≡ƒôè STEP 2: Checking lead_metrics presence...
+   Bubbles with lead_metrics: 15
+   Bubbles without lead_metrics: 81
+
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+≡ƒôê STEP 3: Analyzing lead_metrics values...
+
+   CONDITION RESULTS:
+   Γö£ΓöÇ Tightness < 0.015: 15/15 pass
+   Γö£ΓöÇ Vol Pulse > 3: 0/15 pass
+   Γö£ΓöÇ Proximity < 0.03: 15/15 pass
+   ΓööΓöÇ ALL CONDITIONS: 0/15 pass
+
+   TOP 10 BY TIGHTNESS (lowest is best, need < 0.015):
+   1. PAEL: 0.000% Γ£à
+   2. TREET: 0.000% Γ£à
+   3. BBFL: 0.000% Γ£à
+   4. SAZEW: 0.000% Γ£à
+   5. CNERGY: 0.000% Γ£à
+   6. LOTCHEM: 0.000% Γ£à
+   7. PIOC: 0.000% Γ£à
+   8. NRL: 0.000% Γ£à
+   9. PIBTL: 0.000% Γ£à
+   10. TOMCL: 0.000% Γ£à
+
+   TOP 10 BY VOLUME PULSE (highest is best, need > 3.0x):
+   1. TREET: 1.00x Γ¥î
+   2. CNERGY: 1.00x Γ¥î
+   3. LOTCHEM: 1.00x Γ¥î
+   4. NRL: 1.00x Γ¥î
+   5. TOMCL: 1.00x Γ¥î
+   6. PAEL: 0.00x Γ¥î
+   7. BBFL: 0.00x Γ¥î
+   8. SAZEW: 0.00x Γ¥î
+   9. PIOC: 0.00x Γ¥î
+   10. PIBTL: 0.00x Γ¥î
+
+   TOP 10 BY PROXIMITY (lowest is best, need < 0.030):
+   1. PAEL: 0.00% from high Γ£à
+   2. TREET: 0.00% from high Γ£à
+   3. BBFL: 0.00% from high Γ£à
+   4. SAZEW: 0.00% from high Γ£à
+   5. CNERGY: 0.00% from high Γ£à
+   6. LOTCHEM: 0.00% from high Γ£à
+   7. PIOC: 0.00% from high Γ£à
+   8. NRL: 0.00% from high Γ£à
+   9. PIBTL: 0.00% from high Γ£à
+   10. TOMCL: 0.00% from high Γ£à
+
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+≡ƒöì STEP 4: Finding ALMOST passing candidates (2 out of 3 conditions)...
+   Found 15 stocks passing 2/3 conditions:
+   - PAEL:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - TREET:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 1.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - BBFL:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - SAZEW:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - CNERGY:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 1.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - LOTCHEM:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 1.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - PIOC:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - NRL:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 1.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - PIBTL:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - TOMCL:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 1.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - WASL:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - BNL:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - TELE:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - TPLP:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+   - ENGROH:
+     Tightness: 0.000% Γ£à
+     Vol Pulse: 0.00x Γ¥î
+     Proximity: 0.00% Γ£à
+
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+≡ƒÅ╖∩╕Å  STEP 5: Checking pre_breakout_signal field in API response...
+   pre_breakout_signal = true: 0
+   pre_breakout_signal = false: 15
+   pre_breakout_signal = undefined/null: 81
+
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+≡ƒÜÇ STEP 6: Checking Breakout Active conditions...
+   squeeze_on === false: 0/96
+   bb_width > kc_width: 0/96
+   RVOL >= 1.5: 37/96
+   price > orb_high_5m: 0/96
+   price > open: 8/96
+   ALL BREAKOUT CONDITIONS: 0/96
+
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+≡ƒôï STEP 7: Sample full bubble data (first 3 with metrics)...
+
+   [1] PAEL:
+   Γö£ΓöÇ price: 62.75
+   Γö£ΓöÇ open: 59
+   Γö£ΓöÇ rvol: 0
+   Γö£ΓöÇ squeeze_on: undefined
+   Γö£ΓöÇ bb_width: undefined
+   Γö£ΓöÇ kc_width: undefined
+   Γö£ΓöÇ orb_high_5m: 62.75
+   Γö£ΓöÇ pre_breakout_signal: false
+   Γö£ΓöÇ breakout_signal: false
+   ΓööΓöÇ lead_metrics: {"tightness":0,"vol_pulse":0,"proximity":0,"wick_ratio":0,"session_high":62.75}
+
+   [2] TREET:
+   Γö£ΓöÇ price: 33.9
+   Γö£ΓöÇ open: 32.47
+   Γö£ΓöÇ rvol: 0.6943131892504889
+   Γö£ΓöÇ squeeze_on: undefined
+   Γö£ΓöÇ bb_width: undefined
+   Γö£ΓöÇ kc_width: undefined
+   Γö£ΓöÇ orb_high_5m: 33.9
+   Γö£ΓöÇ pre_breakout_signal: false
+   Γö£ΓöÇ breakout_signal: false
+   ΓööΓöÇ lead_metrics: {"tightness":0,"vol_pulse":1,"proximity":0,"wick_ratio":0,"session_high":33.9}
+
+   [3] BBFL:
+   Γö£ΓöÇ price: 52.25
+   Γö£ΓöÇ open: 50.5
+   Γö£ΓöÇ rvol: 0
+   Γö£ΓöÇ squeeze_on: undefined
+   Γö£ΓöÇ bb_width: undefined
+   Γö£ΓöÇ kc_width: undefined
+   Γö£ΓöÇ orb_high_5m: 52.25
+   Γö£ΓöÇ pre_breakout_signal: false
+   Γö£ΓöÇ breakout_signal: false
+   ΓööΓöÇ lead_metrics: {"tightness":0,"vol_pulse":0,"proximity":0,"wick_ratio":0,"session_high":52.25}
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+DEBUG COMPLETE
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ

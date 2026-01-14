@@ -137,6 +137,10 @@ export const resolveValue = (coin, field, interval) => {
     if (field === 'close') return Number(coin.close != null ? coin.close : (coin.raw?.close || coin.price || 0));
     if (field === 'rvol') return coin.rvol != null ? Number(coin.rvol) : 0;
 
+    // Breakout Signal Fields - convert boolean to number for filter comparison
+    if (field === 'pre_breakout_signal') return coin.pre_breakout_signal === true ? 1 : 0;
+    if (field === 'breakout_signal') return coin.breakout_signal === true ? 1 : 0;
+
     return 0;
 };
 
@@ -180,6 +184,12 @@ export const applyFilter = (coins, conditions) => {
             if (sourceVal == null) {
                 // If indicator value is null, skip this coin (not enough data)
                 return false;
+            }
+
+            // Convert boolean to number (true -> 1, false -> 0) for proper min/max comparison
+            // This enables filters like `pre_breakout_signal: { min: 1 }` to work correctly
+            if (typeof sourceVal === 'boolean') {
+                sourceVal = sourceVal ? 1 : 0;
             }
 
             // Handle Range (Min/Max)

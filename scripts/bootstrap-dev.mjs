@@ -52,11 +52,18 @@ const main = async () => {
   console.log('[bootstrap-dev] Bringing up docker compose stack');
   await run('npm', ['run', 'dev:stack']);
 
-  console.log('[bootstrap-dev] Waiting for TimescaleDB (5432)');
-  try { await waitForPort(5432); } catch (e) { console.warn('[bootstrap-dev] DB wait warning:', e.message); }
+  console.log('[bootstrap-dev] Waiting for QuestDB PG Port (8812)');
+  try { await waitForPort(8812); } catch (e) { console.warn('[bootstrap-dev] DB wait warning:', e.message); }
 
-  console.log('[bootstrap-dev] Applying migrations');
-  await run('npm', ['run', 'db:migrate']);
+  console.log('[bootstrap-dev] Initializing QuestDB tables');
+  try { await run('npm', ['run', 'db:create-questdb']); } catch (e) { console.warn('[bootstrap-dev] QuestDB init warning:', e.message); }
+
+  console.log('[bootstrap-dev] Applying PostgreSQL migrations (optional for QuestDB mode)');
+  try {
+    await run('npm', ['run', 'db:migrate']);
+  } catch (e) {
+    console.warn('[bootstrap-dev] PostgreSQL migration warning (non-fatal):', e.message);
+  }
 
   console.log('[bootstrap-dev] Seeding development data');
   try { await run('npm', ['run', 'db:seed']); } catch (e) { console.warn('[bootstrap-dev] Seed warning:', e.message); }

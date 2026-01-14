@@ -1,0 +1,287 @@
+﻿===================================================================
+DEEP DEBUG: Pre-Breakout Screener Pipeline Analysis
+===================================================================
+
+STEP 1: Fetching API data...
+Got 96 bubbles from API
+   Timestamp: 2026-01-14T13:16:11.445Z
+
+-------------------------------------------------------------------
+STEP 2: Checking lead_metrics presence...
+   Bubbles with lead_metrics: 96
+   Bubbles without lead_metrics: 0
+
+-------------------------------------------------------------------
+STEP 3: Analyzing lead_metrics values...
+
+   CONDITION RESULTS:
+   - Tightness < 0.015: 89/96 pass
+   - Vol Pulse > 3: 66/96 pass
+   - Proximity < 0.03: 79/96 pass
+   - ALL CONDITIONS: 48/96 pass
+
+   TOP 10 BY TIGHTNESS (lowest is best, need < 0.015):
+   1. ANL: 0.000% PASS
+   2. LIVEN: 0.000% PASS
+   3. NATF: 0.000% PASS
+   4. ZAL: 0.000% PASS
+   5. UCAPM: 0.000% PASS
+   6. GGL: 0.000% PASS
+   7. CRTM: 0.000% PASS
+   8. TRSM: 0.000% PASS
+   9. IMAGE: 0.000% PASS
+   10. FECTC: 0.000% PASS
+
+   TOP 10 BY VOLUME PULSE (highest is best, need > 3.0x):
+   1. SGPL: 15.90x PASS
+   2. ZAL: 15.86x PASS
+   3. ASL: 15.86x PASS
+   4. PIOC: 15.56x PASS
+   5. WAVES: 15.53x PASS
+   6. ISL: 15.39x PASS
+   7. NETSOL: 15.23x PASS
+   8. CHCC: 15.01x PASS
+   9. ITTEFAQ: 14.98x PASS
+   10. BIFO: 14.86x PASS
+
+   TOP 10 BY PROXIMITY (lowest is best, need < 0.030):
+   1. LIVEN: 0.00% from high PASS
+   2. ZAL: 0.00% from high PASS
+   3. GGL: 0.00% from high PASS
+   4. TRSM: 0.00% from high PASS
+   5. FECTC: 0.00% from high PASS
+   6. JVDC: 0.00% from high PASS
+   7. GWLC: 0.00% from high PASS
+   8. EMCO: 0.00% from high PASS
+   9. CPHL: 0.06% from high PASS
+   10. BFAGRO: 0.23% from high PASS
+
+-------------------------------------------------------------------
+STEP 4: Finding ALMOST passing candidates (2 out of 3 conditions)...
+   Found 42 stocks passing 2/3 conditions:
+   - ANL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.56% PASS
+   - LIVEN:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.00% PASS
+   - BIFO:
+     Tightness: 0.803% PASS
+     Vol Pulse: 14.86x PASS
+     Proximity: 5.00% FAIL
+   - ITTEFAQ:
+     Tightness: 0.875% PASS
+     Vol Pulse: 14.98x PASS
+     Proximity: 4.10% FAIL
+   - NATF:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.36% PASS
+   - UCAPM:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 1.66% PASS
+   - GGL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.00% PASS
+   - ISL:
+     Tightness: 0.328% PASS
+     Vol Pulse: 15.39x PASS
+     Proximity: 3.90% FAIL
+   - TRSM:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.00% PASS
+   - OBOY:
+     Tightness: 7.746% FAIL
+     Vol Pulse: 10.08x PASS
+     Proximity: 1.39% PASS
+   - IMAGE:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 1.17% PASS
+   - FECTC:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.00% PASS
+   - SLGL:
+     Tightness: 0.905% PASS
+     Vol Pulse: 13.21x PASS
+     Proximity: 4.28% FAIL
+   - QUICE:
+     Tightness: 4.179% FAIL
+     Vol Pulse: 13.47x PASS
+     Proximity: 2.33% PASS
+   - JVDC:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.00% PASS
+   - TELE:
+     Tightness: 1.084% PASS
+     Vol Pulse: 11.90x PASS
+     Proximity: 4.16% FAIL
+   - FCL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.97% PASS
+   - DCL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.38% PASS
+   - IBLHL:
+     Tightness: 0.774% PASS
+     Vol Pulse: 14.02x PASS
+     Proximity: 3.13% FAIL
+   - CEPB:
+     Tightness: 3.378% FAIL
+     Vol Pulse: 14.09x PASS
+     Proximity: 0.53% PASS
+   - GATM:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.93% PASS
+   - MACFL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 1.17% PASS
+   - PIBTL:
+     Tightness: 0.402% PASS
+     Vol Pulse: 11.90x PASS
+     Proximity: 5.56% FAIL
+   - KSBP:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 1.17% PASS
+   - BFAGRO:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.23% PASS
+   - WASL:
+     Tightness: 0.578% PASS
+     Vol Pulse: 14.80x PASS
+     Proximity: 3.22% FAIL
+   - TGL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 2.26% PASS
+   - BFMOD:
+     Tightness: 0.000% PASS
+     Vol Pulse: 14.74x PASS
+     Proximity: 5.03% FAIL
+   - GHGL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 2.63% PASS
+   - GGGL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 1.35% PASS
+   - GWLC:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.00% PASS
+   - EPCL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.81% PASS
+   - POWER:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.85% PASS
+   - GHNI:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.37% PASS
+   - EMCO:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.00% PASS
+   - OCTOPUS:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.58% PASS
+   - BNL:
+     Tightness: 0.893% PASS
+     Vol Pulse: 10.41x PASS
+     Proximity: 3.61% FAIL
+   - DOL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 1.99% PASS
+   - CPHL:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 0.06% PASS
+   - LOTCHEM:
+     Tightness: 1.572% FAIL
+     Vol Pulse: 11.46x PASS
+     Proximity: 2.48% PASS
+   - YOUW:
+     Tightness: 0.000% PASS
+     Vol Pulse: 0.00x FAIL
+     Proximity: 2.57% PASS
+   - TREET:
+     Tightness: 0.995% PASS
+     Vol Pulse: 11.32x PASS
+     Proximity: 3.30% FAIL
+
+-------------------------------------------------------------------
+STEP 5: Checking pre_breakout_signal field in API response...
+   pre_breakout_signal = true: 48
+   pre_breakout_signal = false: 48
+   pre_breakout_signal = undefined/null: 0
+
+-------------------------------------------------------------------
+STEP 6: Checking Breakout Active conditions...
+   squeeze_on === false: 0/96
+   bb_width > kc_width: 0/96
+   RVOL >= 1.5: 38/96
+   price > orb_high_5m: 8/96
+   price > open: 41/96
+   ALL BREAKOUT CONDITIONS: 0/96
+
+-------------------------------------------------------------------
+STEP 7: Sample full bubble data (first 3 with metrics)...
+
+   [1] SYM:
+   - price: 13.84
+   - open: 13.5
+   - rvol: 0.048739420850557554
+   - squeeze_on: undefined
+   - bb_width: undefined
+   - kc_width: undefined
+   - orb_high_5m: 13.99
+   - pre_breakout_signal: true
+   - breakout_signal: false
+   - lead_metrics: {"tightness":0.0071428571428571175,"vol_pulse":14.393021565301671,"proximity":0.012693935119887145,"wick_ratio":0,"session_high":14.18}
+
+   [2] SYS:
+   - price: 162.98
+   - open: 161.06
+   - rvol: 8.018669799721973
+   - squeeze_on: undefined
+   - bb_width: undefined
+   - kc_width: undefined
+   - orb_high_5m: 163.49
+   - pre_breakout_signal: true
+   - breakout_signal: false
+   - lead_metrics: {"tightness":0.0028573203304551806,"vol_pulse":10.281299704612588,"proximity":0.017934484231074223,"wick_ratio":1,"session_high":163.93}
+
+   [3] ANL:
+   - price: 12.2
+   - open: 12.09
+   - rvol: 1.5627012569800658
+   - squeeze_on: undefined
+   - bb_width: undefined
+   - kc_width: undefined
+   - orb_high_5m: 12.44
+   - pre_breakout_signal: false
+   - breakout_signal: false
+   - lead_metrics: {"tightness":0,"vol_pulse":0,"proximity":0.0056270096463022735,"wick_ratio":0,"session_high":12.44}
+
+===================================================================
+DEBUG COMPLETE
+===================================================================

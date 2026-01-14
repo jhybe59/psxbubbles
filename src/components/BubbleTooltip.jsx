@@ -331,6 +331,7 @@ export default function BubbleTooltip({
     kc_width,
     vol_atr,
     // NEW: Backend alerts
+    lead_metrics,
     alerts = []
 }) {
     // DEBUG: Trace alerts data
@@ -392,16 +393,31 @@ export default function BubbleTooltip({
                                 <div key={i} className={`bt-log-item ${log.type}`}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', fontSize: '11px', whiteSpace: 'nowrap' }}>
                                         {log.time && <span style={{ color: '#64748b', fontWeight: 600, fontSize: '10px', minWidth: '32px' }}>[{log.time}]</span>}
-                                        <span className={`bt-log-cat ${log.category === 'D' ? 'session' : 'interval'}`}>
-                                            {log.category === 'D' ? 'D' : 'I'}
+                                        <span className={`bt-log-cat ${log.category === 'D' || log.type === 'PRE_BREAKOUT' || log.type === 'BREAKOUT' ? 'session' : 'interval'}`}>
+                                            {log.category === 'D' || log.type === 'PRE_BREAKOUT' || log.type === 'BREAKOUT' ? 'D' : 'I'}
                                         </span>
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.text}</span>
+                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{log.text || log.message}</span>
+
+                                        {/* Show Pulse/RVOL for backend alerts */}
+                                        {log.rvol && (
+                                            <span className="bt-int-detail" style={{ background: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24' }}>
+                                                {Number(log.rvol).toFixed(1)}x
+                                            </span>
+                                        )}
+
+                                        {/* Show Proximity for PRE_BREAKOUT */}
+                                        {log.proximity && (
+                                            <span className="bt-int-detail" style={{ background: 'rgba(96, 165, 250, 0.15)', color: '#60a5fa' }}>
+                                                {log.proximity}
+                                            </span>
+                                        )}
+
                                         {log.category === 'I' && (
                                             <span style={{ fontSize: '12px' }}>
-                                                {log.text.includes('Uptrend') && '📈'}
-                                                {log.text.includes('Downtrend') && '📉'}
-                                                {log.text.includes('Bounce') && '↗️'}
-                                                {log.text.includes('Pullback') && '↘️'}
+                                                {log.text?.includes('Uptrend') && '📈'}
+                                                {log.text?.includes('Downtrend') && '📉'}
+                                                {log.text?.includes('Bounce') && '↗️'}
+                                                {log.text?.includes('Pullback') && '↘️'}
                                             </span>
                                         )}
                                     </div>
@@ -585,6 +601,40 @@ export default function BubbleTooltip({
                                     <span className="bt-stat-value">{Number(bb_width).toFixed(4)}</span>
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    <div className="bt-sidebar-separator"></div>
+
+                    {/* Pre-Breakout Meters (Live 1m Engine) */}
+                    {lead_metrics && (
+                        <div className="bt-sidebar-section">
+                            <div className="bt-sidebar-header">⚡ Live Engine</div>
+
+                            <div className="bt-stat-row">
+                                <span className="bt-stat-label">Pulse</span>
+                                <span className="bt-stat-value" style={{
+                                    color: lead_metrics.vol_pulse > 5 ? '#facc15' : '#e2e8f0',
+                                    fontWeight: lead_metrics.vol_pulse > 5 ? 'bold' : 'normal'
+                                }}>
+                                    {Number(lead_metrics.vol_pulse).toFixed(1)}x
+                                    {lead_metrics.vol_pulse > 50 && ' 🔥'}
+                                </span>
+                            </div>
+                            <div className="bt-stat-row">
+                                <span className="bt-stat-label">Tightness</span>
+                                <span className="bt-stat-value" style={{
+                                    color: lead_metrics.tightness < 0.05 ? '#10b981' : '#e2e8f0'
+                                }}>
+                                    {(lead_metrics.tightness * 100).toFixed(1)}%
+                                </span>
+                            </div>
+                            <div className="bt-stat-row">
+                                <span className="bt-stat-label">Proximity</span>
+                                <span className="bt-stat-value">
+                                    {(lead_metrics.proximity * 100).toFixed(1)}%
+                                </span>
+                            </div>
                         </div>
                     )}
                 </div>

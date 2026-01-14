@@ -47,11 +47,11 @@ export const volatilityService = {
             // but we can unify strategy.
             return this.getBatchTickSqueeze(symbols, Number(interval), length, multBB, multKC);
         } else if (VALID_INTERVALS.includes(interval)) {
-            sampleBy = `SAMPLE BY ${interval}`;
+            sampleBy = `SAMPLE BY ${interval} ALIGN TO CALENDAR`;
         } else {
             // Default fallback
             tableName = 'trades'; // Assuming raw 1m data needs sampling
-            sampleBy = `SAMPLE BY 1h`; // Default to 1h if unknown
+            sampleBy = `SAMPLE BY 1h ALIGN TO CALENDAR`; // Default to 1h if unknown
         }
 
         const symbolFilter = `symbol IN (${symbols.map(s => `'${s}'`).join(',')})`;
@@ -232,6 +232,139 @@ export const volatilityService = {
             return squeezeMap;
         } catch (err) {
             console.error('[volatilityService] Error calculating tick squeeze:', err);
+            return new Map();
+        }
+    },
+
+    /**
+     * High-precision Lead Indicator Detection (Zero-Fakeout Logic)
+     * Calculates tightness, volume pulse, and proximity using 1m bars.
+     */
+    async getLeadIndicatorMetrics(symbols, dayStart) {
+        if (!symbols || symbols.length === 0) return new Map();
+
+        const symbolFilter = `symbol IN (${symbols.map(s => `'${s}'`).join(',')})`;
+
+        // We use a CTE to get the latest 15 minutes of 1m bars for each symbol
+        // and calculate the required "Golden Formula" metrics.
+        const sql = `
+            WITH 
+            price_bars AS (
+                SELECT 
+                    symbol,
+                    timestamp,
+                    first(price) as open,
+                    max(price) as high,
+                    min(price) as low,
+                    last(price) as close
+                FROM trades
+                WHERE ${symbolFilter} AND timestamp >= '${dayStart}'
+                SAMPLE BY 1m FILL(PREV) ALIGN TO CALENDAR
+            ),
+            vol_bars AS (
+                SELECT
+                    symbol,
+                    timestamp,
+                    sum(volume) as volume
+                FROM trades
+                WHERE ${symbolFilter} AND timestamp >= '${dayStart}'
+                SAMPLE BY 1m FILL(0) ALIGN TO CALENDAR
+            ),
+            m1_bars AS (
+                SELECT 
+                    p.symbol,
+                    p.timestamp,
+                    p.open,
+                    p.high,
+                    p.low,
+                    p.close,
+                    v.volume
+                FROM price_bars p
+                JOIN vol_bars v ON p.symbol = v.symbol AND p.timestamp = v.timestamp
+            ),
+            session_stats AS (
+                SELECT 
+                    symbol,
+                    max(high) as session_high
+                FROM m1_bars
+                GROUP BY symbol
+            ),
+            window_stats AS (
+                SELECT 
+                    m.symbol,
+                    m.timestamp,
+                    m.close,
+                    m.high,
+                    m.low,
+                    m.volume,
+                    s.session_high,
+                    -- Tightness: Range of last 15 minutes
+                    max(m.high) OVER (PARTITION BY m.symbol ORDER BY m.timestamp ROWS BETWEEN 15 PRECEDING AND CURRENT ROW) as w_high,
+                    min(m.low) OVER (PARTITION BY m.symbol ORDER BY m.timestamp ROWS BETWEEN 15 PRECEDING AND CURRENT ROW) as w_low,
+                    -- Volume Pulse: Current 1m volume vs avg of last 15m
+                    avg(m.volume) OVER (PARTITION BY m.symbol ORDER BY m.timestamp ROWS BETWEEN 15 PRECEDING AND CURRENT ROW) as w_avg_vol
+                FROM m1_bars m
+                JOIN session_stats s ON m.symbol = s.symbol
+            ),
+            derived_metrics AS (
+                SELECT
+                    *,
+                    CASE 
+                        WHEN w_avg_vol = 0 AND volume > 0 THEN 100.0
+                        WHEN w_avg_vol = 0 AND volume = 0 THEN 0.0
+                        ELSE (volume / w_avg_vol)
+                    END as raw_pulse
+                FROM window_stats
+            ),
+            smoothed_metrics AS (
+                SELECT
+                    *,
+                    -- Look back 5 minutes for the strongest pulse signal
+                    -- This ensures the signal persists even if subsequent minutes are quiet (illiquid/zombie stocks)
+                    max(raw_pulse) OVER (PARTITION BY symbol ORDER BY timestamp ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) as calc_pulse
+                FROM derived_metrics
+            ),
+            -- ROBUST: Pick the candle with the HIGHEST Volume Pulse (smoothed) in the last 15 mins (window).
+            ranked_pulse AS (
+                SELECT 
+                    *,
+                    row_number() OVER (PARTITION BY symbol ORDER BY calc_pulse DESC) as rn
+                FROM smoothed_metrics
+                -- Filter only recent bars (e.g., last 20 rows relative to the dataset end is implicit via the CTE window, 
+                -- but we want to ensure we don't pick very old data if we have a large window)
+                -- Since m1_bars is already scoped to 'dayStart', we just take the top pulse from the set.
+                -- However, for performance, we should limit to recent time if possible, but m1_bars is already sampled.
+            )
+            SELECT 
+                symbol,
+                close,
+                session_high,
+                (w_high - w_low) / NULLIF(close, 0) as tightness,
+                calc_pulse as vol_pulse,
+                (session_high - close) / NULLIF(session_high, 0) as proximity,
+                (high - close) / NULLIF(high - low, 0) as wick_ratio
+            FROM ranked_pulse
+            WHERE rn = 1
+        `;
+
+        try {
+            const rawResults = await queryQuestDB(sql);
+            const results = mapQuestDBResults(rawResults);
+            const metricsMap = new Map();
+
+            results.forEach(row => {
+                metricsMap.set(row.symbol, {
+                    tightness: Number(row.tightness || 0),
+                    vol_pulse: Number(row.vol_pulse || 0),
+                    proximity: Number(row.proximity || 0),
+                    wick_ratio: Number(row.wick_ratio || 0),
+                    session_high: Number(row.session_high || 0)
+                });
+            });
+
+            return metricsMap;
+        } catch (err) {
+            console.error('[volatilityService] Error calculating lead indicators:', err.message);
             return new Map();
         }
     }
