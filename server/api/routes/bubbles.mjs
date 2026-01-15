@@ -629,14 +629,11 @@ router.get('/', async (req, res) => {
     // ZERO-FAKEOUT LEAD INDICATOR & BREAKOUT DETECTION
     // ═══════════════════════════════════════════════════════════════════
     try {
-      // Compute today's market open (09:00 PKT = 04:00 UTC) as ISO string for QuestDB
-      const now = new Date();
-      const dayStartDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 4, 0, 0, 0));
-      const dayStartIso = dayStartDate.toISOString();
-
+      // Use the data-driven dayStart (calculated from latestTs) instead of system time
+      // This ensures correct behavior during pre-market hours when system date > data date
       const leadMetrics = await volatilityService.getLeadIndicatorMetrics(
         payload.data.map(b => b.symbol),
-        dayStartIso
+        dayStart
       );
 
       for (const bubble of payload.data) {

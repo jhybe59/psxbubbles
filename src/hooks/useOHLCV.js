@@ -227,7 +227,9 @@ async function fetchLiveInterval(interval) {
           alerts: row.alerts || [],
           // Breakout detection from backend
           breakout_signal: row.breakout_signal ?? false,
-          breakout_type: row.breakout_type ?? null
+          breakout_type: row.breakout_type ?? null,
+          // Live Lead Metrics
+          lead_metrics: row.lead_metrics,
         };
       });
     } catch (err) {
@@ -314,7 +316,9 @@ async function fetchTickInterval(interval) {
         alerts: row.alerts || [],
         // Breakout detection from backend
         breakout_signal: row.breakout_signal ?? false,
-        breakout_type: row.breakout_type ?? null
+        breakout_type: row.breakout_type ?? null,
+        // Live Lead Metrics
+        lead_metrics: row.lead_metrics
       };
     });
   } catch (err) {

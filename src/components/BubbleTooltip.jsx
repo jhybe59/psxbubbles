@@ -608,49 +608,7 @@ export default function BubbleTooltip({
 
                     <div className="bt-sidebar-separator"></div>
 
-                    {/* DEBUG SECTION (Always Visible) */}
-                    <div className="bt-sidebar-section">
-                        <div style={{ fontSize: '10px', color: lead_metrics ? '#10b981' : '#ef4444', marginBottom: '4px', fontWeight: 'bold' }}>
-                            Live Engine: {lead_metrics ? 'ACTIVE' : 'MISSING'}
-                        </div>
-                        {lead_metrics && (
-                            <div style={{ fontSize: '9px', color: '#94a3b8', wordBreak: 'break-all' }}>
-                                {JSON.stringify(lead_metrics).slice(0, 40)}
-                            </div>
-                        )}
-                    </div>
 
-                    {/* Pre-Breakout Meters (Live 1m Engine) */}
-                    {lead_metrics && (
-                        <div className="bt-sidebar-section">
-                            <div className="bt-sidebar-header">⚡ Live Engine</div>
-
-                            <div className="bt-stat-row">
-                                <span className="bt-stat-label">Pulse</span>
-                                <span className="bt-stat-value" style={{
-                                    color: lead_metrics.vol_pulse > 5 ? '#facc15' : '#e2e8f0',
-                                    fontWeight: lead_metrics.vol_pulse > 5 ? 'bold' : 'normal'
-                                }}>
-                                    {Number(lead_metrics.vol_pulse).toFixed(1)}x
-                                    {lead_metrics.vol_pulse > 50 && ' 🔥'}
-                                </span>
-                            </div>
-                            <div className="bt-stat-row">
-                                <span className="bt-stat-label">Tightness</span>
-                                <span className="bt-stat-value" style={{
-                                    color: lead_metrics.tightness < 0.05 ? '#10b981' : '#e2e8f0'
-                                }}>
-                                    {(lead_metrics.tightness * 100).toFixed(1)}%
-                                </span>
-                            </div>
-                            <div className="bt-stat-row">
-                                <span className="bt-stat-label">Proximity</span>
-                                <span className="bt-stat-value">
-                                    {(lead_metrics.proximity * 100).toFixed(1)}%
-                                </span>
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 {/* Interval Alerts Panel (Right End Column) */}
@@ -686,6 +644,60 @@ export default function BubbleTooltip({
                             ));
                         })()}
                     </div>
+
+                    {/* Live Engine Section (Relocated Below Interval Alerts) */}
+                    {lead_metrics && (
+                        <>
+                            <div className="bt-sidebar-separator" style={{ margin: '8px 0' }}></div>
+
+                            <div className="bt-log-header">
+                                <span>⚡ LIVE ENGINE</span>
+                            </div>
+
+                            <div style={{ padding: '0 8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                    {/* Pulse */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '4px' }}>
+                                        <span className="bt-stat-label" style={{ marginBottom: '2px' }}>Pulse</span>
+                                        <span className="bt-stat-value" style={{
+                                            color: lead_metrics.vol_pulse > 5 ? '#facc15' : '#e2e8f0',
+                                            fontWeight: lead_metrics.vol_pulse > 5 ? 'bold' : 'normal',
+                                            fontSize: '12px'
+                                        }}>
+                                            {Number(lead_metrics.vol_pulse).toFixed(1)}x
+                                        </span>
+                                    </div>
+
+                                    {/* Tightness */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '4px' }}>
+                                        <span className="bt-stat-label" style={{ marginBottom: '2px' }}>Tightness</span>
+                                        <span className="bt-stat-value" style={{
+                                            color: lead_metrics.tightness < 0.05 ? '#10b981' : '#e2e8f0',
+                                            fontSize: '12px'
+                                        }}>
+                                            {(lead_metrics.tightness * 100).toFixed(1)}%
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Proximity Bar */}
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                        <span className="bt-stat-label">Proximity</span>
+                                        <span className="bt-stat-value" style={{ fontSize: '10px' }}>{(lead_metrics.proximity * 100).toFixed(0)}%</span>
+                                    </div>
+                                    <div style={{ width: '100%', height: '4px', background: '#334155', borderRadius: '2px', overflow: 'hidden' }}>
+                                        <div style={{
+                                            width: `${Math.min(lead_metrics.proximity * 100, 100)}%`,
+                                            height: '100%',
+                                            background: '#60a5fa',
+                                            transition: 'width 0.3s ease'
+                                        }} />
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
         </div>

@@ -13,3 +13,9 @@
     - [x] Implement "Sustained Signal" (5 min Memory)
     - [x] Verify detection rate (Improved to 61.8%)
     - [x] Restart Server to apply changes
+
+- [x] **Fix Missing Tooltip Data**
+    - [x] Debug Backend (Fix dayStart logic in bubbles.mjs)
+    - [x] Fix Tick-Interal Data (Add lead_metrics to tick-bubbles.mjs)
+    - [x] Fix Frontend Mapping (Pass lead_metrics in useOHLCV.js)
+    - [x] Polish Live Engine UI (Relocated to Interval Alerts column to fix overlay)

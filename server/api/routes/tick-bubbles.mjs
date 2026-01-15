@@ -165,6 +165,10 @@ router.get('/', async (req, res) => {
             latestTs = anchorRes.dataset[0][0];
         }
 
+        // Calculate dayStart (09:00 PKT = 04:00 UTC) for use in all services
+        const datePart = latestTs.split('T')[0];
+        const dayStart = `${datePart}T04:00:00.000000Z`;
+
         // Fetch 24h stats for all symbols
         // daily_pct comes from trades (efficient LATEST ON)
         // day_volume comes from trades (SUM from start of day) per user request
@@ -405,9 +409,7 @@ router.get('/', async (req, res) => {
         // Fetch and merge Session Alerts
         try {
             const symbolsList = bubbles.map(b => b.symbol);
-            // Calculate dayStart (09:00 PKT = 04:00 UTC)
-            const datePart = latestTs.split('T')[0];
-            const dayStart = `${datePart}T04:00:00.000000Z`;
+            // dayStart is now calculated in outer scope (line 170)
 
             // Build prevDayMap from bubbles
             const prevDayMap = new Map();
@@ -423,6 +425,59 @@ router.get('/', async (req, res) => {
             }
         } catch (alertsErr) {
             logger.warn({ alertsErr }, 'Failed to fetch session alerts for tick-bubbles');
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ZERO-FAKEOUT LEAD INDICATOR & BREAKOUT DETECTION (Ported from bubbles.mjs)
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            // Use the data-driven dayStart calculated above (line 410)
+            const leadMetrics = await volatilityService.getLeadIndicatorMetrics(
+                bubbles.map(b => b.symbol),
+                dayStart
+            );
+
+            for (const bubble of bubbles) {
+                const metrics = leadMetrics.get(bubble.symbol);
+                if (!metrics) continue;
+
+                const isStandardSqueeze = (
+                    bubble.squeeze_on === false && // Squeeze fired
+                    bubble.bb_width != null && bubble.kc_width != null &&
+                    bubble.bb_width > bubble.kc_width && // BB expands outside KC
+                    metrics.tightness < 0.05 // Was in tight consolidation
+                );
+
+                const isVolumeWakeup = (
+                    metrics.vol_pulse >= 3.0 && // Volume 3x normal
+                    bubble.rvol >= 1.5 // Confirmation from recent bars
+                );
+
+                const isInfiniteWakeup = metrics.vol_pulse >= 50.0;
+
+                // Trigger if any condition is met
+                const isLeadWarning = isStandardSqueeze || isVolumeWakeup || isInfiniteWakeup;
+
+                bubble.pre_breakout_signal = isLeadWarning ? 1 : 0;
+                bubble.lead_metrics = metrics;
+
+                if (isLeadWarning) {
+                    const leadAlert = {
+                        type: 'PRE_BREAKOUT',
+                        label: '⚡ PRE-BREAKOUT',
+                        message: `${bubble.symbol} Volume Pulse detected in Tight Range! @ ${bubble.price?.toFixed(2)}`,
+                        rvol: metrics.vol_pulse,
+                        proximity: (metrics.proximity * 100).toFixed(2) + '%',
+                        time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+                    };
+                    if (!bubble.alerts) bubble.alerts = [];
+                    if (!bubble.alerts.some(a => a.type === 'PRE_BREAKOUT')) {
+                        bubble.alerts.unshift(leadAlert);
+                    }
+                }
+            }
+        } catch (leadErr) {
+            logger.warn({ leadErr }, 'Failed to calc Lead Indicators for tick bubbles');
         }
 
         // ═══════════════════════════════════════════════════════════════════
