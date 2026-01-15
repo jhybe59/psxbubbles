@@ -606,6 +606,20 @@ export default function BubbleTooltip({
 
                     <div className="bt-sidebar-separator"></div>
 
+                    <div className="bt-sidebar-separator"></div>
+
+                    {/* DEBUG SECTION (Always Visible) */}
+                    <div className="bt-sidebar-section">
+                        <div style={{ fontSize: '10px', color: lead_metrics ? '#10b981' : '#ef4444', marginBottom: '4px', fontWeight: 'bold' }}>
+                            Live Engine: {lead_metrics ? 'ACTIVE' : 'MISSING'}
+                        </div>
+                        {lead_metrics && (
+                            <div style={{ fontSize: '9px', color: '#94a3b8', wordBreak: 'break-all' }}>
+                                {JSON.stringify(lead_metrics).slice(0, 40)}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Pre-Breakout Meters (Live 1m Engine) */}
                     {lead_metrics && (
                         <div className="bt-sidebar-section">
