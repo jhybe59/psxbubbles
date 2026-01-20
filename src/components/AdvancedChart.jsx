@@ -10,6 +10,7 @@ import ChartControls from './ChartControls';
 import SearchPopover from './SearchPopover';
 import ChartPanel from './ChartPanel';
 import { LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
+import useMarketData from '../hooks/useMarketData';
 
 // Layout configurations for split screen
 const LAYOUTS = {
@@ -551,6 +552,79 @@ export default function AdvancedChart({ data = [], symbol, onClose, onSymbolChan
             chartRef.current.daySeparator.applyOptions(chartSettings.sessionBreaks);
         }
     }, [chartSettings]);
+
+    // Track last candle time for Tick charts to update in-place
+    const lastCandleTimeRef = useRef(null);
+
+    // Update lastCandleTimeRef when data changes
+    useEffect(() => {
+        if (data && data.length > 0) {
+            const last = data[data.length - 1];
+            if (last && last.ts) {
+                lastCandleTimeRef.current = last.ts / 1000;
+            }
+        }
+    }, [data]);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // REAL-TIME CHART UPDATES
+    // ═══════════════════════════════════════════════════════════════════
+    useMarketData(useCallback((data) => {
+        if (!seriesRef.current || !data || data.symbol !== symbol) return;
+
+        // Map frontend timeframe to API interval keys
+        const intervalMap = {
+            '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', 'Day': 'Day',
+            '10 Ticks': '10t', '20 Ticks': '20t', '50 Ticks': '50t', '100 Ticks': '100t', '500 Ticks': '500t', '1000 Ticks': '1000t'
+        };
+        const intervalKey = intervalMap[timeframe] || 'Day';
+        const intervalData = data.intervals ? data.intervals[intervalKey] : null;
+
+        if (intervalData) {
+            let time;
+
+            // Time-based: Snap to grid (Locking Logic)
+            if (['1m', '5m', '15m', '1h', 'Day'].includes(intervalKey)) {
+                const ms = data.ts;
+                if (intervalKey === '1m') time = Math.floor(ms / 60000) * 60;
+                else if (intervalKey === '5m') time = Math.floor(ms / 300000) * 300;
+                else if (intervalKey === '15m') time = Math.floor(ms / 900000) * 900;
+                else if (intervalKey === '1h') time = Math.floor(ms / 3600000) * 3600;
+                else if (intervalKey === 'Day') {
+                    const date = new Date(ms);
+                    date.setUTCHours(4, 0, 0, 0);
+                    time = Math.floor(date.getTime() / 1000);
+                }
+            } else {
+                // Tick-based: Update the LAST candle (In-place update)
+                // Do not create new candles on ticks as we don't know when 100 ticks complete
+                time = lastCandleTimeRef.current || Math.floor(data.ts / 1000);
+            }
+
+            const update = {
+                time: time, // Time in seconds
+                open: intervalData.open,
+                high: intervalData.high,
+                low: intervalData.low,
+                close: intervalData.close,
+                value: intervalData.close // For Line/Area
+            };
+
+            // Lightweight Charts 'update' method handles:
+            // 1. If time exists -> Update existing bar (Live Candle Animation)
+            // 2. If time > last bar -> Add new bar (New Candle)
+            seriesRef.current.update(update);
+
+            // Update Volume
+            if (volumeSeriesRef.current) {
+                volumeSeriesRef.current.update({
+                    time: time,
+                    value: intervalData.volume,
+                    color: intervalData.close >= intervalData.open ? 'rgba(8, 153, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'
+                });
+            }
+        }
+    }, [symbol, timeframe]));
 
     // Calculate and render indicator series
     useEffect(() => {

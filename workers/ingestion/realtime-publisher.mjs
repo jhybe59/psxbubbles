@@ -27,6 +27,9 @@ const minuteBuffer = new Map(); // Map<symbol, Map<minuteKey, {open, high, low, 
 // Day session start tracking
 const sessionStart = new Map(); // Map<symbol, {open, high, low, volume, firstTs}>
 
+// Track latest tick timestamp for relative time calculations (supports replay)
+let lastTickTs = Date.now();
+
 /**
  * Initialize Redis publisher
  */
@@ -64,8 +67,8 @@ export async function initPublisher() {
 /**
  * Get today's session start (09:00 PKT = 04:00 UTC)
  */
-function getTodaySessionStart() {
-    const now = new Date();
+function getTodaySessionStart(relativeTs) {
+    const now = new Date(relativeTs || lastTickTs);
     const sessionStart = new Date(now);
     sessionStart.setUTCHours(4, 0, 0, 0);
 
@@ -113,7 +116,7 @@ function updateMinuteBuffer(symbol, tick) {
     }
 
     // Keep only last 60 minutes (cleanup old data)
-    const cutoff = Date.now() - (60 * 60 * 1000);
+    const cutoff = lastTickTs - (60 * 60 * 1000);
     for (const [key] of symbolMinutes) {
         if (key < cutoff) {
             symbolMinutes.delete(key);
@@ -125,7 +128,7 @@ function updateMinuteBuffer(symbol, tick) {
  * Update day session stats
  */
 function updateSessionStats(symbol, tick) {
-    const todayStart = getTodaySessionStart();
+    const todayStart = getTodaySessionStart(tick.ts);
 
     const stats = sessionStart.get(symbol);
 
@@ -155,7 +158,7 @@ function calculateTimeInterval(symbol, minutes) {
         return null;
     }
 
-    const cutoff = Date.now() - (minutes * 60 * 1000);
+    const cutoff = lastTickTs - (minutes * 60 * 1000);
     const bars = [];
 
     for (const [key, bar] of symbolMinutes) {
@@ -205,6 +208,11 @@ function calculateDayInterval(symbol, currentPrice) {
  * Called from websocket-manager.mjs on each tick
  */
 export async function publishTickUpdate(symbol, tick) {
+    // Update reference timestamp
+    if (tick.ts > lastTickTs) {
+        lastTickTs = tick.ts;
+    }
+
     // Always update buffers (for local calculations)
     addTickToBuffer({ symbol, price: tick.price, volume: tick.volume, ts: tick.ts });
     updateMinuteBuffer(symbol, tick);

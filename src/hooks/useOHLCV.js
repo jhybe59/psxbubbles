@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import storage from '../lib/storage';
 import { ENABLE_REPO_SNAPSHOTS, ENABLE_LIVE_API, LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
+import useMarketData from './useMarketData';
 
 // Store volume history for calculating avg_volume (10-period SMA)
 const volumeHistory = new Map(); // Map<symbol, number[]>
@@ -333,6 +334,96 @@ export default function useOHLCV() {
   const [error, setError] = useState(null);
   const [snapshotCount, setSnapshotCount] = useState(0);
   const [latestTimestamp, setLatestTimestamp] = useState(null);
+  const [currentInterval, setCurrentInterval] = useState('Day');
+  const [socketConnected, setSocketConnected] = useState(false);
+
+  // Ref for stable access to coins in callbacks
+  const coinsRef = useRef(coins);
+  const currentIntervalRef = useRef(currentInterval);
+
+  // Keep refs in sync with state
+  useEffect(() => { coinsRef.current = coins; }, [coins]);
+  useEffect(() => { currentIntervalRef.current = currentInterval; }, [currentInterval]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // REAL-TIME SOCKET.IO UPDATES
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle real-time symbol update from Socket.IO
+   * Updates ONLY the specific symbol, leaving all other bubbles untouched
+   */
+  const handleSymbolUpdate = useCallback((data) => {
+    const { symbol, intervals } = data;
+    if (!symbol || !intervals) return;
+
+    // Get interval data for current selected interval
+    const intervalKey = currentIntervalRef.current === 'Day' ? 'Day'
+      : currentIntervalRef.current === 'Hour' ? '1h'
+        : currentIntervalRef.current === '1 Min' ? '1m'
+          : currentIntervalRef.current === '5 Min' ? '5m'
+            : currentIntervalRef.current === '15 Min' ? '15m'
+              : currentIntervalRef.current.includes('Ticks')
+                ? currentIntervalRef.current.replace(' Ticks', 't').replace(' ', '')
+                : 'Day';
+
+    const intervalData = intervals[intervalKey];
+    if (!intervalData) return;
+
+    // Calculate percentage change
+    const pctChange = intervalData.pct || 0;
+
+    // Update ONLY this symbol in the coins array - SELECTIVE UPDATE
+    setCoins(prev => {
+      const idx = prev.findIndex(c =>
+        (c.symbol || c.id || '').toUpperCase() === symbol.toUpperCase()
+      );
+
+      if (idx === -1) {
+        // New symbol - but don't add during real-time (wait for full refresh)
+        // This prevents partial data issues
+        return prev;
+      }
+
+      // Existing symbol - update in place, preserving all other fields
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        price: intervalData.close || updated[idx].price,
+        open: intervalData.open || updated[idx].open,
+        high: intervalData.high || updated[idx].high,
+        low: intervalData.low || updated[idx].low,
+        volume: intervalData.volume || updated[idx].volume,
+        price_change_percentage_24h: pctChange,
+        // Enrichments from real-time data
+        rvol: data.rvol ?? updated[idx].rvol,
+        relative_volume: data.rvol ?? updated[idx].relative_volume,
+        squeeze_on: data.squeeze_on ?? updated[idx].squeeze_on,
+        bb_width: data.bb_width ?? updated[idx].bb_width,
+        kc_width: data.kc_width ?? updated[idx].kc_width,
+        orb_high_5m: data.orb_high_5m ?? updated[idx].orb_high_5m,
+        orb_low_5m: data.orb_low_5m ?? updated[idx].orb_low_5m,
+        orb_high_15m: data.orb_high_15m ?? updated[idx].orb_high_15m,
+        orb_low_15m: data.orb_low_15m ?? updated[idx].orb_low_15m,
+        breakout_signal: data.breakout_signal ?? updated[idx].breakout_signal,
+        pre_breakout_signal: data.pre_breakout_signal ?? updated[idx].pre_breakout_signal,
+        ts: data.ts || Date.now(),
+        _lastSocketUpdate: Date.now()
+      };
+      return updated;
+    });
+  }, []);
+
+  // Connect to Socket.IO for real-time updates
+  const { connected: rtConnected, lastUpdate } = useMarketData(handleSymbolUpdate);
+
+  // Track socket connection status
+  useEffect(() => {
+    setSocketConnected(rtConnected);
+    if (rtConnected) {
+      console.log('[useOHLCV] Real-time Socket.IO connected');
+    }
+  }, [rtConnected]);
 
   // Check database duration and hydrate volume history
   useEffect(() => {
@@ -450,6 +541,8 @@ export default function useOHLCV() {
   const refreshForInterval = useCallback(async (interval = 'Day') => {
     setLoading(true);
     setError(null);
+    // Update current interval so Socket.IO uses correct interval for updates
+    setCurrentInterval(interval);
     try {
       if (ENABLE_LIVE_API) {
         // Check if this is a tick-based interval
@@ -583,6 +676,9 @@ export default function useOHLCV() {
     importSnapshotsIfNeeded,
     refreshForInterval,
     snapCount: snapshotCount,
-    latestTimestamp
+    latestTimestamp,
+    // Real-time status
+    socketConnected,
+    lastSocketUpdate: lastUpdate
   };
 }

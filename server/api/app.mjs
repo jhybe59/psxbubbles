@@ -40,6 +40,12 @@ export const buildApp = () => {
     : null;
 
   const apiKeyMiddleware = (req, res, next) => {
+    // Bypass auth in development mode for local testing
+    if (config.env === 'development') {
+      next();
+      return;
+    }
+
     const provided = req.headers['x-api-key'];
     if (!config.apiKeys.primary && !config.apiKeys.secondary) {
       next();

@@ -25,7 +25,7 @@ import BreakoutToast from './components/BreakoutToast'
 import useBreakoutSocket from './hooks/useBreakoutSocket'
 
 function App() {
-  const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp } = useOHLCV();
+  const { coins, loading, error, importSnapshotsIfNeeded, refreshForInterval, snapCount, latestTimestamp, socketConnected, lastSocketUpdate } = useOHLCV();
   const [query, setQuery] = useState('')
   const [showControls, setShowControls] = useState(false)
   const chartRef = useRef(null)
@@ -34,6 +34,7 @@ function App() {
   const lastRefreshTimeRef = useRef(Date.now())
   const [refreshProgress, setRefreshProgress] = useState(0) // 0-100
   const [isProgressAnimating, setIsProgressAnimating] = useState(false) // Track if progress is animating
+  const socketConnectedRef = useRef(socketConnected);
   const [currentInterval, setCurrentInterval] = useState('Day')
   const [pillMenuOpen, setPillMenuOpen] = useState(false)
   const aggregations = null; // demo-only: no live aggregations
@@ -189,7 +190,7 @@ function App() {
   // ═══════════════════════════════════════════════════════════════════
   // REAL-TIME BREAKOUT ALERTS via Socket.IO
   // ═══════════════════════════════════════════════════════════════════
-  const { connected: socketConnected, alerts: socketAlerts, dismissAlert: dismissSocketAlert } = useBreakoutSocket(breakoutAlertsEnabled);
+  const { connected: breakoutSocketConnected, alerts: socketAlerts, dismissAlert: dismissSocketAlert } = useBreakoutSocket(breakoutAlertsEnabled);
 
   // Merge Socket.IO alerts with polling-based alerts
   useEffect(() => {
@@ -214,7 +215,7 @@ function App() {
   useEffect(() => {
     // Skip if alerts are disabled or Socket.IO is connected (prefer Socket.IO)
     if (!breakoutAlertsEnabled) return;
-    if (socketConnected) return; // Use Socket.IO instead
+    if (breakoutSocketConnected) return; // Use Socket.IO instead
     if (!coins || !coins.length) return;
 
     // Find new breakouts (not yet notified)
@@ -240,7 +241,7 @@ function App() {
       // Console log for debugging
       console.log('[POLLING BREAKOUT DETECTED]', newBreakouts.map(c => c.symbol || c.id));
     }
-  }, [coins, breakoutAlertsEnabled, socketConnected]);
+  }, [coins, breakoutAlertsEnabled, breakoutSocketConnected]);
 
   // Handler for dismissing breakout toast
   const handleBreakoutDismiss = useCallback((symbol) => {
@@ -561,7 +562,10 @@ function App() {
   useEffect(() => {
     refreshForIntervalRef.current = refreshForInterval;
     currentIntervalRef.current = currentInterval;
-  }, [refreshForInterval, currentInterval]);
+    socketConnectedRef.current = socketConnected;
+  }, [refreshForInterval, currentInterval, socketConnected]);
+
+  const LIVE_AUTO_REFRESH_MS = 300000; // 5 minutes background sync when LIVE
 
   // Function to schedule next auto-refresh
   const scheduleNextRefresh = useCallback(() => {
@@ -571,9 +575,10 @@ function App() {
       autoRefreshTimerRef.current = null;
     }
 
-    // NOTE: Progress reset yahan nahi karte - progress reset interval change aur auto-refresh pe hoti hai
+    // Determine interval: 5 mins if LIVE, AUTO_REFRESH_MS if POLLING
+    const nextInterval = socketConnectedRef.current ? LIVE_AUTO_REFRESH_MS : AUTO_REFRESH_MS;
 
-    // Set up auto-refresh after 30 seconds
+    // Set up auto-refresh
     autoRefreshTimerRef.current = setTimeout(() => {
       if (refreshForIntervalRef.current) {
         // Progress line ko sync karein before refresh
@@ -586,7 +591,7 @@ function App() {
       // Schedule the next refresh
       autoRefreshTimerRef.current = null;
       scheduleNextRefresh();
-    }, AUTO_REFRESH_MS); // Configured interval
+    }, nextInterval);
   }, []); // No dependencies - uses refs instead
 
   // Function to handle manual refresh and set up auto-refresh cycle
@@ -615,13 +620,15 @@ function App() {
 
   // Progress tracking for refresh cycle
   useEffect(() => {
-    if (!ENABLE_LIVE_API) return;
+    if (!ENABLE_LIVE_API || socketConnected) return;
 
     // Update progress every 100ms for smooth animation
     refreshProgressTimerRef.current = setInterval(() => {
       const now = Date.now();
       const elapsed = now - lastRefreshTimeRef.current;
-      const progress = Math.min((elapsed / AUTO_REFRESH_MS) * 100, 100); // Configured interval = 100%
+
+      const currentInt = socketConnectedRef.current ? LIVE_AUTO_REFRESH_MS : AUTO_REFRESH_MS;
+      const progress = Math.min((elapsed / currentInt) * 100, 100);
 
       // Auto-reset when reaching 100% (refresh happens) - direct jump, no animation
       if (progress >= 100) {
@@ -718,6 +725,41 @@ function App() {
         <div className="header-left">
           <img src="/logo.png" alt="Logo" className="logo-mark" />
           <h1>PSX BUBBLES</h1>
+          {/* Real-time Connection Status */}
+          {ENABLE_LIVE_API && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginLeft: '16px',
+              padding: '4px 10px',
+              background: socketConnected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(251, 191, 36, 0.15)',
+              borderRadius: '6px',
+              border: `1px solid ${socketConnected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(251, 191, 36, 0.3)'}`,
+            }}>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: socketConnected ? '#10b981' : '#fbbf24',
+                animation: socketConnected ? 'pulse 2s infinite' : 'none',
+                boxShadow: socketConnected ? '0 0 8px rgba(16, 185, 129, 0.6)' : 'none'
+              }} />
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: socketConnected ? '#10b981' : '#fbbf24',
+                letterSpacing: '0.5px'
+              }}>
+                {socketConnected ? 'LIVE' : 'POLLING'}
+              </span>
+              {lastSocketUpdate && (
+                <span style={{ fontSize: '10px', color: '#9ca3af', marginLeft: '4px' }}>
+                  {lastSocketUpdate.time}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="header-actions">
@@ -1220,8 +1262,8 @@ function App() {
           {/* Demo-only: removed Live, Debug, Backfill and Fetch controls */}
         </div>
       </header>
-      {/* Full Width Progress Bar - Header ke down */}
-      {ENABLE_LIVE_API && (
+      {/* Full Width Progress Bar - Header ke down. Only visible in Polling mode. */}
+      {ENABLE_LIVE_API && !socketConnected && (
         <div
           style={{
             position: 'relative',
@@ -1235,9 +1277,9 @@ function App() {
             style={{
               height: '100%',
               width: `${refreshProgress}%`,
-              backgroundColor: 'rgba(61, 220, 132, 0.8)',
+              backgroundColor: socketConnected ? 'rgba(56, 189, 248, 0.8)' : 'rgba(61, 220, 132, 0.8)', // Sky Blue for LIVE, Green for POLLING
               transition: isProgressAnimating ? 'width 0.1s linear' : 'none',
-              boxShadow: '0 0 8px rgba(61, 220, 132, 0.5)'
+              boxShadow: socketConnected ? '0 0 8px rgba(56, 189, 248, 0.5)' : '0 0 8px rgba(61, 220, 132, 0.5)'
             }}
           />
         </div>

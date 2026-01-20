@@ -55,7 +55,18 @@ export async function initSocketServer(httpServer) {
             }
         });
 
-        logger.info('Socket.IO server initialized with Redis pub/sub');
+        // Subscribe to market-data channel for real-time bubble updates
+        await redisSubscriber.subscribe('market-data', (message) => {
+            try {
+                const data = JSON.parse(message);
+                // Broadcast to all clients - selective update per symbol
+                io.emit('market-data', data);
+            } catch (err) {
+                logger.error({ err }, 'Failed to parse market-data');
+            }
+        });
+
+        logger.info('Socket.IO server initialized with Redis pub/sub (breakout-alerts + market-data)');
     } catch (err) {
         logger.warn({ err }, 'Redis not available, Socket.IO will work without pub/sub');
     }
