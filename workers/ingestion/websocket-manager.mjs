@@ -8,6 +8,7 @@ import { addTick } from './tick-buffer.mjs';
 import { initBreakoutDetector, checkBreakout } from './breakout-detector.mjs';
 import { startStatsLoader, stopStatsLoader } from './stats-loader.mjs';
 import { isMarketOpen, getTimeUntilNextOpen, getTimeUntilClose, getMarketStatus } from './market-hours.mjs';
+import { initPublisher, publishTickUpdate, closePublisher } from './realtime-publisher.mjs';
 
 const wsConnectionsGauge = new Gauge({
     name: 'ingestion_ws_connections_active',
@@ -246,6 +247,11 @@ class WebSocketConnection {
             checkBreakout(symbol, { price, volume, ts }).catch(() => {
                 // Ignore errors silently
             });
+
+            // Publish to Socket.IO via Redis (Phase 0: real-time infrastructure)
+            publishTickUpdate(symbol, { price, volume, ts }).catch(() => {
+                // Ignore errors silently - non-blocking
+            });
         } catch (err) {
             // Silently ignore errors in tick processing
         }
@@ -285,40 +291,16 @@ export class WebSocketManager {
     async start() {
         if (this.isRunning) return;
 
-        // Market Hours Check
-        const status = getMarketStatus();
-        logger.info({ status }, 'Checking market status on startup');
-
-        if (!status.isOpen) {
-            const delay = status.nextOpenDelayMs;
-            const hours = (delay / (1000 * 60 * 60)).toFixed(1);
-            logger.info({ delayMs: delay, hours }, 'Market is CLOSED. Scheduling wakeup.');
-
-            this.scheduleWakeup(delay);
-            return;
-        }
-
         this.isRunning = true;
-
-        // Schedule shutdown at market close
-        const timeUntilClose = getTimeUntilClose();
-        if (timeUntilClose > 0) {
-            logger.info({
-                timeUntilCloseMs: timeUntilClose,
-                hours: (timeUntilClose / (1000 * 60 * 60)).toFixed(1)
-            }, 'Scheduling auto-disconnect at market close');
-
-            this.shutdownTimeout = setTimeout(() => {
-                logger.info('Market closing time reached. Stopping worker...');
-                this.stop(true); // true = schedule wakeup
-            }, timeUntilClose);
-        }
 
         // Initialize QuestDB sender
         await initQuestDB();
 
         // Initialize breakout detector for real-time alerts
         await initBreakoutDetector();
+
+        // Initialize real-time publisher for Socket.IO
+        await initPublisher();
 
         // Start stats loader (fetches ORB data)
         startStatsLoader();
@@ -337,10 +319,10 @@ export class WebSocketManager {
             await new Promise(r => setTimeout(r, 500));
         }
 
-        logger.info({ totalConnections: this.connections.length }, 'WebSocket Manager started');
+        logger.info({ totalConnections: this.connections.length }, 'WebSocket Manager started (Always Connected Mode)');
     }
 
-    async stop(scheduleNext = false) {
+    async stop() {
         this.isRunning = false;
 
         // Clear timers
@@ -353,21 +335,7 @@ export class WebSocketManager {
         // Close QuestDB sender
         await closeQuestDB();
 
-        if (scheduleNext) {
-            const delay = getTimeUntilNextOpen();
-            logger.info({ delayMs: delay }, 'Worker stopped. Scheduling wakeup for next market open.');
-            this.scheduleWakeup(delay);
-        }
-    }
-
-    scheduleWakeup(delay) {
-        if (this.wakeupTimeout) clearTimeout(this.wakeupTimeout);
-
-        // Max timeout in JS is 24.8 days, so we are safe
-        this.wakeupTimeout = setTimeout(() => {
-            logger.info('Wakeup time reached. Starting worker...');
-            this.start();
-        }, delay);
+        logger.info('Worker stopped.');
     }
 }
 

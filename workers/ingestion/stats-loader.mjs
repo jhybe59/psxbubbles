@@ -15,29 +15,46 @@ let updateInterval = null;
 const MARKET_OPEN_UTC_HOUR = 4;
 const MARKET_OPEN_UTC_MINUTE = 30;
 
+let cachedFirstTick = null;
+let lastCacheDate = null;
+
 /**
  * Get ORB (Opening Range Breakout) data for all symbols
  * Uses market-wide first tick to determine relative session start
  */
 async function fetchORBData() {
     try {
-        // Standard SQL way to find today's session start (simplification)
-        // In production, we assume session starts after 4:00 AM UTC today
-        const marketOpenSql = `
-            SELECT MIN(timestamp) as first_tick
-            FROM trades
-            WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
-        `;
+        const todayStr = new Date().toISOString().split('T')[0];
 
-        const marketOpenResult = await queryQuestDB(marketOpenSql);
-
-        if (!marketOpenResult || !marketOpenResult.dataset ||
-            marketOpenResult.dataset.length === 0 || !marketOpenResult.dataset[0][0]) {
-            logger.debug('No trades today yet, skipping ORB fetch');
-            return;
+        // Reset cache if day changed
+        if (lastCacheDate !== todayStr) {
+            cachedFirstTick = null;
+            lastCacheDate = todayStr;
         }
 
-        const firstTick = marketOpenResult.dataset[0][0];
+        let firstTick = cachedFirstTick;
+
+        if (!firstTick) {
+            // Standard SQL way to find today's session start (simplification)
+            // In production, we assume session starts after 4:00 AM UTC today
+            const marketOpenSql = `
+                SELECT MIN(timestamp) as first_tick
+                FROM trades
+                WHERE timestamp >= dateadd('h', 4, date_trunc('day', now()))
+            `;
+
+            const marketOpenResult = await queryQuestDB(marketOpenSql);
+
+            if (!marketOpenResult || !marketOpenResult.dataset ||
+                marketOpenResult.dataset.length === 0 || !marketOpenResult.dataset[0][0]) {
+                logger.debug('No trades today yet, skipping ORB fetch');
+                return;
+            }
+
+            firstTick = marketOpenResult.dataset[0][0];
+            cachedFirstTick = firstTick;
+            logger.info({ firstTick }, 'Detected first tick of the session');
+        }
 
         // Fetch ORB levels (5m, 15m, 30m)
         const orbSql = `
