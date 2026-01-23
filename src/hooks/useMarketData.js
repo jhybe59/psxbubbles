@@ -9,7 +9,7 @@
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { LIVE_API_BASE_URL } from '../config';
+import { SOCKET_URL } from '../config';
 
 export default function useMarketData(onSymbolUpdate) {
     const [connected, setConnected] = useState(false);
@@ -52,22 +52,8 @@ export default function useMarketData(onSymbolUpdate) {
     }, [onSymbolUpdate]);
 
     useEffect(() => {
-        // Determine Socket.IO URL
-        // For localhost development, we need to connect directly to the API server (port 8080)
-        // because Vite's proxy doesn't properly upgrade WebSocket connections
-        const origin = typeof window !== 'undefined' ? window.location.origin : '';
-
-        let socketUrl;
-        if (LIVE_API_BASE_URL.startsWith('http')) {
-            // Production: Use configured URL, strip /api
-            socketUrl = LIVE_API_BASE_URL.replace('/api', '');
-        } else if (origin.includes('localhost:5173') || origin.includes('127.0.0.1:5173')) {
-            // Local development: Connect directly to API server
-            socketUrl = 'http://localhost:8080';
-        } else {
-            // Other environments: Use current origin
-            socketUrl = origin;
-        }
+        // Use SOCKET_URL from config - handles all environments
+        const socketUrl = SOCKET_URL;
 
         console.log('[useMarketData] Connecting to:', socketUrl);
 

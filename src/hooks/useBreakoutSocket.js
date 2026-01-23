@@ -6,7 +6,7 @@
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { LIVE_API_BASE_URL } from '../config';
+import { SOCKET_URL } from '../config';
 
 export default function useBreakoutSocket(enabled = true) {
     const [connected, setConnected] = useState(false);
@@ -34,11 +34,8 @@ export default function useBreakoutSocket(enabled = true) {
             return;
         }
 
-        // Determine Socket.IO URL
-        const origin = typeof window !== 'undefined' ? window.location.origin : '';
-        const socketUrl = LIVE_API_BASE_URL.startsWith('http')
-            ? LIVE_API_BASE_URL.replace('/api', '')
-            : origin;
+        // Use SOCKET_URL from config - handles all environments
+        const socketUrl = SOCKET_URL;
 
         console.log('[useBreakoutSocket] Connecting to:', socketUrl);
 
