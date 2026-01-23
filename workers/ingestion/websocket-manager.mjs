@@ -249,8 +249,7 @@ class WebSocketConnection {
             });
 
             // Publish to Socket.IO via Redis (Phase 0: real-time infrastructure)
-            const dailyPct = Number(tick.pch || 0) * 100;
-            publishTickUpdate(symbol, { price, volume, ts, dailyPct }).catch(() => {
+            publishTickUpdate(symbol, { price, volume, ts }).catch(() => {
                 // Ignore errors silently - non-blocking
             });
         } catch (err) {
