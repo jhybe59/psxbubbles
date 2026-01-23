@@ -16,6 +16,7 @@ import {
 import logger from './logger.mjs';
 import { config } from './config.mjs';
 import { loadAvgVolume, resetSessionCaches, calculateFilterFields } from './filter-calculator.mjs';
+import { queryQuestDB } from '../../server/api/questdb.mjs';
 
 // Redis publisher client
 let redisPublisher = null;
@@ -185,13 +186,20 @@ function calculateTimeInterval(symbol, minutes) {
 /**
  * Calculate day interval OHLCV
  */
-function calculateDayInterval(symbol, currentPrice) {
+function calculateDayInterval(symbol, currentPrice, dailyPctFromFeed = null) {
     const stats = sessionStart.get(symbol);
     if (!stats) {
         return { open: currentPrice, high: currentPrice, low: currentPrice, close: currentPrice, volume: 0, pct: 0 };
     }
 
-    const pct = stats.open !== 0 ? ((currentPrice - stats.open) / stats.open) * 100 : 0;
+    // Priority 1: Use daily % from feed (most accurate as it matches exchange)
+    let pct = 0;
+    if (dailyPctFromFeed != null) {
+        pct = dailyPctFromFeed;
+    } else {
+        // Priority 2: Calculate from Open (fallback, though strictly this is intraday change)
+        pct = stats.open !== 0 ? ((currentPrice - stats.open) / stats.open) * 100 : 0;
+    }
 
     return {
         open: stats.open,
@@ -255,11 +263,19 @@ export async function publishTickUpdate(symbol, tick) {
         data.intervals['1h'] = calculateTimeInterval(symbol, 60);
 
         // Day interval
-        data.intervals['Day'] = calculateDayInterval(symbol, tick.price);
+        // We use the dailyPct derived from the feed if available (tick.dailyPct is not passed in publishTickUpdate arguments currently)
+        // We need to ensure dailyPct is passed to publishTickUpdate.
+        // Assuming tick object here depends on caller. 
+        data.intervals['Day'] = calculateDayInterval(symbol, tick.price, tick.dailyPct);
 
         // Calculate filter fields (ORB, RVOL, etc.)
         const filterFields = calculateFilterFields(symbol, tick);
         Object.assign(data, filterFields);
+
+        // Pre-Breakout Alert Handling
+        if (filterFields.pre_breakout_signal === 1) {
+            handlePreBreakoutAlert(symbol, tick, filterFields, data);
+        }
 
         // Publish to Redis
         await redisPublisher.publish('market-data', JSON.stringify(data));
@@ -270,6 +286,79 @@ export async function publishTickUpdate(symbol, tick) {
     } catch (err) {
         logger.warn({ err, symbol }, 'Failed to publish tick update');
     }
+}
+
+// Alert deduplication cache: Map<symbol, lastAlertTimestamp>
+const lastAlertTime = new Map();
+
+/**
+ * Handle pre-breakout alert: publish to Redis and store in QuestDB
+ */
+async function handlePreBreakoutAlert(symbol, tick, filterFields, fullData) {
+    const now = Date.now();
+    const lastTime = lastAlertTime.get(symbol) || 0;
+
+    // Dedup: Only alert once every 5 minutes per symbol
+    if (now - lastTime < 5 * 60 * 1000) {
+        return;
+    }
+
+    lastAlertTime.set(symbol, now);
+
+    // 1. Publish to Redis for real-time toast
+    const alertPayload = {
+        symbol,
+        price: tick.price,
+        time: new Date(tick.ts).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+        timestamp: tick.ts,
+        rvol: filterFields.rvol,
+        proximity: filterFields.proximity,
+        tightness: filterFields.tightness
+        // trigger_reason could be derived if needed
+    };
+
+    try {
+        await redisPublisher.publish('pre-breakout-alerts', JSON.stringify(alertPayload));
+        // logger.info({ symbol }, 'Published pre-breakout alert to Redis');
+    } catch (err) {
+        logger.error({ err }, 'Failed to publish pre-breakout alert to Redis');
+    }
+
+    // 2. Store in QuestDB for history
+    // We use a fire-and-forget approach or non-blocking insert
+    storeAlertInQuestDB(symbol, tick, filterFields).catch(err => {
+        logger.warn({ err, symbol }, 'Failed to store pre-breakout alert in QuestDB');
+    });
+}
+
+/**
+ * Store alert in QuestDB
+ */
+async function storeAlertInQuestDB(symbol, tick, filterFields) {
+    // Determine trigger reason based on metrics (approximate logic matching filter-calculator)
+    let reason = 'squeeze';
+    if (filterFields.vol_pulse >= 20) reason = 'infinite';
+    else if (filterFields.vol_pulse > 3 && filterFields.proximity < 0.15) reason = 'volume_wakeup';
+    else if (filterFields.proximity < 0.015) reason = 'price_action';
+
+    // Construct SQL INSERT
+    // timestamp in format: '2023-10-25T12:00:00.000000Z'
+    const tsIso = new Date(tick.ts).toISOString();
+
+    const sql = `
+        INSERT INTO pre_breakout_alerts (timestamp, symbol, price, rvol, proximity, tightness, trigger_reason)
+        VALUES (
+            '${tsIso}',
+            '${symbol}',
+            ${tick.price},
+            ${filterFields.rvol || 0},
+            ${filterFields.proximity || 0},
+            ${filterFields.tightness || 0},
+            '${reason}'
+        )
+    `;
+
+    await queryQuestDB(sql);
 }
 
 /**

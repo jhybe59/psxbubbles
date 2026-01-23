@@ -348,7 +348,9 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
       }) || inferredMaxMc || 1;
     }
 
-    const localRadiusScale = d3.scaleSqrt().domain([0, Math.max(1, sizeMax)]).range([16, 140]);
+    const localRadiusScale = d3.scaleSqrt()
+      .domain([0, sizeMetric === 'Performance' ? Math.min(Math.max(1, sizeMax), 30) : Math.max(1, sizeMax)])
+      .range([16, 140]);
 
     // localMaxPct: used for color interpolation and magnitude-based visuals (based on percent change)
     const localMaxPct = d3.max(used, (d) => {
@@ -1014,8 +1016,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         squeezeRing.transition().duration(600).style('opacity', 0).remove();
       }
 
-      // 🟡 NEW: PRE-BREAKOUT WARNING (Golden Pulsing Ring)
-      const isPreBreakout = d.data && d.data.pre_breakout_signal === true;
+      // 🔵 PRE-BREAKOUT WARNING (Cyan Pulsing Ring)
+      const isPreBreakout = d.data && (d.data.pre_breakout_signal === 1 || d.data.pre_breakout_signal === true);
       let preBORing = n.select('.pre-bo-ring');
       if (isPreBreakout) {
         if (preBORing.empty()) {
@@ -1023,11 +1025,11 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
             .attr('class', 'pre-bo-ring')
             .attr('r', d.r + 5)
             .attr('fill', 'none')
-            .attr('stroke', '#fbbf24') // Golden Amber
+            .attr('stroke', '#06b6d4') // Cyan
             .attr('stroke-width', 3)
             .attr('stroke-dasharray', '8,4')
             .style('opacity', 0)
-            .style('filter', 'drop-shadow(0 0 4px rgba(251, 191, 36, 0.6))');
+            .style('filter', 'drop-shadow(0 0 4px rgba(6, 182, 212, 0.6))');
 
           // Add pulse animation
           function animatePreBO() {
@@ -1047,8 +1049,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
         preBORing.interrupt().transition().duration(400).style('opacity', 0).remove();
       }
 
-      // 🚀 NEW: BREAKOUT SIGNAL (Vibrant Green Glow)
-      const isBreakout = d.data && d.data.breakout_signal === true;
+      // 🚀 BREAKOUT SIGNAL (Vibrant Green Glow)
+      const isBreakout = d.data && (d.data.breakout_signal === 1 || d.data.breakout_signal === true);
       let boRing = n.select('.bo-ring');
       if (isBreakout) {
         if (boRing.empty()) {
@@ -1153,8 +1155,8 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           .attr('r', clipRadius);
 
         // Add Status Badge (Rocket/Warning) if applicable
-        const isBreakout = d.data && d.data.breakout_signal === true;
-        const isPreBreakout = d.data && d.data.pre_breakout_signal === true;
+        const isBreakout = d.data && (d.data.breakout_signal === 1 || d.data.breakout_signal === true);
+        const isPreBreakout = d.data && (d.data.pre_breakout_signal === 1 || d.data.pre_breakout_signal === true);
 
         if (isBreakout || isPreBreakout) {
           let statusBadge = ln.select('.status-badge');

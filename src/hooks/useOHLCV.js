@@ -407,6 +407,7 @@ export default function useOHLCV() {
         orb_low_15m: data.orb_low_15m ?? updated[idx].orb_low_15m,
         breakout_signal: data.breakout_signal ?? updated[idx].breakout_signal,
         pre_breakout_signal: data.pre_breakout_signal ?? updated[idx].pre_breakout_signal,
+        daily_change_1d: (intervals['Day'] && intervals['Day'].pct != null) ? intervals['Day'].pct : updated[idx].daily_change_1d,
         ts: data.ts || Date.now(),
         _lastSocketUpdate: Date.now()
       };
