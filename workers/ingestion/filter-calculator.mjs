@@ -91,17 +91,19 @@ export async function loadPrevCloses() {
         const sessionStart = new Date(now);
         sessionStart.setUTCHours(4, 0, 0, 0);
         if (now < sessionStart) sessionStart.setDate(sessionStart.getDate() - 1);
-        
+
         const anchor = sessionStart.toISOString();
 
         // Get last price before today's open
         const sql = `
             SELECT symbol, last(price) as prev_close
-            FROM trades
-            WHERE timestamp < '${anchor}'
-              AND timestamp >= dateadd('d', -7, '${anchor}')
-            SAMPLE BY 1m ALIGN TO CALENDAR
-            LATEST ON timestamp PARTITION BY symbol
+            FROM (
+                SELECT symbol, price, timestamp
+                FROM trades
+                WHERE timestamp < '${anchor}'
+                  AND timestamp >= dateadd('d', -7, '${anchor}')
+                SAMPLE BY 1m ALIGN TO CALENDAR
+            ) LATEST ON timestamp PARTITION BY symbol
         `;
 
         const result = await queryQuestDB(sql);
@@ -111,7 +113,10 @@ export async function loadPrevCloses() {
         result.columns.forEach((col, idx) => colIndex[col.name] = idx);
 
         for (const row of result.dataset) {
-            const symbol = row[colIndex['symbol']];
+            const sym = row[colIndex['symbol']];
+            if (!sym) continue;
+
+            const symbol = sym.toUpperCase();
             const prevClose = parseFloat(row[colIndex['prev_close']]) || 0;
             if (prevClose > 0) {
                 prevCloseCache.set(symbol, prevClose);
@@ -440,8 +445,8 @@ export function calculateFilterFields(symbol, tick) {
         pre_breakout_signal: preBreakoutData.pre_breakout_signal,
         proximity: preBreakoutData.proximity,
 
-        // Prev Close
-        prev_close: prevCloseCache.get(symbol) || null
+        // Prev Close (ensure uppercase lookup)
+        prev_close: prevCloseCache.get(symbol.toUpperCase()) || null
     };
 }
 

@@ -395,6 +395,8 @@ export default function useOHLCV() {
         low: intervalData.low || updated[idx].low,
         volume: intervalData.volume || updated[idx].volume,
         price_change_percentage_24h: pctChange,
+        // Keep daily change in sync if we are in Day mode for consistent tooltips
+        daily_change_1d: currentIntervalRef.current === 'Day' ? pctChange : (updated[idx].daily_change_1d || pctChange),
         // Enrichments from real-time data
         rvol: data.rvol ?? updated[idx].rvol,
         relative_volume: data.rvol ?? updated[idx].relative_volume,

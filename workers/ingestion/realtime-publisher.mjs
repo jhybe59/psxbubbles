@@ -199,11 +199,11 @@ function calculateDayInterval(symbol, currentPrice, prevClose = null) {
     }
 
     return {
-        open: stats.open,
-        high: Math.max(stats.high, currentPrice),
-        low: Math.min(stats.low, currentPrice),
+        open: baseline,
+        high: Math.max(stats ? stats.high : currentPrice, currentPrice),
+        low: Math.min(stats ? stats.low : currentPrice, currentPrice),
         close: currentPrice,
-        volume: stats.volume,
+        volume: stats ? stats.volume : 0,
         pct
     };
 }
