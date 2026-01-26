@@ -235,6 +235,7 @@ class WebSocketConnection {
             if (!symbol || isNaN(price)) return;
 
             // Add to tick buffer for interval tracking
+            const dailyPct = tick.pch != null ? Number(tick.pch) * 100 : null;
             const completed = addTick({ symbol, price, volume, ts });
 
             // Log when any interval completes (for debugging)
@@ -249,7 +250,7 @@ class WebSocketConnection {
             });
 
             // Publish to Socket.IO via Redis (Phase 0: real-time infrastructure)
-            publishTickUpdate(symbol, { price, volume, ts }).catch(() => {
+            publishTickUpdate(symbol, { price, volume, ts, dailyPct }).catch(() => {
                 // Ignore errors silently - non-blocking
             });
         } catch (err) {

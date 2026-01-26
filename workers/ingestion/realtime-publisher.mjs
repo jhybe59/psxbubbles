@@ -186,12 +186,23 @@ function calculateTimeInterval(symbol, minutes) {
 /**
  * Calculate day interval OHLCV
  */
-function calculateDayInterval(symbol, currentPrice, prevClose = null) {
+function calculateDayInterval(symbol, currentPrice, prevClose = null, feedPct = null) {
     const stats = sessionStart.get(symbol);
 
-    // Official PSX standard uses Prev Day Close as the denominator for % change
-    const baseline = prevClose || (stats ? stats.open : currentPrice);
+    // PRIORITY 1: Feed-provided percentage (most authoritative)
+    if (feedPct != null && Number.isFinite(feedPct)) {
+        return {
+            open: prevClose || (stats ? stats.open : currentPrice),
+            high: Math.max(stats ? stats.high : currentPrice, currentPrice),
+            low: Math.min(stats ? stats.low : currentPrice, currentPrice),
+            close: currentPrice,
+            volume: stats ? stats.volume : 0,
+            pct: feedPct
+        };
+    }
 
+    // PRIORITY 2: PSX standard using Previous Day Close
+    const baseline = prevClose || (stats ? stats.open : currentPrice);
     const pct = baseline !== 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
 
     if (!stats) {
@@ -200,10 +211,10 @@ function calculateDayInterval(symbol, currentPrice, prevClose = null) {
 
     return {
         open: baseline,
-        high: Math.max(stats ? stats.high : currentPrice, currentPrice),
-        low: Math.min(stats ? stats.low : currentPrice, currentPrice),
+        high: Math.max(stats.high, currentPrice),
+        low: Math.min(stats.low, currentPrice),
         close: currentPrice,
-        volume: stats ? stats.volume : 0,
+        volume: stats.volume,
         pct
     };
 }
@@ -263,8 +274,8 @@ export async function publishTickUpdate(symbol, tick) {
         const filterFields = calculateFilterFields(symbol, tick);
         Object.assign(data, filterFields);
 
-        // Day interval (uses prev_close from filterFields for accuracy)
-        data.intervals['Day'] = calculateDayInterval(symbol, tick.price, filterFields.prev_close);
+        // Day interval (uses prev_close from filterFields for accuracy, and feed-level dailyPct if available)
+        data.intervals['Day'] = calculateDayInterval(symbol, tick.price, filterFields.prev_close, tick.dailyPct);
 
         // Publish to Redis
         await redisPublisher.publish('market-data', JSON.stringify(data));
