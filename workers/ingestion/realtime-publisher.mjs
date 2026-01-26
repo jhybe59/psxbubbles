@@ -15,7 +15,7 @@ import {
 } from './tick-buffer.mjs';
 import logger from './logger.mjs';
 import { config } from './config.mjs';
-import { loadAvgVolume, resetSessionCaches, calculateFilterFields } from './filter-calculator.mjs';
+import { loadAvgVolume, loadPrevCloses, resetSessionCaches, calculateFilterFields } from './filter-calculator.mjs';
 
 // Redis publisher client
 let redisPublisher = null;
@@ -56,6 +56,7 @@ export async function initPublisher() {
         // Load filter caches at session start
         resetSessionCaches();
         await loadAvgVolume();
+        await loadPrevCloses();
 
         return true;
     } catch (err) {
@@ -185,13 +186,17 @@ function calculateTimeInterval(symbol, minutes) {
 /**
  * Calculate day interval OHLCV
  */
-function calculateDayInterval(symbol, currentPrice) {
+function calculateDayInterval(symbol, currentPrice, prevClose = null) {
     const stats = sessionStart.get(symbol);
-    if (!stats) {
-        return { open: currentPrice, high: currentPrice, low: currentPrice, close: currentPrice, volume: 0, pct: 0 };
-    }
 
-    const pct = stats.open !== 0 ? ((currentPrice - stats.open) / stats.open) * 100 : 0;
+    // Official PSX standard uses Prev Day Close as the denominator for % change
+    const baseline = prevClose || (stats ? stats.open : currentPrice);
+
+    const pct = baseline !== 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
+
+    if (!stats) {
+        return { open: baseline, high: currentPrice, low: currentPrice, close: currentPrice, volume: 0, pct };
+    }
 
     return {
         open: stats.open,
@@ -254,12 +259,12 @@ export async function publishTickUpdate(symbol, tick) {
         data.intervals['15m'] = calculateTimeInterval(symbol, 15);
         data.intervals['1h'] = calculateTimeInterval(symbol, 60);
 
-        // Day interval
-        data.intervals['Day'] = calculateDayInterval(symbol, tick.price);
-
         // Calculate filter fields (ORB, RVOL, etc.)
         const filterFields = calculateFilterFields(symbol, tick);
         Object.assign(data, filterFields);
+
+        // Day interval (uses prev_close from filterFields for accuracy)
+        data.intervals['Day'] = calculateDayInterval(symbol, tick.price, filterFields.prev_close);
 
         // Publish to Redis
         await redisPublisher.publish('market-data', JSON.stringify(data));

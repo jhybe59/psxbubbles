@@ -25,6 +25,10 @@ const avgVolumeCache = new Map();
 // Map<symbol, totalVolume>
 const sessionVolumeCache = new Map();
 
+// Previous day close cache (for accurate 'Day' percentage)
+// Map<symbol, prevClose>
+const prevCloseCache = new Map();
+
 // First tick timestamp (to determine ORB window completion)
 let firstTickTs = null;
 
@@ -77,11 +81,56 @@ export async function loadAvgVolume() {
 }
 
 /**
+ * Load previous day close for all symbols
+ * Called at session start
+ */
+export async function loadPrevCloses() {
+    try {
+        // Find today's open (04:00 UTC)
+        const now = new Date();
+        const sessionStart = new Date(now);
+        sessionStart.setUTCHours(4, 0, 0, 0);
+        if (now < sessionStart) sessionStart.setDate(sessionStart.getDate() - 1);
+        
+        const anchor = sessionStart.toISOString();
+
+        // Get last price before today's open
+        const sql = `
+            SELECT symbol, last(price) as prev_close
+            FROM trades
+            WHERE timestamp < '${anchor}'
+              AND timestamp >= dateadd('d', -7, '${anchor}')
+            SAMPLE BY 1m ALIGN TO CALENDAR
+            LATEST ON timestamp PARTITION BY symbol
+        `;
+
+        const result = await queryQuestDB(sql);
+        if (!result?.dataset) return;
+
+        const colIndex = {};
+        result.columns.forEach((col, idx) => colIndex[col.name] = idx);
+
+        for (const row of result.dataset) {
+            const symbol = row[colIndex['symbol']];
+            const prevClose = parseFloat(row[colIndex['prev_close']]) || 0;
+            if (prevClose > 0) {
+                prevCloseCache.set(symbol, prevClose);
+            }
+        }
+
+        logger.info({ count: prevCloseCache.size }, 'Loaded previous close cache');
+    } catch (err) {
+        logger.warn({ err }, 'Failed to load prev close cache');
+    }
+}
+
+/**
  * Reset caches at session start
  */
 export function resetSessionCaches() {
     sessionVolumeCache.clear();
     orbCache.clear();
+    prevCloseCache.clear();
     minuteBarsCache.clear();
     sessionHighCache.clear();
     firstTickTs = null;
@@ -389,12 +438,16 @@ export function calculateFilterFields(symbol, tick) {
 
         // Pre-breakout
         pre_breakout_signal: preBreakoutData.pre_breakout_signal,
-        proximity: preBreakoutData.proximity
+        proximity: preBreakoutData.proximity,
+
+        // Prev Close
+        prev_close: prevCloseCache.get(symbol) || null
     };
 }
 
 export default {
     loadAvgVolume,
+    loadPrevCloses,
     resetSessionCaches,
     calculateFilterFields
 };
