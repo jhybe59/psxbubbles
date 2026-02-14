@@ -1,0 +1,5 @@
+FROM grafana/loki:latest
+
+COPY monitoring/loki-config.yml /etc/loki/local-config.yaml
+
+EXPOSE 3100

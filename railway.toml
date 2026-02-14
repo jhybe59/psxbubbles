@@ -31,3 +31,20 @@ startCommand = "uvicorn inference:app --host 0.0.0.0 --port 8000"
 name = "prometheus"
 builder = "DOCKERFILE"
 dockerfilePath = "monitoring/Dockerfile"
+
+[[services]]
+name = "grafana"
+builder = "DOCKERFILE"
+dockerfilePath = "monitoring/Dockerfile.grafana"
+
+[[services]]
+name = "alertmanager"
+builder = "DOCKERFILE"
+dockerfilePath = "monitoring/Dockerfile.alertmanager"
+startCommand = "--config.file=/etc/alertmanager/alertmanager.yml"
+
+[[services]]
+name = "loki"
+builder = "DOCKERFILE"
+dockerfilePath = "monitoring/Dockerfile.loki"
+startCommand = "-config.file=/etc/loki/local-config.yaml"

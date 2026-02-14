@@ -1,0 +1,9 @@
+FROM grafana/grafana:latest
+
+USER root
+# Copy provisioning configurations if they exist
+COPY monitoring/grafana/provisioning /etc/grafana/provisioning
+# Copy dashboards if they exist
+COPY monitoring/grafana/dashboards /var/lib/grafana/dashboards
+
+EXPOSE 3000
