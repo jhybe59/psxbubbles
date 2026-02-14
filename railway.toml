@@ -26,3 +26,8 @@ name = "ml-service"
 builder = "DOCKERFILE"
 dockerfilePath = "ml_service/Dockerfile.railway"
 startCommand = "uvicorn inference:app --host 0.0.0.0 --port 8000"
+
+[[services]]
+name = "prometheus"
+builder = "DOCKERFILE"
+dockerfilePath = "monitoring/Dockerfile"
