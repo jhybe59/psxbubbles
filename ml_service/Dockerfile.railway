@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements
 COPY requirements.txt .
 
-# Install PyTorch with CUDA support (for Local Training)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu121
+# Install PyTorch (CPU only) to save space - efficient for Railway inference
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
 # Install core ML dependencies that xgboost/lightgbm need
 RUN pip install --no-cache-dir numpy scipy
