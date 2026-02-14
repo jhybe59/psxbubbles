@@ -1,0 +1,137 @@
+groups:
+  # ===========================================
+  # System Alerts
+  # ===========================================
+  - name: system_alerts
+    rules:
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes / 1024 / 1024 > 1500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 1.5GB for 5 minutes"
+
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for 5 minutes"
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service is down"
+          description: "{{ $labels.job }} has been down for more than 1 minute"
+
+  # ===========================================
+  # ML Service Alerts
+  # ===========================================
+  - name: ml_alerts
+    rules:
+      - alert: HighInferenceLatency
+        expr: ml_inference_latency_seconds > 0.2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High ML inference latency"
+          description: "Inference latency above 200ms for 2 minutes"
+
+      - alert: LowConfidenceSpike
+        expr: avg(ml_signal_confidence) < 0.4
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low confidence signals"
+          description: "Average confidence below 0.4 for 10 minutes"
+
+      - alert: SignalFlood
+        expr: rate(ml_signals_total[1m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Signal flood detected"
+          description: "More than 10 signals per minute"
+
+      - alert: NoSignals
+        expr: increase(ml_signals_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No signals generated"
+          description: "No ML signals in the last 30 minutes"
+
+      - alert: ModelDisagreement
+        expr: ml_agent_disagreement > 0.7
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "High model disagreement"
+          description: "Agents disagree significantly"
+
+      - alert: RegimeStuck
+        expr: changes(ml_current_regime[1h]) == 0
+        for: 3h
+        labels:
+          severity: info
+        annotations:
+          summary: "Regime unchanged"
+          description: "Market regime hasn't changed in 3 hours"
+
+  # ===========================================
+  # API Alerts
+  # ===========================================
+  - name: api_alerts
+    rules:
+      - alert: HighAPILatency
+        expr: http_request_duration_seconds{quantile="0.95"} > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency"
+          description: "P95 latency above 500ms"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate"
+          description: "Error rate above 5%"
+
+  # ===========================================
+  # Redis Alerts
+  # ===========================================
+  - name: redis_alerts
+    rules:
+      - alert: RedisQueueBacklog
+        expr: redis_stream_length > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis queue backlog"
+          description: "Stream length above 10k messages"
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis memory critical"
+          description: "Redis using over 90% of max memory"

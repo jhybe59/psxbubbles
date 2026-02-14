@@ -62,6 +62,19 @@ Railway pe 4 services create karni hain:
    - Dockerfile path: **`Dockerfile.worker`** enter karein
 7. Save karein
 
+### 5. ML Service (Python Backend)
+
+*Note: Yeh `railway.toml` update karne ke baad automatically create ho jayega.*
+
+1. Jab service ban jaye, open karein → **Settings** tab
+2. **Networking** section:
+   - Port: **8000**
+3. **Variables** tab mein add karein:
+   - `ML_QUESTDB_HOST`: `questdb`
+   - `ML_REDIS_HOST`: `redis` (ya Redis service ka host)
+   - `ML_REDIS_PORT`: `6379`
+   - `ML_ENVIRONMENT`: `production`
+
 ## Step 2: Environment Variables Set Karein
 
 ### Postgres Database URL Copy Karein
@@ -140,6 +153,28 @@ Auto-deploy already setup hai agar services GitHub repo se connected hain:
 3. Services automatically rebuild aur redeploy hongi
 4. Railway dashboard → **"Activity"** tab se status check kar sakte hain
 
+## Step 6: Monitoring Setup (Grafana & Prometheus)
+
+Agar aap live monitoring chahte hain:
+
+1. Railway Dashboard par **New Project** ya existin project mein **"+ Create"** par click karein.
+2. Search karein **"Grafana"** ya **"Grafana Stack"** (by Tinybox Software).
+3. Select karke deploy karein.
+4. **Configuration:**
+   - Jab deploy ho jaye, Grafana URL open karein.
+   - Login (admin/admin ya jo credentials logs mein hon).
+   - **Data Sources** mein check karein ke Prometheus connected hai.
+   - **Prometheus Service** ki settings mein jakar config update karein taake wo `ml-service` aur `api` ko scrape kare:
+     ```yaml
+     scrape_configs:
+       - job_name: 'psxbubbles-ml'
+         static_configs:
+           - targets: ['ml-service:8000']
+       - job_name: 'psxbubbles-api'
+         static_configs:
+           - targets: ['api:8080']
+     ```
+
 ## Troubleshooting
 
 ### API Service Database Connection Fail
@@ -155,11 +190,13 @@ Auto-deploy already setup hai agar services GitHub repo se connected hain:
 - **Solution:** 
   - API service → Settings → Networking → Port 8080 set karein
 
-## Next Steps
+## Model Updates (GPU Training)
 
-1. Web service ka domain frontend ke liye use karein
-2. Worker service start karein live data ingestion ke liye
-3. QuestDB data populate hone ka wait karein
+Jab aap locally GPU par models train karein:
+
+1. Run: `.\scripts\publish_models.ps1`
+2. Ye automatically naye models ko GitHub par push kar dega.
+3. Railway `ml-service` ko rebuild karke naye models ke saath redeploy kar dega.
 
 ---
 

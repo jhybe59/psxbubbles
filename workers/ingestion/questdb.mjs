@@ -108,6 +108,20 @@ export const insertMinuteBarsQuest = async (rows) => {
                     .floatColumn('daily_pct', parseFloat(row.daily_pct) || 0)
                     .intColumn('tick_seq', tickSeq)
                     .at(tsNanos, 'ns');
+
+                // 2. Write to 'minute_bars' (OHLCV for ML training)
+                sender
+                    .table('minute_bars')
+                    .symbol('symbol', String(row.symbol))
+                    .floatColumn('open', parseFloat(row.open) || parseFloat(row.close) || 0)
+                    .floatColumn('high', parseFloat(row.high) || parseFloat(row.close) || 0)
+                    .floatColumn('low', parseFloat(row.low) || parseFloat(row.close) || 0)
+                    .floatColumn('close', parseFloat(row.close) || 0)
+                    .floatColumn('volume', parseFloat(row.volume) || 0)
+                    .floatColumn('value', parseFloat(row.value) || 0)
+                    .floatColumn('daily_pct', parseFloat(row.daily_pct) || 0)
+                    .intColumn('trades', 1)
+                    .at(tsNanos, 'ns');
             }
 
             await sender.flush();

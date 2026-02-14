@@ -1,0 +1,5 @@
+Checking path: /app/models/lstm_deep_v1.pkl
+Path exists. Size: 29819393
+Attempting pickle load...
+Loaded object type: <class 'deep_models.lstm_model.LSTMModel'>
+Success!

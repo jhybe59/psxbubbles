@@ -353,55 +353,12 @@ function updateSessionHigh(symbol, price) {
  * Uses same logic as bubbles.mjs - ANY of 3+ conditions triggers warning
  */
 function calculatePreBreakout(symbol, price, rvol, squeezeData) {
-    const sessionHigh = sessionHighCache.get(symbol) || price;
-
-    // Proximity to session high (0 = at high, 1 = far from high)
-    const proximity = sessionHigh > 0 ? (sessionHigh - price) / sessionHigh : 1;
-
-    // Calculate tightness from squeeze data (BB width / price)
-    // Default to 0.1 (10%) if no data, preventing false "tight" signals
-    const tightness = squeezeData.bb_width ? squeezeData.bb_width / price : 0.1;
-
-    // Vol pulse = RVOL (using session RVOL)
-    const volPulse = rvol || 0;
-
-    // 4 Conditions - ANY ONE triggers pre-breakout
-
-    // 1. Standard Squeeze: tight + building volume + near high
-    const isStandardSqueeze =
-        tightness < 0.05 &&     // 5% tightness
-        volPulse > 1.5 &&       // 1.5x volume
-        proximity < 0.10;       // 10% from high
-
-    // 2. Volume Wakeup: strong volume + reasonably near high
-    const isVolumeWakeup =
-        volPulse > 3.0 &&       // 3x volume spike
-        proximity < 0.15;       // 15% from high
-
-    // 3. Infinite Wakeup: extreme volume (dead stock waking up)
-    const isInfiniteWakeup = volPulse >= 20.0;
-
-    // 4. Price Action: Very close to high (1.5%) - catch breakouts even if vol/squeeze lagging
-    const isPriceAction = proximity < 0.015;
-
-    // Trigger if ANY condition is met (OR, not AND)
-    const preBreakout = isStandardSqueeze || isVolumeWakeup || isInfiniteWakeup || isPriceAction;
-
-    if (preBreakout) {
-        console.log(`[SIGNAL] Pre-Breakout detected for ${symbol}:`, {
-            squeeze: isStandardSqueeze,
-            wakeup: isVolumeWakeup,
-            infinite: isInfiniteWakeup,
-            priceAction: isPriceAction,
-            metrics: { proximity, tightness, volPulse }
-        });
-    }
-
+    // Calculation DISABLED by user request
     return {
-        pre_breakout_signal: preBreakout ? 1 : 0, // Explicit 1/0 for frontend filter
-        proximity: proximity,
-        tightness: tightness,
-        vol_pulse: volPulse
+        pre_breakout_signal: 0,
+        proximity: 0,
+        tightness: 0,
+        vol_pulse: 0
     };
 }
 

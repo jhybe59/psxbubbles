@@ -277,8 +277,19 @@ export async function publishTickUpdate(symbol, tick) {
         // Day interval (uses prev_close from filterFields for accuracy, and feed-level dailyPct if available)
         data.intervals['Day'] = calculateDayInterval(symbol, tick.price, filterFields.prev_close, tick.dailyPct);
 
-        // Publish to Redis
+        // Publish to Redis (for Socket.IO)
         await redisPublisher.publish('market-data', JSON.stringify(data));
+
+        // Publish raw tick to ML service channel (ticks.raw.<symbol>)
+        // Python ML service subscribes to this for bar aggregation and predictions
+        const mlTick = {
+            timestamp: new Date(tick.ts).toISOString(),
+            symbol,
+            price: tick.price,
+            volume: tick.volume || 0,
+            side: tick.side || null
+        };
+        await redisPublisher.publish(`ticks.raw.${symbol}`, JSON.stringify(mlTick));
 
         // Log for debugging (Phase 0)
         // logger.debug({ symbol, price: tick.price }, 'Published tick update');

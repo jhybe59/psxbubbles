@@ -53,5 +53,106 @@ services:
       - .:/app
       - /app/node_modules
 
+  ml-service:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    env_file:
+      - ./config/dev.env
+    environment:
+      ML_ENVIRONMENT: development
+      ML_QUESTDB_HOST: questdb
+      ML_REDIS_HOST: redis
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./ml_service:/app
+      - ./ml_service/models:/app/models
+    depends_on:
+      - questdb
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+
+  training-dashboard:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    command: streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    env_file:
+      - ./config/dev.env
+    environment:
+      ML_ENVIRONMENT: development
+      ML_QUESTDB_HOST: questdb
+      ML_REDIS_HOST: redis
+    volumes:
+      - ./ml_service:/app
+      - ./ml_service/models:/app/models
+    depends_on:
+      - ml-service
+
+  # ===========================================
+  # Monitoring Stack
+  # ===========================================
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    depends_on:
+      - ml-service
+      - api
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
 volumes:
   questdb-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+
+

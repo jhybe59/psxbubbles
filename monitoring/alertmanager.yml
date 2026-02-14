@@ -1,0 +1,43 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@psxbubbles.local'
+
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default-receiver'
+  
+  routes:
+    - match:
+        severity: critical
+      receiver: 'critical-receiver'
+      continue: true
+    
+    - match:
+        severity: warning
+      receiver: 'warning-receiver'
+
+receivers:
+  - name: 'default-receiver'
+    # Placeholder - configure your notification channel
+    # webhook_configs:
+    #   - url: 'http://localhost:5001/webhook'
+
+  - name: 'critical-receiver'
+    # webhook_configs:
+    #   - url: 'http://localhost:5001/critical'
+    # email_configs:
+    #   - to: 'admin@example.com'
+
+  - name: 'warning-receiver'
+    # Placeholder for warning notifications
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']

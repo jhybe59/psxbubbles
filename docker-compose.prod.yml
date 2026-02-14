@@ -1,0 +1,200 @@
+version: "3.9"
+
+services:
+  # ===========================================
+  # Infrastructure
+  # ===========================================
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  questdb:
+    image: questdb/questdb:7.3.10
+    restart: always
+    ports:
+      - "9000:9000" # REST API / Web Console
+      - "9009:9009" # InfluxDB Line Protocol
+      - "8812:8812" # PostgreSQL wire protocol
+    volumes:
+      - questdb-data:/var/lib/questdb
+    environment:
+      QDB_CAIRO_COMMIT_LAG: 1000
+      QDB_LINE_TCP_MSG_BUFFER_SIZE: 4096
+
+  # ===========================================
+  # ML Service
+  # ===========================================
+
+  ml-service:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - ML_ENVIRONMENT=production
+      - ML_REDIS_HOST=redis
+      - ML_REDIS_PORT=6379
+      - ML_QUESTDB_HOST=questdb
+      - ML_QUESTDB_PORT=8812
+      - ML_LOG_LEVEL=INFO
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./ml_service/models:/app/models
+      - ml-logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      questdb:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ===========================================
+  # Node.js API
+  # ===========================================
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - ML_SERVICE_URL=http://ml-service:8000
+      - QUESTDB_HOST=questdb
+      - QUESTDB_PORT=8812
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # ===========================================
+  # Worker (Data Ingestion)
+  # ===========================================
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - QUESTDB_HOST=questdb
+    depends_on:
+      redis:
+        condition: service_healthy
+      questdb:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ===========================================
+  # Monitoring Stack
+  # ===========================================
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    depends_on:
+      - ml-service
+      - api
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    restart: always
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+
+  # ===========================================
+  # Log Aggregation
+  # ===========================================
+
+  loki:
+    image: grafana/loki:2.9.0
+    restart: always
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+volumes:
+  redis-data:
+  questdb-data:
+  ml-logs:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+
+
+networks:
+  default:
+    name: psxbubbles-prod
