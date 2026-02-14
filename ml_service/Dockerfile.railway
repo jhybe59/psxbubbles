@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY requirements.txt .
+COPY ml_service/requirements.txt .
 
 # Install PyTorch (CPU only) to save space - efficient for Railway inference
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
@@ -38,7 +38,7 @@ RUN pip install --no-cache-dir transformers
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
-COPY . .
+COPY ml_service/ .
 
 # Set environment variables
 ENV ML_ENVIRONMENT=production
