@@ -1,6 +1,8 @@
 FROM grafana/grafana:latest
 
 USER root
+
+USER root
 # Copy provisioning configurations if they exist
 COPY monitoring/grafana/provisioning /etc/grafana/provisioning
 # Copy dashboards if they exist
