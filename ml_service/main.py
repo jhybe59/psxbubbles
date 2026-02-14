@@ -116,6 +116,16 @@ async def ready():
     }
 
 
+@app.get("/metrics")
+async def get_metrics():
+    """Prometheus metrics endpoint."""
+    from fastapi import Response
+    return Response(
+        content=metrics.get_metrics(), 
+        media_type=metrics.get_content_type()
+    )
+
+
 # ============ PREDICTION ENDPOINTS ============
 
 @app.post("/predict", response_model=PredictionResponse)
