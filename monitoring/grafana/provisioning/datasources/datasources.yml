@@ -15,3 +15,10 @@ datasources:
     secureJsonData:
       password: quest
     isDefault: true
+
+  - name: prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    editable: false
