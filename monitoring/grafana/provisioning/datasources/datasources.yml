@@ -8,6 +8,7 @@ datasources:
     url: questdb:8812
     user: admin
     database: qdb
+    editable: false
     jsonData:
       sslmode: "disable"
       postgresVersion: 1200
