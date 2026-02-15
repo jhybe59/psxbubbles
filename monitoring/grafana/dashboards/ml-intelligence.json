@@ -9,7 +9,10 @@
     "links": [],
     "panels": [
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -60,7 +63,10 @@
             ]
         },
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -111,7 +117,10 @@
             ]
         },
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {
                     "unit": "short"
@@ -134,7 +143,10 @@
             ]
         },
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {}
             },
@@ -155,7 +167,10 @@
             ]
         },
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -201,7 +216,10 @@
             ]
         },
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -237,7 +255,10 @@
             ]
         },
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {
                     "unit": "decbytes"
@@ -261,7 +282,10 @@
             ]
         },
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {
                     "unit": "percentunit"
@@ -285,7 +309,10 @@
             ]
         },
         {
-            "datasource": "Prometheus",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+            },
             "fieldConfig": {
                 "defaults": {}
             },
