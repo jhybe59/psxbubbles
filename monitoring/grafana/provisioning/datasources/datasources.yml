@@ -3,31 +3,15 @@ apiVersion: 1
 datasources:
   - name: questdb
     type: postgres
-    uid: questdb_psx
+    uid: questdb
     access: proxy
     url: questdb:8812
     user: admin
     database: qdb
-    editable: false
+    editable: true
     jsonData:
-      database: qdb
       sslmode: "disable"
       postgresVersion: 1200
-      timescaledb: false
     secureJsonData:
       password: quest
     isDefault: true
-
-  - name: prometheus
-    type: prometheus
-    uid: prometheus
-    access: proxy
-    url: http://prometheus:9090
-    editable: false
-
-  - name: loki
-    type: loki
-    uid: loki
-    access: proxy
-    url: http://loki:3100
-    editable: false

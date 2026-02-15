@@ -38,7 +38,7 @@
         {
             "datasource": {
                 "type": "postgres",
-                "uid": "questdb_psx"
+                "uid": "questdb"
             },
             "fieldConfig": {
                 "defaults": {
@@ -138,7 +138,7 @@
                 {
                     "datasource": {
                         "type": "postgres",
-                        "uid": "questdb_psx"
+                        "uid": "questdb"
                     },
                     "format": "time_series",
                     "group": [],
@@ -164,7 +164,7 @@
                 {
                     "datasource": {
                         "type": "postgres",
-                        "uid": "questdb_psx"
+                        "uid": "questdb"
                     },
                     "format": "time_series",
                     "group": [],
@@ -194,7 +194,7 @@
         {
             "datasource": {
                 "type": "postgres",
-                "uid": "questdb_psx"
+                "uid": "questdb"
             },
             "fieldConfig": {
                 "defaults": {
@@ -255,7 +255,7 @@
                 {
                     "datasource": {
                         "type": "postgres",
-                        "uid": "questdb_psx"
+                        "uid": "questdb"
                     },
                     "format": "table",
                     "group": [],
@@ -300,7 +300,7 @@
                 },
                 "datasource": {
                     "type": "postgres",
-                    "uid": "questdb_psx"
+                    "uid": "questdb"
                 },
                 "definition": "SELECT distinct symbol FROM ml_predictions WHERE action = 'buy' AND confidence > 0.8 ORDER BY symbol",
                 "hide": 0,
