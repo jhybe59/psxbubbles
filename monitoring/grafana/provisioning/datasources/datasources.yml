@@ -17,9 +17,9 @@ datasources:
   - name: QuestDB
     type: postgres
     access: proxy
-    url: questdb:8812
+    url: questdb.railway.internal:8812
     user: admin
-    database: qdb
+    database: main
     jsonData:
       sslmode: "disable"
       postgresVersion: 1200
