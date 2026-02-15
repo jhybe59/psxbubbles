@@ -24,21 +24,21 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 10s
 
-  # Node.js API metrics
-  - job_name: 'api'
-    static_configs:
-      - targets: ['api:8080']
-    metrics_path: /metrics
-    scrape_interval: 10s
-
-  # Redis metrics
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis:6379']
-    metrics_path: /metrics
-
-  # QuestDB metrics
+  # QuestDB metrics (Port 9003 for metrics)
   - job_name: 'questdb'
     static_configs:
-      - targets: ['questdb:9000']
+      - targets: ['questdb:9003']
     metrics_path: /metrics
+
+  # Node.js API metrics (Commented out until service name/port confirmed)
+  # - job_name: 'api'
+  #   static_configs:
+  #     - targets: ['api:8080']
+  #   metrics_path: /metrics
+  #   scrape_interval: 10s
+
+  # Redis metrics (Requires redis_exporter sidecar, disabling for now)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis:6379']
+  #   metrics_path: /metrics
