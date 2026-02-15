@@ -3,13 +3,14 @@ apiVersion: 1
 datasources:
   - name: questdb
     type: postgres
-    uid: questdb
+    uid: questdb_psx
     access: proxy
     url: questdb:8812
     user: admin
     database: qdb
     editable: false
     jsonData:
+      database: qdb
       sslmode: "disable"
       postgresVersion: 1200
       timescaledb: false
