@@ -1,0 +1,330 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": null,
+    "links": [],
+    "liveNow": false,
+    "panels": [
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            },
+            "id": 4,
+            "panels": [],
+            "title": "TODAY'S TOP MOVERS (High Confidence Buys)",
+            "type": "row"
+        },
+        {
+            "datasource": {
+                "type": "postgres",
+                "uid": "questdb"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisCheckLabel": false,
+                        "axisLabel": "Price",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "opacity",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Strong Buy Signal"
+                        },
+                        "properties": [
+                            {
+                                "id": "custom.drawStyle",
+                                "value": "points"
+                            },
+                            {
+                                "id": "custom.pointSize",
+                                "value": 20
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "#73BF69",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 10,
+                "w": 12,
+                "x": 0,
+                "y": 1
+            },
+            "id": 2,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "10.2.0",
+            "repeat": "symbol",
+            "repeatDirection": "h",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "postgres",
+                        "uid": "questdb"
+                    },
+                    "format": "time_series",
+                    "group": [],
+                    "metricColumn": "None",
+                    "rawQuery": true,
+                    "rawSql": "SELECT timestamp as \"time\", price as \"Price\" FROM trades WHERE symbol = $symbol ORDER BY timestamp ASC",
+                    "refId": "A",
+                    "select": [
+                        [
+                            {
+                                "params": [
+                                    "value"
+                                ],
+                                "type": "column"
+                            }
+                        ]
+                    ],
+                    "table": "trades",
+                    "timeColumn": "timestamp",
+                    "timeColumnType": "timestamp",
+                    "where": []
+                },
+                {
+                    "datasource": {
+                        "type": "postgres",
+                        "uid": "questdb"
+                    },
+                    "format": "time_series",
+                    "group": [],
+                    "metricColumn": "None",
+                    "rawQuery": true,
+                    "rawSql": "SELECT timestamp as \"time\", start_price as \"Strong Buy Signal\" FROM ml_predictions WHERE symbol = $symbol AND action = 'buy' AND confidence > 0.8 ORDER BY timestamp ASC",
+                    "refId": "B",
+                    "select": [
+                        [
+                            {
+                                "params": [
+                                    "value"
+                                ],
+                                "type": "column"
+                            }
+                        ]
+                    ],
+                    "table": "ml_predictions",
+                    "timeColumn": "timestamp",
+                    "timeColumnType": "timestamp",
+                    "where": []
+                }
+            ],
+            "title": "$symbol",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "postgres",
+                "uid": "questdb"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "auto"
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 12
+            },
+            "id": 1,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": true,
+                        "displayName": "Time"
+                    }
+                ]
+            },
+            "pluginVersion": "11.5.1",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "postgres",
+                        "uid": "questdb"
+                    },
+                    "format": "table",
+                    "group": [],
+                    "metricColumn": "None",
+                    "rawQuery": true,
+                    "rawSql": "SELECT timestamp as \"Time\", symbol as \"Symbol\", action as \"Action\", confidence as \"Confidence\", start_price as \"Start Price\", regime as \"Regime\", agents as \"Agents\" FROM ml_predictions WHERE action = 'buy' AND confidence > 0.8 ORDER BY timestamp DESC LIMIT 50",
+                    "refId": "A",
+                    "select": [
+                        [
+                            {
+                                "params": [
+                                    "value"
+                                ],
+                                "type": "column"
+                            }
+                        ]
+                    ],
+                    "table": "ml_predictions",
+                    "timeColumn": "timestamp",
+                    "timeColumnType": "timestamp",
+                    "where": []
+                }
+            ],
+            "title": "Sniper Signal Log",
+            "type": "table"
+        }
+    ],
+    "refresh": "5s",
+    "schemaVersion": 39,
+    "tags": [],
+    "templating": {
+        "list": [
+            {
+                "current": {
+                    "selected": true,
+                    "text": [
+                        "All"
+                    ],
+                    "value": [
+                        "$__all"
+                    ]
+                },
+                "datasource": {
+                    "type": "postgres",
+                    "uid": "questdb"
+                },
+                "definition": "SELECT distinct symbol FROM ml_predictions WHERE action = 'buy' AND confidence > 0.8 ORDER BY symbol",
+                "hide": 0,
+                "includeAll": true,
+                "multi": true,
+                "name": "symbol",
+                "options": [],
+                "query": "SELECT distinct symbol FROM ml_predictions WHERE action = 'buy' AND confidence > 0.8 ORDER BY symbol",
+                "refresh": 1,
+                "regex": "",
+                "skipUrlSync": false,
+                "sort": 1,
+                "type": "query"
+            }
+        ]
+    },
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "",
+    "title": "Sniper Grid (All Big Moves)",
+    "uid": "pred-explain-v1",
+    "version": 6,
+    "weekStart": ""
+}

@@ -7,11 +7,19 @@ def init_db():
         conn = psycopg2.connect(settings.questdb_dsn)
         cur = conn.cursor()
 
-        # ML Predictions Table
+        # ML Predictions Table (Updated Schema for Explainability)
+        # Note: Drops table if exists to force schema update
+        cur.execute("DROP TABLE IF EXISTS ml_predictions;")
         cur.execute("""
         CREATE TABLE IF NOT EXISTS ml_predictions (
             timestamp TIMESTAMP,
             symbol SYMBOL,
+            action SYMBOL,
+            signal_strength DOUBLE,
+            confidence DOUBLE,
+            regime SYMBOL,
+            agents STRING,
+            start_price DOUBLE,
             prediction_probability DOUBLE
         ) timestamp(timestamp) PARTITION BY DAY;
         """)

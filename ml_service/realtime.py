@@ -369,7 +369,22 @@ class RealtimeInference:
                 is_watchlist = (action == 'hold' and sig_strength > 0.1)
                 
                 if is_buy or is_watchlist:
-                    pred_row = (ts, symbol, confidence)
+                    # New Schema: timestamp, symbol, action, signal_strength, confidence, regime, agents, start_price, prediction_probability
+                    regime = signal.get('regime', 'unknown')
+                    agents_json = json.dumps(signal.get('agent_signals', {}))
+                    current_price = float(df['close'].iloc[-1])
+                    
+                    pred_row = (
+                        ts, 
+                        symbol, 
+                        action,
+                        sig_strength,
+                        confidence,
+                        regime,
+                        agents_json,
+                        current_price,
+                        confidence
+                    )
                     
                     # Features: timestamp, symbol, atr, volatility
                     feat_row = (

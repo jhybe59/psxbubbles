@@ -103,8 +103,10 @@ class QuestDBWriter:
         try:
             if preds:
                 cur.executemany("""
-                    INSERT INTO ml_predictions (timestamp, symbol, prediction_probability)
-                    VALUES (%s, %s, %s)
+                    INSERT INTO ml_predictions (
+                        timestamp, symbol, action, signal_strength, confidence, regime, agents, start_price, prediction_probability
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, preds)
             
             if feats:
