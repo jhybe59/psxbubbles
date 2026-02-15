@@ -22,7 +22,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_gates_passed",
                     "refId": "A"
@@ -69,7 +69,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_automation_allowed",
                     "refId": "A"
@@ -113,7 +113,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_profit_factor",
                     "refId": "A"
@@ -155,7 +155,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_win_rate",
                     "refId": "A"
@@ -197,7 +197,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_discipline_score",
                     "refId": "A"
@@ -239,7 +239,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_cumulative_pnl_percent",
                     "refId": "A"
@@ -282,7 +282,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_max_drawdown_percent",
                     "refId": "A"
@@ -325,7 +325,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_paper_trading_days",
                     "refId": "A"
@@ -366,7 +366,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_gates_passed",
                     "legendFormat": "Gates",
@@ -397,7 +397,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_cumulative_pnl_percent",
                     "legendFormat": "P&L %",
@@ -441,7 +441,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_discipline_score",
                     "legendFormat": "Discipline",
@@ -450,7 +450,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_win_rate",
                     "legendFormat": "Win Rate",
@@ -482,7 +482,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "Prometheus"
+                        "uid": "questdb"
                     },
                     "expr": "ml_profit_factor",
                     "legendFormat": "PF",
