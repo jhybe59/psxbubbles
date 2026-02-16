@@ -37,6 +37,14 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("starting_ml_service", env=settings.environment)
     
+    # Initialize Database Tables
+    try:
+        from db_init import init_db
+        logger.info("initializing_database")
+        init_db()
+    except Exception as e:
+        logger.error("database_init_failed", error=str(e))
+    
     # Initialize Redis client
     redis_client = RedisStreamClient()
     try:

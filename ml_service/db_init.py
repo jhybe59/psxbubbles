@@ -7,9 +7,8 @@ def init_db():
         conn = psycopg2.connect(settings.questdb_dsn)
         cur = conn.cursor()
 
-        # ML Predictions Table (Updated Schema for Explainability)
-        # Note: Drops table if exists to force schema update
-        cur.execute("DROP TABLE IF EXISTS ml_predictions;")
+        # ML Predictions Table
+        # Removed DROP to preserve history
         cur.execute("""
         CREATE TABLE IF NOT EXISTS ml_predictions (
             timestamp TIMESTAMP,
@@ -22,6 +21,29 @@ def init_db():
             start_price DOUBLE,
             prediction_probability DOUBLE
         ) timestamp(timestamp) PARTITION BY DAY;
+        """)
+        
+        # Trades Table (Raw Ticks)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS trades (
+            timestamp TIMESTAMP,
+            symbol SYMBOL,
+            price DOUBLE,
+            volume DOUBLE
+        ) timestamp(timestamp) PARTITION BY DAY;
+        """)
+        
+        # Minute Bars Table (OHLCV)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS minute_bars (
+            timestamp TIMESTAMP,
+            symbol SYMBOL,
+            open DOUBLE,
+            high DOUBLE,
+            low DOUBLE,
+            close DOUBLE,
+            volume DOUBLE
+        ) timestamp(timestamp) PARTITION BY MONTH;
         """)
         
         # Market Features Table

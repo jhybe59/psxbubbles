@@ -3,7 +3,7 @@ apiVersion: 1
 datasources:
   - name: questdb
     type: postgres
-    uid: questdb
+    # uid: questdb
     access: proxy
     url: questdb:8812
     user: admin
@@ -19,14 +19,14 @@ datasources:
 
   - name: prometheus
     type: prometheus
-    uid: prometheus
+    # uid: prometheus
     access: proxy
     url: http://prometheus:9090
     editable: false
 
   - name: loki
     type: loki
-    uid: loki
+    # uid: loki
     access: proxy
     url: http://loki:3100
     editable: false
