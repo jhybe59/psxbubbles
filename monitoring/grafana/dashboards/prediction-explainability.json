@@ -144,7 +144,7 @@
                     "group": [],
                     "metricColumn": "None",
                     "rawQuery": true,
-                    "rawSql": "SELECT timestamp as \"time\", price as \"Price\" FROM trades WHERE symbol = $symbol ORDER BY timestamp ASC",
+                    "rawSql": "SELECT timestamp, price FROM trades WHERE symbol IN ($symbol) ORDER BY timestamp ASC",
                     "refId": "A",
                     "select": [
                         [
@@ -170,7 +170,7 @@
                     "group": [],
                     "metricColumn": "None",
                     "rawQuery": true,
-                    "rawSql": "SELECT timestamp as \"time\", start_price as \"Strong Buy Signal\" FROM ml_predictions WHERE symbol = $symbol AND action = 'buy' AND confidence > 0.8 ORDER BY timestamp ASC",
+                    "rawSql": "SELECT timestamp, start_price FROM ml_predictions WHERE symbol IN ($symbol) AND action = 'buy' AND confidence > 0.8 ORDER BY timestamp ASC",
                     "refId": "B",
                     "select": [
                         [
