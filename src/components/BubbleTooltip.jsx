@@ -321,6 +321,10 @@ export default function BubbleTooltip({
     rvol,
     volatility,
     lastUpdate,
+    sourceTimestamp,
+    quoteAgeMs,
+    quoteStale = false,
+    marketStatus,
     // New Props for Sidebar
     raw = {},
     orb = {},
@@ -368,6 +372,12 @@ export default function BubbleTooltip({
             aria-live="polite"
         >
             <div className="bt-container">
+                <div style={{ gridColumn: '1 / -1', padding: '7px 10px', marginBottom: '4px', borderRadius: '6px', background: quoteStale ? 'rgba(239,68,68,.16)' : 'rgba(16,185,129,.12)', color: quoteStale ? '#fca5a5' : '#86efac', fontSize: '11px', fontWeight: 700 }}>
+                    {quoteStale ? 'STALE QUOTE' : 'QUOTE FRESH'}
+                    {quoteAgeMs != null && ` · source update ${Math.floor(quoteAgeMs / 1000)}s ago`}
+                    {marketStatus && ` · market ${marketStatus}`}
+                    {sourceTimestamp && ` · ${new Date(sourceTimestamp).toLocaleTimeString()}`}
+                </div>
                 {/* Logical Logs Panel (Left Column) */}
                 <div className="bt-logs">
                     <div className="bt-log-header">

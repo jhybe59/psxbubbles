@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import storage from '../lib/storage';
-import { ENABLE_REPO_SNAPSHOTS, ENABLE_LIVE_API, LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
+import { ENABLE_REPO_SNAPSHOTS, ENABLE_LIVE_API, LIVE_API_BASE_URL, LIVE_API_KEY, USE_PSX_QUOTE_FEED } from '../config';
 import useMarketData from './useMarketData';
 
 // Store volume history for calculating avg_volume (10-period SMA)
@@ -111,7 +111,7 @@ async function fetchLiveInterval(interval) {
   const base = LIVE_API_BASE_URL.startsWith('http')
     ? LIVE_API_BASE_URL
     : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
-  const url = new URL('bubbles', base.endsWith('/') ? base : `${base}/`);
+  const url = new URL(USE_PSX_QUOTE_FEED ? 'psx-quotes' : 'bubbles', base.endsWith('/') ? base : `${base}/`);
   url.searchParams.set('interval', apiInterval);
   const headers = {
     'Content-Type': 'application/json',
@@ -210,6 +210,12 @@ async function fetchLiveInterval(interval) {
           prev_volatility: prevCandle?.volatility ?? null,
           prev_rvol: prevCandle?.rvol ?? null,
           ts: row.ts ? Number(new Date(row.ts).getTime()) : null,
+          sourceTimestamp: row.sourceTimestamp || null,
+          receivedAt: row.receivedAt || null,
+          sourceAgeMs: row.sourceAgeMs == null ? null : Number(row.sourceAgeMs),
+          receiveAgeMs: row.receiveAgeMs == null ? null : Number(row.receiveAgeMs),
+          stale: row.stale === true,
+          marketStatus: row.marketStatus || null,
           // Previous bar data for breakout detection
           prev_close: row.prevClose != null ? Number(row.prevClose) : (row.prev_close != null ? Number(row.prev_close) : null),
           prev_open: row.prevOpen != null ? Number(row.prevOpen) : (row.prev_open != null ? Number(row.prev_open) : null),

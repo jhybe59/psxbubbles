@@ -36,6 +36,27 @@ services:
       - questdb
       - redis
 
+  psx-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    command: ["node", "scraper/index.mjs"]
+    env_file:
+      - ./config/dev.env
+    environment:
+      NODE_ENV: development
+      PSXT_SYMBOLS: ${PSXT_SYMBOLS:-LOADS,BECO,CNERGY,OGDC,DGKC}
+      PSXT_MARKET: ${PSXT_MARKET:-REG}
+      PSXT_QUESTDB_ENABLED: "true"
+      PSXT_OUTPUT: "-"
+      QUESTDB_HOST: questdb
+      QUESTDB_HTTP_PORT: 9000
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - .:/app
+      - /app/node_modules
+
   worker:
     build:
       context: .
@@ -154,5 +175,4 @@ volumes:
   prometheus-data:
   grafana-data:
   loki-data:
-
 

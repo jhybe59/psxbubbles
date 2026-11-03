@@ -1555,6 +1555,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           rvol: d.data?.rvol || history?.rvol,
           volatility: d.data?.volatility || history?.volatility,
           lastUpdate: history?.lastUpdate || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          sourceTimestamp: d.data?.sourceTimestamp || d.data?.raw?.sourceTimestamp || null,
+          quoteAgeMs: d.data?.sourceAgeMs ?? d.data?.raw?.sourceAgeMs ?? null,
+          quoteStale: d.data?.stale === true || d.data?.raw?.stale === true,
+          marketStatus: d.data?.marketStatus || d.data?.raw?.marketStatus || null,
           // New Data for Sidebar
           raw: d.data?.raw || {},
           orb: d.data || {},
@@ -1792,6 +1796,10 @@ export default forwardRef(function BubbleChart({ data, width = 900, height = 600
           rvol={tooltipData.rvol}
           volatility={tooltipData.volatility}
           lastUpdate={tooltipData.lastUpdate}
+          sourceTimestamp={tooltipData.sourceTimestamp}
+          quoteAgeMs={tooltipData.quoteAgeMs}
+          quoteStale={tooltipData.quoteStale}
+          marketStatus={tooltipData.marketStatus}
           // New Sidebar props
           raw={tooltipData.raw}
           orb={tooltipData.orb}

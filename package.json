@@ -25,7 +25,8 @@
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
     "test:integration": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.cjs",
     "migrate-logos": "node ./scripts/migrate_logos.js",
-    "sync:symbols": "node ./scripts/sync-symbols.js"
+    "sync:symbols": "node ./scripts/sync-symbols.js",
+    "scraper:psx": "node ./scraper/index.mjs"
   },
   "dependencies": {
     "@questdb/nodejs-client": "^4.2.0",
@@ -45,6 +46,7 @@
     "ioredis": "^5.4.2",
     "lightweight-charts": "^5.0.9",
     "morgan": "^1.10.0",
+    "msgpackr": "^1.11.2",
     "pg": "^8.13.1",
     "pino": "^9.3.1",
     "pino-pretty": "^11.2.2",

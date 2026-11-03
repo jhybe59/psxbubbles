@@ -18,6 +18,8 @@ import indexMapRoute from './routes/index-map.mjs';
 import candlesRoute from './routes/candles.mjs';
 import tickCandlesRoute from './routes/tick-candles.mjs';
 import orbRoute from './routes/orb.mjs';
+import psxQuotesRoute from './routes/psx-quotes.mjs';
+import psxCandlesRoute from './routes/psx-candles.mjs';
 export const buildApp = () => {
   const app = express();
 
@@ -84,6 +86,8 @@ export const buildApp = () => {
   app.use('/api/tick-candles', tickCandlesRoute);
   app.use('/api/index_map', indexMapRoute);  // Index to symbols mapping
   app.use('/api/orb', orbRoute);  // ORB (Opening Range Breakout) data
+  app.use('/api/psx-quotes', psxQuotesRoute);
+  app.use('/api/psx-candles', psxCandlesRoute);
   app.use((err, req, res, _next) => { // eslint-disable-line no-unused-vars
     logger.error({ err, path: req.path }, 'Unhandled API error');
     res.status(500).json({ error: { code: 'INTERNAL', message: 'Internal server error' } });

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import storage from '../lib/storage';
-import { ENABLE_REPO_SNAPSHOTS, ENABLE_LIVE_API, LIVE_API_BASE_URL, LIVE_API_KEY } from '../config';
+import { ENABLE_REPO_SNAPSHOTS, ENABLE_LIVE_API, LIVE_API_BASE_URL, LIVE_API_KEY, USE_PSX_QUOTE_FEED } from '../config';
 import EmbeddedChart from './EmbeddedChart';
 import { IndicatorButton } from './indicators';
 import { buildCandlesFromSnapshots } from '../lib/chartUtils';
@@ -45,7 +45,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
   if (!coin) return null;
 
   const [timeframe, setTimeframe] = useState('Day');
-  const [candleInterval, setCandleInterval] = useState(() => mapBubbleToChartInterval(bubbleInterval)); // Use bubble interval as default
+  const [candleInterval, setCandleInterval] = useState(() => USE_PSX_QUOTE_FEED ? '1m' : mapBubbleToChartInterval(bubbleInterval)); // PSX feed currently provides one-minute candles
   const [showAdvancedChart, setShowAdvancedChart] = useState(false);
   const [series, setSeries] = useState([]);
   const [ohlcSummary, setOhlcSummary] = useState(null);
@@ -69,7 +69,9 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
   // Indicators state for external control
   const embeddedChartRef = useRef(null);
   const [indicatorCount, setIndicatorCount] = useState(0);
-  const CANDLE_INTERVALS = ['10 Ticks', '20 Ticks', '50 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks', '1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'];
+  const CANDLE_INTERVALS = USE_PSX_QUOTE_FEED
+    ? ['1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year']
+    : ['10 Ticks', '20 Ticks', '50 Ticks', '100 Ticks', '500 Ticks', '1000 Ticks', '1m', '5m', '15m', '1h', '4h', 'Day', 'Week', 'Month', 'Year'];
   const INTERVAL_LOOKUP = { Hour: 1, Day: 1, Week: 5, Month: 22, Year: 252 };
 
   // Format large numbers with K/M abbreviations
@@ -230,7 +232,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
         try {
           const origin = typeof window !== 'undefined' ? window.location.origin : '';
           const base = LIVE_API_BASE_URL.startsWith('http') ? LIVE_API_BASE_URL : `${origin}${LIVE_API_BASE_URL.startsWith('/') ? '' : '/'}${LIVE_API_BASE_URL}`;
-          const url = new URL('candles', base.endsWith('/') ? base : `${base}/`);
+          const url = new URL(USE_PSX_QUOTE_FEED ? 'psx-candles' : 'candles', base.endsWith('/') ? base : `${base}/`);
           url.searchParams.set('symbol', coin.symbol);
 
           let apiInterval = '1h';
@@ -243,8 +245,13 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
             apiInterval = intervalMap[timeframe] || '1h';
           }
 
-          url.searchParams.set('interval', apiInterval);
-          url.searchParams.set('limit', '500');
+          if (USE_PSX_QUOTE_FEED) {
+            url.searchParams.set('interval', effectiveTf);
+            url.searchParams.set('limit', '500');
+          } else {
+            url.searchParams.set('interval', apiInterval);
+            url.searchParams.set('limit', '500');
+          }
 
           const headers = { 'Content-Type': 'application/json' };
           if (LIVE_API_KEY) headers['x-api-key'] = LIVE_API_KEY;
@@ -254,7 +261,7 @@ export default function CoinModal({ coin, onClose, bubbleInterval }) {
             const json = await res.json();
             if (json.data && json.data.length > 0) {
               rows = json.data.map(d => ({
-                ts: new Date(d.ts).getTime(),
+                ts: new Date(d.ts ?? d.timestamp).getTime(),
                 open: Number(d.open),
                 high: Number(d.high),
                 low: Number(d.low),
