@@ -4,13 +4,20 @@ Yeh document batata hai ke PSX Terminal se live quote feed lene, usay QuestDB me
 
 ## 1. Maqsad
 
-PSXBubbles mein in paanch PSX symbols ka live data dikhana tha:
+PSXBubbles mein pehle paanch, phir in kul 10 PSX symbols ka live data dikhana tha:
 
 - `LOADS`
 - `BECO`
 - `CNERGY`
 - `OGDC`
 - `DGKC`
+- `HBL`
+- `MEBL`
+- `MARI`
+- `PPL`
+- `HUBC`
+
+Pehle smoke phase mein pehle paanch symbols use hue. Baad mein scale-up ke pehle batch ke taur par upar wale paanch aur add kiye gaye; current Docker default total 10 symbols hai.
 
 Purana fetch path kaam nahi kar raha tha, is liye us par depend karne ke bajaye PSX Terminal ke client feed se ek alag scraper banaya. Pehla maqsad ek symbol par feed samajhna tha; baad mein configuration paanch symbols tak barhai gayi. Naya flow alag service hai aur existing app ke purane data ko restore ya overwrite karne ke liye nahi bana.
 
@@ -37,7 +44,7 @@ QuestDB, Redis, API aur scraper local Docker containers ke darmiyan communicate 
 
 1. Scraper `https://psxterminal.com/api/init` ko ek HTTP request bhejta hai aur connection token leta hai.
 2. Token ke saath `wss://psxterminal.com/rt` par ek WebSocket connection kholta hai. Handshake mein `Origin: https://psxterminal.com` bhejta hai.
-3. Feed ka `hello` frame milne par ek `subscribe` message bhejta hai. Is message mein paanch topic hote hain:
+3. Feed ka `hello` frame milne par ek `subscribe` message bhejta hai. Is message mein ab 10 topic hote hain:
 
    ```text
    quote:REG:LOADS
@@ -45,17 +52,22 @@ QuestDB, Redis, API aur scraper local Docker containers ke darmiyan communicate 
    quote:REG:CNERGY
    quote:REG:OGDC
    quote:REG:DGKC
+   quote:REG:HBL
+   quote:REG:MEBL
+   quote:REG:MARI
+   quote:REG:PPL
+   quote:REG:HUBC
    ```
 
 4. Feed ke quote frames MessagePack format mein decode hote hain. Scraper symbol, price, source timestamp, volume aur doosri available fields normalize karta hai.
 5. Price ke baghair ya malformed messages skip hote hain. Duplicate/out-of-order source updates pehchane jate hain. Valid quote ka source time aur local receive time alag record hota hai.
 6. Feed ping bheje to scraper pong deta hai. Agar socket band ho ya heartbeat ruk jaye to reconnect hota hai. Delay exponential backoff se barhta hai aur 30 seconds par cap hota hai.
 
-Symbols `.env`/environment ke `PSXT_SYMBOLS` se set hote hain. Default list yahi paanch symbols hai. Subscription market `PSXT_MARKET=REG` hai.
+Symbols `.env`/environment ke `PSXT_SYMBOLS` se set hote hain. Current Docker default yahi 10 symbols hai. Subscription market `PSXT_MARKET=REG` hai.
 
 ## 4. PSX Terminal ko kya nazar aa sakta hai?
 
-Hamare implementation ke hisaab se scraper **ek process aur ek waqt mein ek WebSocket connection** chalata hai. Usi connection par paanch symbol topics subscribe hote hain. Yeh paanch browser tabs ya paanch alag screens kholne ke barabar nahi hai.
+Hamare implementation ke hisaab se scraper **ek process aur ek waqt mein ek WebSocket connection** chalata hai. Usi connection par ab 10 symbol topics subscribe hote hain. Yeh 10 browser tabs ya 10 alag screens kholne ke barabar nahi hai.
 
 PSX Terminal ke server ko network level par kam az kam yeh nazar aa sakta hai:
 
@@ -63,10 +75,10 @@ PSX Terminal ke server ko network level par kam az kam yeh nazar aa sakta hai:
 - `/api/init` requests, jo initial connection aur reconnect par hoti hain;
 - `/rt` WebSocket connection aur uska duration;
 - `Origin` header aur connection token;
-- subscribe message mein paanch symbol topics;
+- subscribe message mein 10 symbol topics;
 - quote traffic aur heartbeat pong messages.
 
-Lekin hum **yeh verify nahi kar sakte** ke PSX Terminal apne dashboard ya monitoring mein isay “5 screens”, “5 users”, “1 session”, “5 symbols” ya kisi aur label se count karta hai. Is server ke internal logs, account usage meter, detection rules ya billing logic ka hamein access nahi. Isliye “unko pata nahi chalega” ya “sirf ek screen count hogi” ki guarantee nahi di ja sakti. Sahi technical bayan yahi hai: hamari taraf se ek WebSocket connection hai aur us par paanch subscriptions hain.
+Lekin hum **yeh verify nahi kar sakte** ke PSX Terminal apne dashboard ya monitoring mein isay “10 screens”, “10 users”, “1 session”, “10 symbols” ya kisi aur label se count karta hai. Is server ke internal logs, account usage meter, detection rules ya billing logic ka hamein access nahi. Isliye “unko pata nahi chalega” ya “sirf ek screen count hogi” ki guarantee nahi di ja sakti. Sahi technical bayan yahi hai: hamari taraf se ek WebSocket connection hai aur us par 10 subscriptions hain.
 
 User ne bataya tha ke PSX Terminal se permission le li hai. Yeh document us user-reported permission ko note karta hai; permission ka written scope/terms humne independently inspect nahi kiye. Agar permission mein automated WebSocket subscription, data storage aur personal/internal use ki hadain di gayi hon, to scraper ka use un hadon ke andar hi rehna chahiye.
 
@@ -145,7 +157,7 @@ Historical candles ka backfill nahi kiya gaya. Isliye 1h/Day/Week/Month/Year sel
 
 ## 8. App mein kya wired hai
 
-- `VITE_PSX_QUOTE_FEED=true` par bubbles dedicated `/api/psx-quotes` route se paanch symbols load karte hain.
+- `VITE_PSX_QUOTE_FEED=true` par bubbles dedicated `/api/psx-quotes` route se configured symbols load karte hain; current default 10 hai.
 - API quote age calculate karti hai. Receive/source age 60 seconds se zyada ho, ya timestamp na ho, to `stale=true` milta hai.
 - Bubble tooltip mein `QUOTE FRESH` ya `STALE QUOTE`, source update ki age, aur market status dikh sakta hai.
 - Coin modal ka candle chart PSX candle API use karta hai. PSX feed mode mein 1-minute interval default hai; dropdown supported intervals dikhata hai.
@@ -174,9 +186,9 @@ Logs mein `connected`, `subscribed`, `quote_written`, `quote_sink_failed` aur `m
 
 ## 11. Ab tak kya check hua
 
-- Scraper feed se paanch symbol topics subscribe karta dikha.
+- Pehle scraper feed se paanch symbol topics subscribe karta dikha. Scale-up ke baad 10 topics subscribe hue.
 - Market status `OPN` receive hua aur quotes QuestDB/API tak pohnche.
-- `/api/psx-quotes` ne paanch symbols return kiye.
+- `/api/psx-quotes` ne pehle paanch aur scale-up ke baad 10 symbols return kiye.
 - QuestDB mein `psx_quotes` rows count hue.
 - `psx_1m_bars` table create hui aur 1-minute records query kiye gaye.
 - CNERGY ki candles API aur chart par dekhi gayi.
@@ -192,7 +204,7 @@ Yeh smoke verification hai, har possible reconnect, har symbol ke missing interv
 3. Zaroori indicators ko ek ek karke PSX candle intervals par check karna.
 4. Symbol-wise stale status ko chart/bubble UI mein tooltip ke ilawa aur visible jagah dikhana agar user ko chahiye.
 5. Scraper restart ke baad volume baseline aur adhoori candle ka behavior production expectations ke mutabiq decide karna.
-6. PSX Terminal se yeh specifically confirm karna ke ek WebSocket mein paanch subscriptions unke account/license/usage rules mein kaise count hoti hain. Sirf hamari taraf ka connection count dekh kar unke “screens” counter ka jawab nahi milta.
+6. PSX Terminal se yeh specifically confirm karna ke ek WebSocket mein 10 subscriptions unke account/license/usage rules mein kaise count hoti hain. Sirf hamari taraf ka connection count dekh kar unke “screens” counter ka jawab nahi milta.
 
 ## 13. Code ke aham maqamat
 
